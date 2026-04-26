@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Player Validation
+    function isValidPlayer(data) {
+      return data.keys().hasAll(['username', 'server', 'lastSeen']) &&
+             data.keys().size() == 3 &&
+             data.username is string && data.username.size() <= 16 &&
+             data.server in ['pvp', 'survival'] &&
+             data.lastSeen is string; // JSON schema says string/date-time
+    }
+
+    // ServerStatus Validation
+    function isValidServerStatus(data) {
+      return data.keys().hasAll(['online', 'playerCount', 'maxPlayers']) &&
+             data.keys().size() == 3 &&
+             data.online is bool &&
+             data.playerCount is int &&
+             data.maxPlayers is int;
+    }
+
+    // Online Players Collection
+    match /online_players/{playerId} {
+      allow read: if true; // Publicly readable for the community
+      allow create, update: if isSignedIn() && isValidId(playerId) && isValidPlayer(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // Server Status Collection
+    match /server_status/{serverId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && isValidId(serverId) && isValidServerStatus(incoming());
+    }
+  }
+}

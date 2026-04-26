@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "A player currently online on the server",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "The Minecraft username"
+        },
+        "server": {
+          "type": "string",
+          "enum": ["pvp", "survival"],
+          "description": "The server the player is on"
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last time the player was confirmed online"
+        }
+      },
+      "required": ["username", "server", "lastSeen"]
+    },
+    "ServerStatus": {
+      "title": "Server Status",
+      "description": "Global status information for a server",
+      "type": "object",
+      "properties": {
+        "online": {
+          "type": "boolean"
+        },
+        "playerCount": {
+          "type": "integer"
+        },
+        "maxPlayers": {
+          "type": "integer"
+        }
+      },
+      "required": ["online", "playerCount"]
+    }
+  },
+  "firestore": {
+    "online_players/{playerId}": {
+      "schema": "Player",
+      "description": "Collection of currently online players"
+    },
+    "server_status/{serverId}": {
+      "schema": "ServerStatus",
+      "description": "Status information for each server (pvp, survival)"
+    }
+  }
+}
