@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-mc-green: #38e038;
+  --color-mc-dark-green: #1a5c1a;
+  --color-mc-gold: #ffac00;
+  --color-mc-red: #ff3b3b;
+}
+
+@layer base {
+  body {
+    @apply bg-[#0c0c0c] text-neutral-100 font-sans antialiased;
+  }
+}
+
+.mc-card {
+  @apply bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6 backdrop-blur-md transition-all duration-300;
+}
+
+.mc-card:hover {
+  @apply border-neutral-700 bg-neutral-900/80 -translate-y-1 shadow-2xl shadow-green-500/10;
+}
+
+.mc-button {
+  @apply px-6 py-3 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2;
+}
+
+.mc-button-primary {
+  @apply bg-mc-green text-black hover:bg-green-400;
+}
+
+.mc-button-secondary {
+  @apply bg-neutral-800 text-white hover:bg-neutral-700;
+}
+
+.pixel-grid {
+  background-image: radial-gradient(circle at 1px 1px, #ffffff05 1px, transparent 0);
+  background-size: 40px 40px;
+}

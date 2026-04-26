@@ -1,0 +1,6 @@
+{
+  "name": "Minecraft Realm Hub",
+  "description": "A central dashboard for our Minecraft community featuring Realm codes, Discord links, and server information.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
