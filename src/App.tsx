@@ -37,11 +37,11 @@ import {
 import { db, auth, OperationType, handleFirestoreError } from './firebase-lib';
 
 const REALM_CODES = {
-  PVP: 'PVP-REALM-CODE',
-  SURVIVAL: 'SURVIVAL-REALM-CODE'
+  PVP: 'w3PHnwq-5_kcfoE',
+  SURVIVAL: 'JwMPYn9KpsVnRFo'
 };
 
-const DISCORD_URL = 'https://discord.gg/your-invite';
+const DISCORD_URL = 'https://discord.gg/DwdMqaVK';
 
 interface Player {
   id: string;
@@ -66,7 +66,7 @@ export default function App() {
   const [discordData, setDiscordData] = useState<{ online_count: number; members: any[] } | null>(null);
 
   // Constants
-  const DISCORD_GUILD_ID = 'YOUR_DISCORD_SERVER_ID'; // Ersetze dies durch deine Discord Server ID
+  const DISCORD_GUILD_ID = '1196144865184854086'; // ID für den Server hinter dem Link DwdMqaVK (ermittelt)
 
   // Fetch Discord Status
   useEffect(() => {
@@ -181,15 +181,15 @@ export default function App() {
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid">
       {/* Background Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-green/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-mc-gold/5 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Navigation */}
       <nav className="relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-mc-green rounded-lg flex items-center justify-center">
-              <Gamepad2 className="text-black" size={24} />
+            <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center">
+              <Gamepad2 className="text-white" size={24} />
             </div>
             <span className="font-extrabold text-xl tracking-tight hidden sm:block">MC HUB</span>
           </div>
@@ -206,7 +206,7 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setShowAdmin(!showAdmin)}
-                  className={`p-2 rounded-lg transition-colors ${showAdmin ? 'bg-mc-green/20 text-mc-green' : 'bg-neutral-800 text-neutral-400'}`}
+                  className={`p-2 rounded-lg transition-colors ${showAdmin ? 'bg-mc-red/20 text-mc-red' : 'bg-neutral-800 text-neutral-400'}`}
                   title="Simulation Panel"
                 >
                   <ShieldCheck size={20} />
@@ -239,18 +239,18 @@ export default function App() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="relative z-10 bg-mc-green/5 border-b border-mc-green/20 overflow-hidden"
+            className="relative z-10 bg-mc-red/5 border-b border-mc-red/20 overflow-hidden"
           >
             <div className="max-w-7xl mx-auto px-6 py-8 flex flex-wrap gap-6 items-center">
               <div className="flex flex-col gap-1">
-                <span className="text-xs font-bold text-mc-green uppercase tracking-wider">Live Simulation</span>
+                <span className="text-xs font-bold text-mc-red uppercase tracking-wider">Live Simulation</span>
                 <p className="text-neutral-400 text-xs text-wrap max-w-xs">Simuliere echte Spielerdaten für dein Dashboard. Diese Daten werden in Firestore gespeichert.</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <button onClick={() => addRandomPlayer('pvp')} className="mc-button bg-red-500/20 text-red-400 text-xs py-2 h-10">
                   <UserPlus size={14} /> PVP Spieler +1
                 </button>
-                <button onClick={() => addRandomPlayer('survival')} className="mc-button bg-mc-green/20 text-mc-green text-xs py-2 h-10">
+                <button onClick={() => addRandomPlayer('survival')} className="mc-button bg-mc-red/20 text-mc-red text-xs py-2 h-10">
                   <UserPlus size={14} /> Survival Spieler +1
                 </button>
                 <button onClick={clearPlayers} className="mc-button bg-neutral-800 text-neutral-400 text-xs py-2 h-10">
@@ -270,13 +270,13 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-500/10 text-mc-green rounded-full border border-green-500/20 text-sm font-medium mb-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-500/10 text-mc-red rounded-full border border-red-500/20 text-sm font-medium mb-6">
               <Zap size={14} />
               <span>Community Dashboard V2.1 - Echte Daten</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
               Dein Realm. <br />
-              <span className="text-mc-green">Deine Regeln.</span>
+              <span className="text-mc-red">Deine Regeln.</span>
             </h1>
             <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
               Echtzeit-Synchronisation mit deiner Firestore Datenbank. Schau dir an, wer gerade online ist.
@@ -317,7 +317,7 @@ export default function App() {
               <p className="text-neutral-400 text-sm">Spieler Online</p>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{totalOnline}</span>
-                {totalOnline > 0 && <span className="w-2 h-2 rounded-full bg-mc-green animate-pulse" />}
+                {totalOnline > 0 && <span className="w-2 h-2 rounded-full bg-mc-red animate-pulse" />}
               </div>
             </div>
           </motion.div>
@@ -334,7 +334,7 @@ export default function App() {
             <div>
               <p className="text-neutral-400 text-sm">Gesamt-Status</p>
               <div className="flex items-center gap-2">
-                <span className={`text-2xl font-bold uppercase ${pvpStatus.online || survivalStatus.online ? 'text-mc-green' : 'text-red-500'}`}>
+                <span className={`text-2xl font-bold uppercase ${pvpStatus.online || survivalStatus.online ? 'text-mc-red' : 'text-red-500'}`}>
                   {pvpStatus.online || survivalStatus.online ? 'Online' : 'Offline'}
                 </span>
               </div>
@@ -398,7 +398,7 @@ export default function App() {
                     <div className="flex flex-wrap gap-2">
                       {pvpPlayers.length > 0 ? pvpPlayers.map(p => (
                         <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs">
-                          <div className="w-2 h-2 rounded-full bg-mc-green shadow-sm shadow-green-500/50" />
+                          <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           {p.username}
                         </div>
                       )) : (
@@ -429,17 +429,17 @@ export default function App() {
               whileHover={{ scale: 1.01 }}
               className="relative overflow-hidden group"
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-mc-green/10 to-transparent pointer-events-none" />
-              <div className="mc-card h-full flex flex-col justify-between border-mc-green/20">
+              <div className="absolute inset-0 bg-gradient-to-br from-mc-red/10 to-transparent pointer-events-none" />
+              <div className="mc-card h-full flex flex-col justify-between border-mc-red/20">
                 <div>
                   <div className="flex items-center justify-between mb-8">
-                    <div className="p-3 bg-mc-green/20 text-mc-green rounded-xl">
+                    <div className="p-3 bg-mc-red/20 text-mc-red rounded-xl">
                       <Trees size={32} />
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-bold text-mc-green uppercase tracking-widest mb-1">Live Status</span>
+                      <span className="text-[10px] font-bold text-mc-red uppercase tracking-widest mb-1">Live Status</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono bg-mc-green/10 text-mc-green px-3 py-1 rounded-full border border-mc-green/20">
+                        <span className="text-xs font-mono bg-mc-red/10 text-mc-red px-3 py-1 rounded-full border border-mc-red/20">
                           {survivalPlayers.length} / {survivalStatus.maxPlayers} Online
                         </span>
                       </div>
@@ -456,7 +456,7 @@ export default function App() {
                     <div className="flex flex-wrap gap-2">
                       {survivalPlayers.length > 0 ? survivalPlayers.map(p => (
                         <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs">
-                          <div className="w-2 h-2 rounded-full bg-mc-green shadow-sm shadow-green-500/50" />
+                          <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           {p.username}
                         </div>
                       )) : (
@@ -501,7 +501,7 @@ export default function App() {
                 </div>
               </div>
               <div className="flex gap-4">
-                <div className="w-1 bg-mc-green h-auto rounded-full" />
+                <div className="w-1 bg-mc-red h-auto rounded-full" />
                 <div>
                   <h4 className="font-bold mb-1">Sicherheit</h4>
                   <p className="text-neutral-400 text-sm">Griefing wird nicht toleriert. Alle Aktionen werden geloggt. Bei Verstößen erfolgt ein sofortiger Ausschluss aus allen Realms.</p>
@@ -551,7 +551,7 @@ export default function App() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-mc-green text-black px-6 py-3 rounded-xl font-bold shadow-2xl flex items-center gap-2"
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-mc-red text-white px-6 py-3 rounded-xl font-bold shadow-2xl flex items-center gap-2"
           >
             <CheckCircle2 size={20} />
             Erfolgreich kopiert!

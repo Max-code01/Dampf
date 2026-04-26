@@ -5,10 +5,9 @@
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-mc-green: #38e038;
-  --color-mc-dark-green: #1a5c1a;
-  --color-mc-gold: #ffac00;
   --color-mc-red: #ff3b3b;
+  --color-mc-dark-red: #8b0000;
+  --color-mc-gold: #ffac00;
 }
 
 @layer base {
@@ -22,7 +21,7 @@
 }
 
 .mc-card:hover {
-  @apply border-neutral-700 bg-neutral-900/80 -translate-y-1 shadow-2xl shadow-green-500/10;
+  @apply border-neutral-700 bg-neutral-900/80 -translate-y-1 shadow-2xl shadow-red-500/10;
 }
 
 .mc-button {
@@ -30,7 +29,7 @@
 }
 
 .mc-button-primary {
-  @apply bg-mc-green text-black hover:bg-green-400;
+  @apply bg-mc-red text-white hover:bg-red-400;
 }
 
 .mc-button-secondary {
