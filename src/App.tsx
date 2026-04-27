@@ -41,7 +41,7 @@ const REALM_CODES = {
   SURVIVAL: 'JwMPYn9KpsVnRFo'
 };
 
-const DISCORD_URL = 'https://discord.gg/DwdMqaVK';
+const DISCORD_URL = 'https://discord.gg/bdc79dqh';
 
 interface Player {
   id: string;
@@ -66,7 +66,7 @@ export default function App() {
   const [discordData, setDiscordData] = useState<{ online_count: number; members: any[] } | null>(null);
 
   // Constants
-  const DISCORD_GUILD_ID = '1196144865184854086'; // ID für den Server hinter dem Link DwdMqaVK (ermittelt)
+  const DISCORD_GUILD_ID = '1196144865184854086'; // Hier muss eventuell die neue ID rein, falls der Server gewechselt wurde
 
   // Fetch Discord Status
   useEffect(() => {
@@ -275,11 +275,11 @@ export default function App() {
               <span>Community Dashboard V2.1 - Echte Daten</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
-              Dein Realm. <br />
-              <span className="text-mc-red">Deine Regeln.</span>
+              Echte Live-Daten <br />
+              <span className="text-mc-red">Vollautomatisch.</span>
             </h1>
             <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
-              Echtzeit-Synchronisation mit deiner Firestore Datenbank. Schau dir an, wer gerade online ist.
+              Dieses Dashboard ist mit einer Live-API verbunden. Deine Realm-Daten werden automatisch synchronisiert, sobald dein Bridge-Bot online ist.
             </p>
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
@@ -511,12 +511,35 @@ export default function App() {
           </div>
 
           <div className="mc-card border-purple-500/10 bg-purple-500/[0.02]">
-            <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <MessageCircle className="text-purple-500" size={20} />
-              Support & Community
+            <h3 className="text-xl font-bold mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="text-purple-500" size={20} />
+                Discord Community
+              </div>
+              <span className="text-xs font-mono bg-purple-500/20 text-purple-400 px-2 py-1 rounded-lg">
+                {discordData?.online_count || 0} Online
+              </span>
             </h3>
+            
+            {/* Discord Online List */}
+            <div className="mb-6 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
+              {discordData?.members && discordData.members.length > 0 ? (
+                discordData.members.slice(0, 15).map((member) => (
+                  <div key={member.id} className="flex items-center gap-3 text-sm">
+                    <div className="relative">
+                      <img src={member.avatar_url} alt="" className="w-6 h-6 rounded-full" />
+                      <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-full" />
+                    </div>
+                    <span className="text-neutral-300 truncate">{member.username}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-neutral-500 italic">Widget noch nicht aktiviert oder ID falsch.</p>
+              )}
+            </div>
+
             <p className="text-neutral-400 text-sm mb-6 text-wrap">
-              Probleme beim Beitreten? Unser Support-Team im Discord hilft dir gerne weiter. Dort erfährst du auch als Erster von neuen Projekten.
+              Probleme beim Beitreten? Unser Support-Team im Discord hilft dir gerne weiter.
             </p>
             <a 
               href={DISCORD_URL}
