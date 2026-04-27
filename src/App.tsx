@@ -275,11 +275,11 @@ export default function App() {
               <span>Community Dashboard V2.1 - Echte Daten</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
-              Echte Live-Daten <br />
-              <span className="text-mc-red">Vollautomatisch.</span>
+              Dein Realm. <br />
+              <span className="text-mc-red">Deine Regeln.</span>
             </h1>
             <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
-              Dieses Dashboard ist mit einer Live-API verbunden. Deine Realm-Daten werden automatisch synchronisiert, sobald dein Bridge-Bot online ist.
+              Echtzeit-Synchronisation mit deiner Firestore Datenbank. Schau dir an, wer gerade online ist.
             </p>
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
