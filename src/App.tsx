@@ -485,6 +485,66 @@ export default function App() {
           </div>
         </section>
 
+        {/* Server Rules Section */}
+        <section className="mb-24 py-12 border-t border-neutral-800/50">
+          <div className="flex items-center gap-3 mb-10">
+            <ShieldCheck className="text-mc-red" size={32} />
+            <h2 className="text-3xl font-bold">Server Rules</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="mc-card border-red-500/10 bg-red-500/[0.01]">
+              <div className="flex items-center gap-3 mb-6">
+                <Swords className="text-red-400" size={24} />
+                <h3 className="text-xl font-bold">PvP Arena Rules</h3>
+              </div>
+              <ul className="space-y-4">
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  Keine künstlichen Verzögerungen oder "Lag-Switching".
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  Respektvoller Umgang im Chat nach einem Kampf (GG!).
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  Kein Teaming in Solo-Modi.
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  Nutzung von Exploits führt zum sofortigen Bann.
+                </li>
+              </ul>
+            </div>
+
+            <div className="mc-card border-mc-red/10 bg-mc-red/[0.01]">
+              <div className="flex items-center gap-3 mb-6">
+                <Trees className="text-mc-red" size={24} />
+                <h3 className="text-xl font-bold">Survival World Rules</h3>
+              </div>
+              <ul className="space-y-4">
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  Kein Griefing oder Zerstören fremder Bauwerke.
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  Kein Stehlen aus Kisten – fragt vorher um Erlaubnis.
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  Haltet die Welt sauber (keine schwebenden Baumkronen).
+                </li>
+                <li className="flex gap-3 text-sm text-neutral-400">
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  Große Projekte bitte vorher im Discord anmelden.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
         {/* Information & Rules */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-12 py-12 border-t border-neutral-800/50">
           <div>
