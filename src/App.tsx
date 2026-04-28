@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gamepad2, 
@@ -16,16 +17,21 @@ import {
   LogOut,
   UserPlus,
   Trash2,
-  ShieldCheck
+  ShieldCheck,
+  User as UserIcon,
+  Globe,
+  Circle
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
 import { 
   collection, 
   onSnapshot, 
   setDoc, 
   doc, 
   deleteDoc, 
-  getDocs
+  getDocs,
+  query,
+  orderBy,
+  serverTimestamp
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -56,10 +62,27 @@ interface ServerStatus {
   maxPlayers: number;
 }
 
+interface UserProfile {
+  userId: string;
+  displayName: string;
+  minecraftUsername: string;
+  isOnline: boolean;
+  currentServer: 'none' | 'pvp' | 'survival';
+  customSkin?: string;
+  updatedAt: any;
+}
+
 export default function App() {
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [tempSkin, setTempSkin] = useState<string | null>(null);
+  const [pixelGrid, setPixelGrid] = useState<string[]>(Array(64).fill('#000000'));
+  const [brushColor, setBrushColor] = useState('#ff0000');
   const [pvpStatus, setPvpStatus] = useState<ServerStatus>({ online: true, playerCount: 0, maxPlayers: 10 });
   const [survivalStatus, setSurvivalStatus] = useState<ServerStatus>({ online: true, playerCount: 0, maxPlayers: 10 });
   const [showAdmin, setShowAdmin] = useState(false);
@@ -71,7 +94,6 @@ export default function App() {
   // Fetch Discord Status
   useEffect(() => {
     const fetchDiscord = async () => {
-      if (DISCORD_GUILD_ID === 'YOUR_DISCORD_SERVER_ID') return;
       try {
         const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`);
         const data = await res.json();
@@ -91,7 +113,10 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => setUser(u));
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAdmin(u?.email === 'max.schule13@gmail.com');
+    });
   }, []);
 
   // Firebase Listeners
@@ -112,12 +137,38 @@ export default function App() {
       if (snapshot.exists()) setSurvivalStatus(snapshot.data() as ServerStatus);
     }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/survival'));
 
+    // Listen to user profiles
+    const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'));
+    const unsubscribeProfiles = onSnapshot(q, (snapshot) => {
+      const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
+      setUserProfiles(profiles);
+      
+      if (user) {
+        const myProf = profiles.find(p => p.userId === user.uid);
+        if (myProf) setMyProfile(myProf);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
       unsubscribeSurvival();
+      unsubscribeProfiles();
     };
-  }, []);
+  }, [user]);
+
+  // Update my profile when user object changes
+  useEffect(() => {
+    if (user) {
+      const found = userProfiles.find(p => p.userId === user.uid);
+      if (found) {
+        setMyProfile(found);
+        if (found.customSkin) setTempSkin(found.customSkin);
+      }
+    } else {
+      setMyProfile(null);
+    }
+  }, [user, userProfiles]);
 
   const login = async () => {
     try {
@@ -129,6 +180,61 @@ export default function App() {
   };
 
   const logout = () => signOut(auth);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setTempSkin(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePixelClick = (index: number) => {
+    const newGrid = [...pixelGrid];
+    newGrid[index] = brushColor;
+    setPixelGrid(newGrid);
+    
+    // Generate base64 from canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      newGrid.forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(i % 8, Math.floor(i / 8), 1, 1);
+      });
+      setTempSkin(canvas.toDataURL());
+    }
+  };
+
+  const saveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!user) return;
+
+    const formData = new FormData(e.currentTarget);
+    const displayName = formData.get('displayName') as string;
+    const minecraftUsername = formData.get('minecraftUsername') as string;
+    const isOnline = formData.get('isOnline') === 'on';
+    const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
+
+    try {
+      await setDoc(doc(db, 'user_profiles', user.uid), {
+        userId: user.uid,
+        displayName,
+        minecraftUsername,
+        isOnline,
+        currentServer,
+        customSkin: tempSkin || null,
+        updatedAt: serverTimestamp()
+      });
+      setShowProfileModal(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `user_profiles/${user.uid}`);
+    }
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -176,7 +282,27 @@ export default function App() {
 
   const pvpPlayers = players.filter(p => p.server === 'pvp');
   const survivalPlayers = players.filter(p => p.server === 'survival');
-  const totalOnline = players.length;
+  
+  // Combined online players from both manual list and user profiles
+  const combinedOnline = [
+    ...players.map(p => ({
+      username: p.username,
+      server: p.server,
+      type: 'manual'
+    })),
+    ...userProfiles
+      .filter(p => p.isOnline)
+      .map(p => ({
+        username: p.minecraftUsername,
+        server: p.currentServer,
+        displayName: p.displayName,
+        type: 'profile'
+      }))
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+  );
+
+  const totalOnline = combinedOnline.length;
 
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid">
@@ -197,25 +323,35 @@ export default function App() {
             {!user ? (
               <button 
                 onClick={login}
-                className="mc-button mc-button-secondary py-2 text-sm"
+                className="mc-button mc-button-primary py-2 text-sm"
               >
                 <LogIn size={18} />
-                Admin Login
+                Anmelden
               </button>
             ) : (
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={() => setShowAdmin(!showAdmin)}
-                  className={`p-2 rounded-lg transition-colors ${showAdmin ? 'bg-mc-red/20 text-mc-red' : 'bg-neutral-800 text-neutral-400'}`}
-                  title="Simulation Panel"
+                  onClick={() => setShowProfileModal(true)}
+                  className="mc-button mc-button-secondary py-2 text-sm hidden sm:flex"
                 >
-                  <ShieldCheck size={20} />
+                  <UserIcon size={18} />
+                  Profil
                 </button>
+                {isAdmin && (
+                  <button 
+                    onClick={() => setShowAdmin(!showAdmin)}
+                    className={`p-2 rounded-lg transition-colors ${showAdmin ? 'bg-mc-red/20 text-mc-red' : 'bg-neutral-800 text-neutral-400'}`}
+                    title="Simulation Panel"
+                  >
+                    <ShieldCheck size={20} />
+                  </button>
+                )}
                 <button 
                   onClick={logout}
-                  className="mc-button mc-button-secondary py-2 text-sm border-red-500/20 text-red-400 hover:bg-red-500/10"
+                  className="mc-button border-red-500/20 text-red-400 hover:bg-red-500/10 p-2 rounded-lg"
+                  title="Abmelden"
                 >
-                  <LogOut size={18} />
+                  <LogOut size={20} />
                 </button>
               </div>
             )}
@@ -223,7 +359,7 @@ export default function App() {
               href={DISCORD_URL} 
               target="_blank" 
               rel="noreferrer"
-              className="mc-button mc-button-primary py-2 text-sm hidden md:flex"
+              className="mc-button mc-button-secondary py-2 text-sm hidden md:flex"
             >
               <MessageCircle size={18} />
               Discord
@@ -234,7 +370,7 @@ export default function App() {
 
       {/* Simulation/Admin Panel */}
       <AnimatePresence>
-        {showAdmin && user && (
+        {showAdmin && isAdmin && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -357,6 +493,46 @@ export default function App() {
           </motion.div>
         </section>
 
+        {/* Global Online Players Summary */}
+        <section className="mb-12">
+          <div className="mc-card p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-mc-gold/20 relative overflow-hidden">
+            <div className="absolute inset-0 bg-mc-gold/[0.02] pointer-events-none" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-2">
+                <Circle className="text-mc-red fill-mc-red animate-pulse" size={12} />
+                <h2 className="text-2xl font-bold">Wer ist gerade online?</h2>
+              </div>
+              <p className="text-neutral-500 text-sm">Aktuell sind {totalOnline} Spieler in der Community aktiv.</p>
+            </div>
+            
+            <div className="flex -space-x-4">
+              {combinedOnline.map((p, i) => (
+                <motion.div 
+                  key={i}
+                  initial={{ x: 20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: i * 0.1 }}
+                  className="relative group"
+                >
+                  <img 
+                    src={p.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.username)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p.username}`} 
+                    alt={p.username}
+                    className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
+                    title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-30 pointer-events-none border border-neutral-800">
+                    {p.username}
+                  </div>
+                </motion.div>
+              ))}
+              {combinedOnline.length === 0 && (
+                <div className="text-neutral-500 font-medium italic">Gerade keiner online...</div>
+              )}
+            </div>
+          </div>
+        </section>
+
         {/* Realm Codes Section */}
         <section id="codes" className="mb-24">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
@@ -366,7 +542,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-24">
             <motion.div 
               whileHover={{ scale: 1.01 }}
               className="relative overflow-hidden group"
@@ -482,6 +658,55 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
+          </div>
+
+          {/* Community Players List */}
+          <div className="mb-12">
+            <div className="flex items-center gap-3 mb-8">
+              <Globe className="text-mc-gold" size={28} />
+              <h2 className="text-3xl font-bold">Community Status</h2>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              {userProfiles.map((p) => (
+                <motion.div 
+                  key={p.userId}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 hover:border-mc-red/30 transition-colors group"
+                >
+                  <div className="relative mb-4">
+                    <img 
+                      src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'steve'}`} 
+                      alt={p.displayName}
+                      className="w-16 h-16 rounded-lg bg-neutral-900 pixelated border-2 border-neutral-800 group-hover:border-mc-red/50 transition-colors object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-black ${p.isOnline ? 'bg-green-500' : 'bg-neutral-600'}`} />
+                  </div>
+                  <h4 className="font-bold text-sm truncate w-full mb-1">{p.displayName}</h4>
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest">{p.isOnline ? 'Online' : 'Offline'}</p>
+                    {p.isOnline && p.currentServer && p.currentServer !== 'none' && (
+                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${p.currentServer === 'pvp' ? 'bg-red-500/20 text-red-400' : 'bg-mc-red/20 text-mc-red'}`}>
+                        {p.currentServer}
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+              {!user && (
+                <div 
+                  onClick={login}
+                  className="mc-card p-4 flex flex-col items-center justify-center text-center border-dashed border-neutral-800 hover:border-mc-gold/50 cursor-pointer transition-colors"
+                >
+                  <div className="w-16 h-16 rounded-lg bg-neutral-900 flex items-center justify-center border-2 border-dashed border-neutral-800 text-neutral-600 mb-2">
+                    <UserPlus size={24} />
+                  </div>
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase">Hier eintragen</span>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -639,6 +864,167 @@ export default function App() {
             <CheckCircle2 size={20} />
             Erfolgreich kopiert!
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Profile Modal */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowProfileModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="p-8">
+                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                  <UserIcon className="text-mc-red" />
+                  Dein Spieler-Profil
+                </h3>
+                
+                <form onSubmit={saveProfile} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Display Name</label>
+                        <input 
+                          name="displayName"
+                          defaultValue={myProfile?.displayName || user?.displayName || ''}
+                          placeholder="Wie willst du genannt werden?"
+                          required
+                          className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Minecraft Username</label>
+                        <input 
+                          name="minecraftUsername"
+                          defaultValue={myProfile?.minecraftUsername || ''}
+                          placeholder="Dein In-Game Name"
+                          required
+                          className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Aktueller Server</label>
+                        <select 
+                          name="currentServer"
+                          defaultValue={myProfile?.currentServer || 'none'}
+                          className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors appearance-none"
+                        >
+                          <option value="none">Keiner / Menü</option>
+                          <option value="pvp">PvP Arena</option>
+                          <option value="survival">Survival World</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-4">
+                      <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest">Skin & Avatar</label>
+                      <div className="mc-card p-4 flex flex-col items-center gap-4 border-neutral-800/50 bg-black/20">
+                        <div className="relative group">
+                          {tempSkin ? (
+                            <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Preview" />
+                          ) : (
+                            <div className="w-24 h-24 rounded-lg bg-neutral-900 border-2 border-dashed border-neutral-800 flex items-center justify-center text-neutral-600">
+                              <UserIcon size={32} />
+                            </div>
+                          )}
+                          <button 
+                            type="button" 
+                            onClick={() => setTempSkin(null)}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2 w-full">
+                          <label className="mc-button mc-button-secondary py-2 text-[10px] cursor-pointer text-center">
+                            Upload
+                            <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+                          </label>
+                          <button type="button" onClick={() => setTempSkin(null)} className="mc-button border-neutral-800 py-2 text-[10px]">
+                            MC Head
+                          </button>
+                        </div>
+
+                        <div className="w-full">
+                          <p className="text-[10px] font-bold text-neutral-600 mb-2 text-center uppercase tracking-tighter">Oder zeichnen (8x8)</p>
+                          <div className="grid grid-cols-8 gap-0.5 aspect-square w-full max-w-[160px] mx-auto border border-neutral-800 bg-black/40">
+                            {pixelGrid.map((color, i) => (
+                              <div 
+                                key={i} 
+                                onClick={() => handlePixelClick(i)}
+                                style={{ backgroundColor: color }}
+                                className="w-full h-full cursor-crosshair hover:opacity-80 transition-opacity"
+                              />
+                            ))}
+                          </div>
+                          <div className="mt-3 flex justify-center gap-2">
+                            {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff', '#000000'].map(c => (
+                              <button 
+                                key={c}
+                                type="button"
+                                onClick={() => setBrushColor(c)}
+                                style={{ backgroundColor: c }}
+                                className={`w-4 h-4 rounded-full border border-white/20 ${brushColor === c ? 'ring-2 ring-mc-red ring-offset-2 ring-offset-black' : ''}`}
+                              />
+                            ))}
+                            <input 
+                              type="color" 
+                              value={brushColor} 
+                              onChange={(e) => setBrushColor(e.target.value)}
+                              className="w-4 h-4 rounded-full bg-transparent border-none p-0 overflow-hidden cursor-pointer" 
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-black/40 border border-neutral-800 rounded-xl">
+                    <span className="text-sm font-medium">Bist du gerade online?</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        name="isOnline"
+                        defaultChecked={myProfile?.isOnline || false}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-mc-red"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button 
+                      type="button" 
+                      onClick={() => setShowProfileModal(false)}
+                      className="flex-1 px-6 py-4 rounded-xl font-bold bg-neutral-800 hover:bg-neutral-700 transition-colors"
+                    >
+                      Abbrechen
+                    </button>
+                    <button 
+                      type="submit"
+                      className="flex-1 px-6 py-4 rounded-xl font-bold bg-mc-red text-white hover:bg-red-500 transition-all shadow-lg shadow-red-500/20"
+                    >
+                      Speichern
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

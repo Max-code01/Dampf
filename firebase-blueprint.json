@@ -1,5 +1,41 @@
 {
   "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Profile of a community member including their Minecraft username and online status",
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "description": "The name the user wants to display"
+        },
+        "minecraftUsername": {
+          "type": "string",
+          "description": "The Minecraft username for fetching the skin"
+        },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Manual status toggle"
+        },
+        "currentServer": {
+          "type": "string",
+          "enum": ["none", "pvp", "survival"],
+          "description": "The server the user is currently playing on"
+        },
+        "customSkin": {
+          "type": "string",
+          "description": "Base64 or URL of a custom skin image"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["displayName", "minecraftUsername", "isOnline", "currentServer", "updatedAt", "userId"]
+    },
     "Player": {
       "title": "Player",
       "description": "A player currently online on the server",
@@ -41,6 +77,10 @@
     }
   },
   "firestore": {
+    "user_profiles/{userId}": {
+      "schema": "UserProfile",
+      "description": "Registered community members profile data"
+    },
     "online_players/{playerId}": {
       "schema": "Player",
       "description": "Collection of currently online players"
