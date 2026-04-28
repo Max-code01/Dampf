@@ -66,7 +66,7 @@ export default function App() {
   const [discordData, setDiscordData] = useState<{ online_count: number; members: any[] } | null>(null);
 
   // Constants
-  const DISCORD_GUILD_ID = '1196144865184854086'; // Hier muss eventuell die neue ID rein, falls der Server gewechselt wurde
+  const DISCORD_GUILD_ID = '1451980583969230882'; // Aktualisierte Server ID
 
   // Fetch Discord Status
   useEffect(() => {
