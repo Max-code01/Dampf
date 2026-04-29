@@ -71,11 +71,60 @@ service cloud.firestore {
              data.userId == docId;
     }
 
+    // Clan Validation
+    function isValidClan(data) {
+      return data.keys().hasAll(['name', 'tag', 'leaderId', 'createdAt', 'memberCount', 'level', 'xp']) &&
+             (data.keys().size() >= 7 && data.keys().size() <= 9) &&
+             data.name is string && data.name.size() <= 32 &&
+             data.tag is string && data.tag.size() <= 4 &&
+             data.leaderId is string &&
+             data.memberCount is int &&
+             data.level is int &&
+             data.xp is int &&
+             (!('announcement' in data) || (data.announcement is string && data.announcement.size() <= 200)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidClanMember(data, userId) {
+      return data.keys().hasAll(['userId', 'role', 'joinedAt']) &&
+             data.keys().size() == 3 &&
+             data.userId == userId &&
+             data.role in ['Leader', 'Officer', 'Member'] &&
+             data.joinedAt is timestamp;
+    }
+
     // User Profiles Collection
     match /user_profiles/{userId} {
       allow read: if true;
       allow create, update: if isSignedIn() && (userId == request.auth.uid || isAdmin()) && isValidUserProfile(incoming(), userId);
       allow delete: if isAdmin();
+    }
+
+    // Clans
+    match /clans/{clanId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidClan(incoming()) && incoming().leaderId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (resource.data.leaderId == request.auth.uid && isValidClan(incoming())) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberCount']))
+      );
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.leaderId == request.auth.uid);
+
+      match /members/{userId} {
+        allow read: if true;
+        allow create, update: if isSignedIn() && (userId == request.auth.uid || isAdmin() || get(/databases/$(database)/documents/clans/$(clanId)).data.leaderId == request.auth.uid) && isValidClanMember(incoming(), userId);
+        allow delete: if isSignedIn() && (userId == request.auth.uid || isAdmin() || get(/databases/$(database)/documents/clans/$(clanId)).data.leaderId == request.auth.uid);
+      }
+
+      match /chat/{messageId} {
+        allow read: if isSignedIn() && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
+        // Simple message validation using the same logic as global chat
+        allow create: if isSignedIn() && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)) &&
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.text is string && request.resource.data.text.size() <= 200;
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.userId || isAdmin());
+      }
     }
 
     // Online Players Collection

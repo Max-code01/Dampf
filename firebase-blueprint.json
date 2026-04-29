@@ -107,6 +107,35 @@
         }
       },
       "required": ["online", "playerCount"]
+    },
+    "Clan": {
+      "title": "Clan",
+      "description": "A community clan",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "tag": { "type": "string" },
+        "description": { "type": "string" },
+        "leaderId": { "type": "string" },
+        "logo": { "type": "string" },
+        "announcement": { "type": "string" },
+        "level": { "type": "integer" },
+        "xp": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "memberCount": { "type": "integer" }
+      },
+      "required": ["name", "tag", "leaderId", "createdAt", "memberCount", "level", "xp"]
+    },
+    "ClanMember": {
+      "title": "Clan Member",
+      "description": "A member of a clan",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["Leader", "Officer", "Member"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "role", "joinedAt"]
     }
   },
   "firestore": {
@@ -125,6 +154,18 @@
     "chat_messages/{messageId}": {
       "schema": "ChatMessage",
       "description": "Global community chat messages"
+    },
+    "clans/{clanId}": {
+      "schema": "Clan",
+      "description": "Minecraft clans"
+    },
+    "clans/{clanId}/members/{userId}": {
+      "schema": "ClanMember",
+      "description": "Members of a specific clan"
+    },
+    "clans/{clanId}/chat/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Private clan chat messages"
     }
   }
 }

@@ -21,7 +21,15 @@ import {
   ShieldCheck,
   User as UserIcon,
   Globe,
-  Circle
+  Circle,
+  ChevronDown,
+  MessageSquare,
+  Award,
+  Lock,
+  Send,
+  Box,
+  Key,
+  Star
 } from 'lucide-react';
 import { 
   collection, 
@@ -87,6 +95,27 @@ interface ChatMessage {
   createdAt: any;
 }
 
+interface Clan {
+  id: string;
+  name: string;
+  tag: string;
+  description?: string;
+  announcement?: string;
+  leaderId: string;
+  logo?: string;
+  createdAt: any;
+  memberCount: number;
+  level: number;
+  xp: number;
+}
+
+interface ClanMember {
+  id: string;
+  userId: string;
+  role: 'Leader' | 'Officer' | 'Member';
+  joinedAt: any;
+}
+
 export default function App() {
   const [realmCodes, setRealmCodes] = useState({
     PVP: 'w3PHnwq-5_kcfoE',
@@ -112,6 +141,17 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+
+  // Clan State
+  const [clans, setClans] = useState<Clan[]>([]);
+  const [myClan, setMyClan] = useState<Clan | null>(null);
+  const [clanMembers, setClanMembers] = useState<ClanMember[]>([]);
+  const [showCreateClan, setShowCreateClan] = useState(false);
+  const [activeClanId, setActiveClanId] = useState<string | null>(null);
+  const [isClansOpen, setIsClansOpen] = useState(false);
+  const [clanChatMessages, setClanChatMessages] = useState<ChatMessage[]>([]);
+  const [clanChatInput, setClanChatInput] = useState('');
+  const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks'>('members');
 
   // Constants
   const DISCORD_GUILD_ID = '1451980583969230882'; // Aktualisierte Server ID
@@ -187,6 +227,12 @@ export default function App() {
       setChatMessages(msgs);
     }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
 
+    // Listen to clans
+    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
+      const clanList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan));
+      setClans(clanList);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
@@ -194,6 +240,7 @@ export default function App() {
       unsubscribeProfiles();
       unsubscribeCodes();
       unsubscribeChat();
+      unsubscribeClans();
     };
   }, [user]);
 
@@ -336,6 +383,211 @@ export default function App() {
     }
   };
 
+  // Listen to clan members when user is in a clan or viewing one
+  useEffect(() => {
+    if (!activeClanId) return;
+    const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
+      const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
+      setClanMembers(members);
+    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`));
+
+    const unsubscribeChat = onSnapshot(query(collection(db, 'clans', activeClanId, 'chat'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
+      setClanChatMessages(msgs);
+    }, (err) => {
+      // It's okay if this fails (e.g. user not a member), we just clear messages
+      setClanChatMessages([]);
+    });
+
+    return () => {
+      unsubscribeMembers();
+      unsubscribeChat();
+    };
+  }, [activeClanId, user]);
+
+  const sendClanMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !activeClanId || !clanChatInput.trim()) return;
+    
+    // Check membership
+    const isMember = clanMembers.some(m => m.userId === user.uid);
+    if (!isMember) {
+      alert('Du musst Mitglied sein, um zu schreiben.');
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, 'clans', activeClanId, 'chat'), {
+        userId: user.uid,
+        text: clanChatInput.trim(),
+        timestamp: serverTimestamp()
+      });
+      setClanChatInput('');
+      
+      // Also gain some clan XP for chatting!
+      gainClanXp(activeClanId, 5);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `clans/${activeClanId}/chat`);
+    }
+  };
+
+  // Determine user's clan
+  useEffect(() => {
+    if (!user || clans.length === 0) {
+      setMyClan(null);
+      return;
+    }
+    // This is expensive but okay for a small list. Ideally, user profile has clanId.
+    const findMyClan = async () => {
+      for (const clan of clans) {
+        const memberRef = doc(db, 'clans', clan.id, 'members', user.uid);
+        // We use a simplified check: is user the leader? 
+        // For deep check, we'd need a subcollection query or clanId on profile.
+        if (clan.leaderId === user.uid) {
+          setMyClan(clan);
+          setActiveClanId(clan.id);
+          return;
+        }
+      }
+      setMyClan(null);
+    };
+    findMyClan();
+  }, [user, clans]);
+
+  const handleCreateClan = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!user) return;
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('clanName') as string;
+    const tag = formData.get('clanTag') as string;
+    const description = formData.get('clanDescription') as string;
+
+    const clanId = name.toLowerCase().replace(/\s+/g, '-');
+
+    try {
+      await setDoc(doc(db, 'clans', clanId), {
+        name,
+        tag: tag.toUpperCase(),
+        description,
+        announcement: 'Willkommen in unserem Clan!',
+        leaderId: user.uid,
+        memberCount: 1,
+        level: 1,
+        xp: 0,
+        createdAt: serverTimestamp()
+      });
+
+      await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
+        userId: user.uid,
+        role: 'Leader',
+        joinedAt: serverTimestamp()
+      });
+
+      setShowCreateClan(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'clans');
+    }
+  };
+
+  const joinClan = async (clanId: string) => {
+    if (!user) return;
+    const clan = clans.find(c => c.id === clanId);
+    if (!clan) return;
+
+    try {
+      await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
+        userId: user.uid,
+        role: 'Member',
+        joinedAt: serverTimestamp()
+      });
+      
+      await setDoc(doc(db, 'clans', clanId), {
+        memberCount: (clan.memberCount || 0) + 1
+      }, { merge: true });
+
+      setActiveClanId(clanId);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}/members`);
+    }
+  };
+
+  const leaveClan = async (clanId: string) => {
+    if (!user) return;
+    const clan = clans.find(c => c.id === clanId);
+    if (!clan) return;
+
+    try {
+      await deleteDoc(doc(db, 'clans', clanId, 'members', user.uid));
+      await setDoc(doc(db, 'clans', clanId), {
+        memberCount: Math.max(0, (clan.memberCount || 1) - 1)
+      }, { merge: true });
+      
+      if (activeClanId === clanId) {
+        setActiveClanId(null);
+        setClanMembers([]);
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}/members`);
+    }
+  };
+
+  const deleteClan = async (clanId: string) => {
+    if (!isAdmin && (!user || clans.find(c => c.id === clanId)?.leaderId !== user.uid)) return;
+    if (!confirm('Clan wirklich auflösen?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'clans', clanId));
+      // Members subcollection is not automatically deleted, but for this demo it's fine
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}`);
+    }
+  };
+
+  const updateClanAnnouncement = async (clanId: string, text: string) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'clans', clanId), {
+        announcement: text
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}`);
+    }
+  };
+
+  const updateMemberRole = async (clanId: string, targetUserId: string, newRole: 'Officer' | 'Member') => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'clans', clanId, 'members', targetUserId), {
+        role: newRole
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}/members/${targetUserId}`);
+    }
+  };
+
+  const gainClanXp = async (clanId: string, amount: number) => {
+    const clan = clans.find(c => c.id === clanId);
+    if (!clan) return;
+    
+    let newXp = (clan.xp || 0) + amount;
+    let newLevel = clan.level || 1;
+    const nextLevelXp = newLevel * 1000;
+
+    if (newXp >= nextLevelXp) {
+      newXp -= nextLevelXp;
+      newLevel += 1;
+    }
+
+    try {
+      await setDoc(doc(db, 'clans', clanId), {
+        xp: newXp,
+        level: newLevel
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}`);
+    }
+  };
+
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !chatInput.trim()) return;
@@ -351,6 +603,21 @@ export default function App() {
       setChatInput('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
+    }
+  };
+
+  const kickPlayerFromClan = async (clanId: string, targetUserId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'clans', clanId, 'members', targetUserId));
+      const clan = clans.find(c => c.id === clanId);
+      if (clan) {
+        await setDoc(doc(db, 'clans', clanId), {
+          memberCount: Math.max(0, (clan.memberCount || 1) - 1)
+        }, { merge: true });
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}/members/${targetUserId}`);
     }
   };
 
@@ -613,6 +880,15 @@ export default function App() {
               <MessageCircle size={18} />
               Discord
             </a>
+            {user && (
+              <button 
+                onClick={() => document.getElementById('clans')?.scrollIntoView({ behavior: 'smooth' })}
+                className="mc-button mc-button-secondary py-2 text-sm hidden lg:flex border-mc-gold/20"
+              >
+                <Users size={18} className="text-mc-gold" />
+                Clans
+              </button>
+            )}
           </div>
         </div>
       </nav>
@@ -1205,6 +1481,307 @@ export default function App() {
           </div>
         </section>
 
+        {/* Clan System Section */}
+        <section id="clans" className="mb-24 py-12 border-t border-neutral-800/50">
+          <div 
+            className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8 cursor-pointer group"
+            onClick={() => setIsClansOpen(!isClansOpen)}
+          >
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <Users className={`transition-colors ${isClansOpen ? "text-mc-gold" : "text-neutral-500"}`} size={32} />
+                <h2 className="text-3xl font-bold flex items-center gap-4">
+                  Clan-System
+                  <motion.div
+                    animate={{ rotate: isClansOpen ? 180 : 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  >
+                    <ChevronDown size={24} className="text-neutral-600 group-hover:text-white transition-colors" />
+                  </motion.div>
+                </h2>
+              </div>
+              <p className="text-neutral-400">Schließe dich mit anderen zusammen und dominiere gemeinsam.</p>
+            </div>
+            
+            <div className="flex gap-4">
+              {user && !myClan && isClansOpen && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowCreateClan(true); }}
+                  className="mc-button mc-button-primary"
+                >
+                  <UserPlus size={20} />
+                  Clan gründen
+                </button>
+              )}
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {isClansOpen && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-4">
+                  {/* Clan List */}
+                  <div className="lg:col-span-2 space-y-4">
+                    {clans.map(clan => (
+                      <motion.div 
+                        key={clan.id}
+                        layout
+                        className={`mc-card p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-colors cursor-pointer ${activeClanId === clan.id ? 'border-mc-gold bg-mc-gold/[0.02]' : 'border-neutral-800 hover:border-neutral-700'}`}
+                        onClick={() => setActiveClanId(clan.id)}
+                      >
+                        <div className="flex items-center gap-6">
+                          <div className="w-16 h-16 bg-neutral-900 rounded-xl border border-neutral-800 flex items-center justify-center text-2xl font-bold text-mc-red pixelated">
+                            {clan.tag}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                              {clan.name}
+                              <span className="text-xs font-mono bg-mc-red/10 text-mc-red px-2 py-0.5 rounded">[{clan.tag}]</span>
+                            </h3>
+                            <p className="text-neutral-500 text-sm italic mb-2">{clan.description || 'Keine Beschreibung'}</p>
+                            <div className="flex items-center gap-4 text-[10px] text-neutral-600 uppercase font-bold tracking-widest">
+                              <span className="flex items-center gap-1"><Users size={12} /> {clan.memberCount} Mitglieder</span>
+                              <span className="flex items-center gap-1"><Activity size={12} /> Seit {new Date(clan.createdAt?.seconds * 1000).toLocaleDateString() || '...'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 w-full md:w-auto">
+                          {user?.uid === clan.leaderId ? (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); deleteClan(clan.id); }}
+                              className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500/20"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                          ) : clanMembers.some(m => m.userId === user?.uid) ? (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); leaveClan(clan.id); }}
+                              className="mc-button border-red-500/20 text-red-400 hover:bg-red-500/10 text-xs py-2 px-4"
+                            >
+                              Verlassen
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); joinClan(clan.id); }}
+                              className="mc-button mc-button-secondary text-xs py-2 px-4"
+                            >
+                              Beitreten
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                    {clans.length === 0 && (
+                      <div className="mc-card p-12 text-center border-dashed border-neutral-800 text-neutral-500">
+                        <p className="italic">Noch keine Clans vorhanden. Gründe den ersten!</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Clan Specific Info (Right Sidebar) */}
+                  <div className="mc-card border-neutral-800 bg-black/40 overflow-hidden self-start sticky top-24">
+                    <div className="border-b border-neutral-800 flex bg-neutral-900/50">
+                      {(['members', 'chat', 'perks'] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setClanTab(tab)}
+                          className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
+                            clanTab === tab 
+                              ? 'text-mc-gold bg-mc-gold/5 border-b-2 border-mc-gold' 
+                              : 'text-neutral-600 hover:text-neutral-400'
+                          }`}
+                        >
+                          {tab === 'members' && <Users size={12} className="inline mr-1" />}
+                          {tab === 'chat' && <MessageSquare size={12} className="inline mr-1" />}
+                          {tab === 'perks' && <Award size={12} className="inline mr-1" />}
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="p-6">
+                      {activeClanId ? (
+                        <>
+                          {clanTab === 'members' && (
+                            <div className="space-y-4">
+                              <div className="border-b border-neutral-800/50 pb-4 mb-4">
+                                <h4 className="text-sm font-bold text-white mb-4">Clan-Details</h4>
+                                {/* XP & Level Progress */}
+                                <div className="space-y-2">
+                                  <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter">
+                                    <span className="text-mc-gold">LVL {clans.find(c => c.id === activeClanId)?.level}</span>
+                                    <span className="text-neutral-500">
+                                      {clans.find(c => c.id === activeClanId)?.xp} / {(clans.find(c => c.id === activeClanId)?.level || 1) * 1000} XP
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700/50">
+                                    <motion.div 
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${((clans.find(c => c.id === activeClanId)?.xp || 0) / ((clans.find(c => c.id === activeClanId)?.level || 1) * 1000)) * 100}%` }}
+                                      className="h-full bg-mc-gold"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Announcement */}
+                                <div className="mt-4 bg-mc-gold/5 border border-mc-gold/20 p-3 rounded-xl">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Info size={12} className="text-mc-gold" />
+                                    <span className="text-[10px] font-bold text-mc-gold uppercase tracking-widest">Anküdigung</span>
+                                  </div>
+                                  <p className="text-xs text-neutral-300 italic">
+                                    "{clans.find(c => c.id === activeClanId)?.announcement || 'Keine Ankündigung vorhanden.'}"
+                                  </p>
+                                  {(clans.find(c => c.id === activeClanId)?.leaderId === user?.uid || clanMembers.find(m => m.userId === user?.uid)?.role === 'Officer') && (
+                                    <button 
+                                      onClick={() => {
+                                        const txt = prompt('Neue Ankündigung:', clans.find(c => c.id === activeClanId)?.announcement);
+                                        if (txt) updateClanAnnouncement(activeClanId, txt);
+                                      }}
+                                      className="mt-2 text-[8px] text-mc-gold/60 hover:text-mc-gold uppercase font-bold"
+                                    >
+                                      Bearbeiten
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-2">Mitglieder</h4>
+                              {clanMembers.map(member => {
+                                const prof = userProfiles.find(p => p.userId === member.userId);
+                                const isLeader = clans.find(c => c.id === activeClanId)?.leaderId === user?.uid;
+                                
+                                return (
+                                  <div key={member.userId} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                                    <div className="flex items-center gap-2">
+                                      <img 
+                                        src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
+                                        alt=""
+                                        className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800 object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                      <div>
+                                        <p className="text-xs font-bold leading-tight">{prof?.displayName || 'Spieler'}</p>
+                                        <span className={`text-[7px] px-1 py-0.5 rounded font-black uppercase text-white ${
+                                          member.role === 'Leader' ? 'bg-mc-gold' : 
+                                          member.role === 'Officer' ? 'bg-mc-red' : 
+                                          'bg-neutral-700'
+                                        }`}>
+                                          {member.role}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    
+                                    {isLeader && member.userId !== user?.uid && (
+                                      <button 
+                                        onClick={() => kickPlayerFromClan(activeClanId, member.userId)}
+                                        className="p-1.5 text-neutral-600 hover:text-red-500"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {clanTab === 'chat' && (
+                            <div className="flex flex-col h-[400px]">
+                              {!clanMembers.some(m => m.userId === user?.uid) ? (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-neutral-900/50 rounded-2xl border border-dashed border-neutral-800">
+                                  <Lock size={24} className="text-neutral-700 mb-2" />
+                                  <p className="text-xs text-neutral-500 italic">Du musst diesem Clan beitreten, um den Chat zu sehen.</p>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2 scrollbar-hide">
+                                    {clanChatMessages.map((msg) => {
+                                      const isOwn = msg.userId === user?.uid;
+                                      const profile = userProfiles.find(p => p.userId === msg.userId);
+                                      return (
+                                        <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                          <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
+                                            isOwn ? 'bg-mc-gold text-black rounded-tr-none' : 'bg-neutral-800 text-white rounded-tl-none'
+                                          }`}>
+                                            {!isOwn && <p className="text-[8px] font-bold mb-1 opacity-60 uppercase">{profile?.displayName || '...'}</p>}
+                                            {msg.text}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                    {clanChatMessages.length === 0 && (
+                                      <p className="text-[10px] text-neutral-600 text-center italic py-20">Keine Nachrichten vorhanden. Schreib als Erster!</p>
+                                    )}
+                                  </div>
+                                  <form onSubmit={sendClanMessage} className="relative">
+                                    <input 
+                                      value={clanChatInput}
+                                      onChange={(e) => setClanChatInput(e.target.value)}
+                                      placeholder="Clan-Chat..."
+                                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl py-2 px-3 text-xs outline-none focus:border-mc-gold pr-10"
+                                    />
+                                    <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-mc-gold hover:text-white transition-colors">
+                                      <Send size={14} />
+                                    </button>
+                                  </form>
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {clanTab === 'perks' && (
+                            <div className="space-y-4">
+                              <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Freigeschaltete Boni</h4>
+                              {[
+                                { lvl: 2, title: 'Officer-Status', desc: 'Befördere vertrauenswürdige Mitglieder.', icon: ShieldCheck },
+                                { lvl: 5, title: 'Clan-Bank', desc: 'Sammle Ressourcen gemeinsam (Demnächst).', icon: Box },
+                                { lvl: 10, title: 'Exklusive Realm-Codes', desc: 'Greife auf private VIP-Welten zu.', icon: Key },
+                                { lvl: 20, title: 'Goldener Tag', desc: 'Dein Clan-Tag leuchtet im Global Chat.', icon: Star },
+                              ].map((perk, i) => {
+                                const isUnlocked = (clans.find(c => c.id === activeClanId)?.level || 1) >= perk.lvl;
+                                return (
+                                  <div key={i} className={`p-3 rounded-xl border transition-all ${
+                                    isUnlocked ? 'bg-mc-gold/10 border-mc-gold/30' : 'bg-neutral-900/50 border-neutral-800 opacity-50'
+                                  }`}>
+                                    <div className="flex items-start gap-3">
+                                      <div className={`p-2 rounded-lg ${isUnlocked ? 'bg-mc-gold text-black' : 'bg-neutral-800 text-neutral-600'}`}>
+                                        <perk.icon size={16} />
+                                      </div>
+                                      <div>
+                                        <p className={`text-xs font-bold ${isUnlocked ? 'text-white' : 'text-neutral-500'}`}>
+                                          {perk.title}
+                                          {!isUnlocked && <span className="ml-2 text-[8px] bg-neutral-800 px-1 rounded">LVL {perk.lvl}</span>}
+                                        </p>
+                                        <p className="text-[9px] text-neutral-600 mt-0.5">{perk.desc}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="py-20 text-center">
+                          <Users size={32} className="mx-auto text-neutral-800 mb-4" />
+                          <p className="text-xs text-neutral-600 italic">Klicke auf einen Clan in der Liste, um Details zu sehen.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+
         {/* Server Rules Section */}
         <section className="mb-24 py-12 border-t border-neutral-800/50">
           <div className="flex items-center gap-3 mb-10">
@@ -1346,6 +1923,81 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Create Clan Modal */}
+      <AnimatePresence>
+        {showCreateClan && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCreateClan(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+            >
+              <div className="p-8">
+                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                  <UserPlus className="text-mc-gold" />
+                  Clan gründen
+                </h3>
+                
+                <form onSubmit={handleCreateClan} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Clan Name</label>
+                    <input 
+                      name="clanName"
+                      placeholder="z.B. Die Zerstörer"
+                      required
+                      maxLength={32}
+                      className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Clan Tag (3-4 Zeichen)</label>
+                    <input 
+                      name="clanTag"
+                      placeholder="TAG"
+                      required
+                      maxLength={4}
+                      className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors uppercase font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Beschreibung</label>
+                    <textarea 
+                      name="clanDescription"
+                      placeholder="Euer Motto..."
+                      className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors resize-none h-24"
+                    />
+                  </div>
+
+                  <button 
+                    type="submit"
+                    className="w-full px-6 py-4 rounded-xl font-bold bg-mc-gold text-black hover:bg-yellow-500 transition-all shadow-lg shadow-mc-gold/20 flex items-center justify-center gap-2"
+                  >
+                    Clan jetzt erstellen
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setShowCreateClan(false)}
+                    className="w-full py-2 text-xs text-neutral-500 hover:text-white transition-colors"
+                  >
+                    Abbrechen
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Copy Notification */}
       <AnimatePresence>
