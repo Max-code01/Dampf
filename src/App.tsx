@@ -76,6 +76,7 @@ interface ServerStatus {
   online: boolean;
   playerCount: number;
   maxPlayers: number;
+  maintenance?: boolean;
 }
 
 interface UserProfile {
@@ -146,6 +147,9 @@ export default function App() {
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
   const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
@@ -205,8 +209,9 @@ export default function App() {
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
-      // Admin check: Developer email or system 'Max' account (max@community.local)
-      setIsAdmin(u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local');
+      // Admin check: Developer email or system 'Max' account or 'Dampfk' account
+      const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local';
+      setIsAdmin(isSystemAdmin);
     });
   }, []);
 
@@ -220,13 +225,31 @@ export default function App() {
 
     // Listen to pvp status
     const unsubscribePvp = onSnapshot(doc(db, 'server_status', 'pvp'), (snapshot) => {
-      if (snapshot.exists()) setPvpStatus(snapshot.data() as ServerStatus);
+      if (snapshot.exists()) {
+        const data = snapshot.data() as ServerStatus;
+        setPvpStatus(data);
+        if (data.maintenance) setIsMaintenanceMode(true);
+      }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/pvp'));
 
     // Listen to survival status
     const unsubscribeSurvival = onSnapshot(doc(db, 'server_status', 'survival'), (snapshot) => {
-      if (snapshot.exists()) setSurvivalStatus(snapshot.data() as ServerStatus);
+      if (snapshot.exists()) {
+        const data = snapshot.data() as ServerStatus;
+        setSurvivalStatus(data);
+        // If either server is in maintenance, global maintenance is active for the UI
+        if (data.maintenance) setIsMaintenanceMode(true);
+      }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/survival'));
+
+    // Listen to maintenance/broadcast config
+    const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setIsMaintenanceMode(data.maintenance === true);
+        setBroadcastMessage(data.broadcast || null);
+      }
+    });
 
     // Listen to user profiles
     const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'));
@@ -236,7 +259,23 @@ export default function App() {
       
       if (user) {
         const myProf = profiles.find(p => p.userId === user.uid);
-        if (myProf) setMyProfile(myProf);
+        if (myProf) {
+          setMyProfile(myProf);
+          
+          // SuperAdmin check: Block5
+          if (myProf.minecraftUsername === 'Block5') {
+            setIsSuperAdmin(true);
+            setIsAdmin(true);
+          }
+
+          // Auto-promote Dampfk or recognize admin role
+          if (myProf.minecraftUsername === 'Dampfk' && myProf.role !== 'Admin') {
+            setDoc(doc(db, 'user_profiles', user.uid), { role: 'Admin' }, { merge: true });
+          }
+          if (myProf.minecraftUsername === 'Dampfk' || myProf.role === 'Admin') {
+            setIsAdmin(true);
+          }
+        }
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
 
@@ -266,6 +305,7 @@ export default function App() {
       unsubscribeCodes();
       unsubscribeChat();
       unsubscribeClans();
+      unsubscribeAppConfig();
     };
   }, [user]);
 
@@ -343,6 +383,40 @@ export default function App() {
       } else {
         setLoginError("Fehler: " + error.message);
       }
+    }
+  };
+
+  // Keyboard shortcut for SuperAdmin Panel (Shift + Alt + S)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.altKey && e.key === 'S' && isSuperAdmin) {
+        setShowAdmin(!showAdmin);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSuperAdmin, showAdmin]);
+
+  const toggleMaintenance = async () => {
+    if (!isSuperAdmin) return;
+    const newState = !isMaintenanceMode;
+    try {
+      await setDoc(doc(db, 'app_config', 'system'), { maintenance: newState }, { merge: true });
+      await setDoc(doc(db, 'server_status', 'pvp'), { maintenance: newState }, { merge: true });
+      await setDoc(doc(db, 'server_status', 'survival'), { maintenance: newState }, { merge: true });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const setGlobalBroadcast = async () => {
+    if (!isSuperAdmin) return;
+    const msg = prompt('Globale Nachricht eingeben (leer zum Löschen):', broadcastMessage || '');
+    if (msg === null) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg || null }, { merge: true });
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -950,6 +1024,50 @@ export default function App() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-mc-gold/5 rounded-full blur-[120px] pointer-events-none" />
 
+      {/* Maintenance Overlay */}
+      <AnimatePresence>
+        {isMaintenanceMode && !isSuperAdmin && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center p-6 text-center select-none"
+          >
+            <div className="mc-card border-mc-red bg-mc-red/10 p-12 max-w-lg aspect-square flex flex-col items-center justify-center">
+              <Lock size={64} className="text-mc-red mb-6 animate-pulse" />
+              <h1 className="text-4xl font-black uppercase tracking-tighter mb-4 text-mc-red">Wartungsarbeiten</h1>
+              <p className="text-neutral-400 font-medium leading-relaxed">
+                Der Community-Server befindet sich gerade im Umbau. <br />
+                Bitte schau später wieder vorbei!
+              </p>
+              <div className="mt-8 pt-8 border-t border-mc-red/20 w-full flex flex-col items-center gap-4">
+                <a href={DISCORD_URL} target="_blank" rel="noreferrer" className="mc-button mc-button-secondary py-3 px-8 text-xs font-black uppercase tracking-widest">
+                  Discord beitreten
+                </a>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Broadcast Banner */}
+      <AnimatePresence>
+        {broadcastMessage && (
+          <motion.div 
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            className="fixed top-20 left-0 right-0 z-[90] flex justify-center px-4 pointer-events-none"
+          >
+            <div className="bg-mc-gold text-black px-6 py-2 rounded-b-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl flex items-center gap-3 border-x border-b border-white/20 pointer-events-auto">
+              <Zap size={14} className="animate-bounce" />
+              {broadcastMessage}
+              <Zap size={14} className="animate-bounce" />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Navigation */}
       <nav className="relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -1042,6 +1160,32 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {/* Root Control for Block5 */}
+                {isSuperAdmin && (
+                  <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-6 space-y-4">
+                    <span className="text-[10px] uppercase font-bold text-purple-400 tracking-widest flex items-center gap-2">
+                       <Zap size={14} /> Root Control (Only Block5)
+                    </span>
+                    <div className="space-y-3">
+                      <button 
+                        onClick={toggleMaintenance}
+                        className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${isMaintenanceMode ? 'bg-mc-red border-white/20 text-white shadow-lg shadow-mc-red/40' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                      >
+                        {isMaintenanceMode ? 'Wartung Beenden' : 'Wartung Starten'}
+                      </button>
+                      <button 
+                        onClick={setGlobalBroadcast}
+                        className="w-full py-3 rounded-xl bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest shadow-lg shadow-mc-gold/20"
+                      >
+                        Broadcast Pinnen
+                      </button>
+                      <p className="text-[9px] text-neutral-500 italic text-center px-4">
+                        Shift + Alt + S zum schnellen Öffnen/Schließen
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* PVP Controls */}
                 <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
                   <span className="text-[10px] uppercase font-bold text-red-400 tracking-widest">PVP Server Control</span>
@@ -1853,7 +1997,7 @@ export default function App() {
                                       </div>
                                     </div>
                                     
-                                    {isLeader && member.userId !== user?.uid && (
+                                    {(isLeader || isAdmin) && member.userId !== user?.uid && (
                                       <button 
                                         onClick={() => kickPlayerFromClan(activeClanId, member.userId)}
                                         className="p-1.5 text-neutral-600 hover:text-red-500"
@@ -1869,7 +2013,7 @@ export default function App() {
 
                           {clanTab === 'chat' && (
                             <div className="flex flex-col h-[400px]">
-                              {!clanMembers.some(m => m.userId === user?.uid) ? (
+                              {!clanMembers.some(m => m.userId === user?.uid) && !isAdmin ? (
                                 <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-neutral-900/50 rounded-2xl border border-dashed border-neutral-800">
                                   <Lock size={24} className="text-neutral-700 mb-2" />
                                   <p className="text-xs text-neutral-500 italic">Du musst diesem Clan beitreten, um den Chat zu sehen.</p>
@@ -1877,6 +2021,11 @@ export default function App() {
                               ) : (
                                 <>
                                   <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2 scrollbar-hide">
+                                    {(isAdmin && !clanMembers.some(m => m.userId === user?.uid)) && (
+                                       <div className="bg-purple-500/10 border border-purple-500/30 p-2 rounded text-[8px] text-purple-400 font-bold uppercase mb-4 text-center">
+                                          Geister-Modus Aktiv (Nur Admins)
+                                       </div>
+                                    )}
                                     {clanChatMessages.map((msg) => {
                                       const isOwn = msg.userId === user?.uid;
                                       const profile = userProfiles.find(p => p.userId === msg.userId);
@@ -1955,7 +2104,7 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {clanMembers.some(m => m.userId === user?.uid) && (
+                              {(clanMembers.some(m => m.userId === user?.uid) || isAdmin) && (
                                 <div className="mt-8 p-6 bg-mc-red/5 border border-mc-red/20 rounded-2xl">
                                   <div className="flex items-center gap-3 mb-4">
                                     <Sword size={20} className="text-mc-red" />

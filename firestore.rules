@@ -17,6 +17,7 @@ service cloud.firestore {
         request.auth.token.email == 'max.schule13@gmail.com' ||
         request.auth.token.email == 'max@community.local' ||
         request.auth.token.email == 'dampf@community.local' ||
+        request.auth.token.email == 'dampfk@community.local' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -51,7 +52,7 @@ service cloud.firestore {
     // ServerStatus Validation
     function isValidServerStatus(data) {
       return data.keys().hasAll(['online', 'playerCount', 'maxPlayers']) &&
-             data.keys().size() == 3 &&
+             (data.keys().size() == 3 || (data.keys().size() == 4 && data.maintenance is bool)) &&
              data.online is bool &&
              data.playerCount is int &&
              data.maxPlayers is int;
@@ -149,7 +150,7 @@ service cloud.firestore {
       }
 
       match /chat/{messageId} {
-        allow read: if isSignedIn() && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
+        allow read: if isSignedIn() && (exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)) || isAdmin());
         // Simple message validation using the same logic as global chat
         allow create: if isSignedIn() && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)) &&
                       request.resource.data.userId == request.auth.uid &&
