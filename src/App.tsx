@@ -38,7 +38,9 @@ import {
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged,
-  User
+  User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { db, auth, OperationType, handleFirestoreError } from './firebase-lib';
 
@@ -73,6 +75,10 @@ interface UserProfile {
 }
 
 export default function App() {
+  const [realmCodes, setRealmCodes] = useState({
+    PVP: 'w3PHnwq-5_kcfoE',
+    SURVIVAL: 'JwMPYn9KpsVnRFo'
+  });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -80,6 +86,7 @@ export default function App() {
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
   const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [tempSkin, setTempSkin] = useState<string | null>(null);
   const [pixelGrid, setPixelGrid] = useState<string[]>(Array(64).fill('#000000'));
   const [brushColor, setBrushColor] = useState('#ff0000');
@@ -115,7 +122,8 @@ export default function App() {
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setIsAdmin(u?.email === 'max.schule13@gmail.com');
+      // Admin check: Developer email or system 'Max' account (max@community.local)
+      setIsAdmin(u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local');
     });
   }, []);
 
@@ -149,11 +157,17 @@ export default function App() {
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
 
+    // Listen to realm codes
+    const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
+      if (snapshot.exists()) setRealmCodes(snapshot.data() as any);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
       unsubscribeSurvival();
       unsubscribeProfiles();
+      unsubscribeCodes();
     };
   }, [user]);
 
@@ -163,19 +177,74 @@ export default function App() {
       const found = userProfiles.find(p => p.userId === user.uid);
       if (found) {
         setMyProfile(found);
-        if (found.customSkin) setTempSkin(found.customSkin);
       }
     } else {
       setMyProfile(null);
     }
   }, [user, userProfiles]);
 
-  const login = async () => {
+  const openProfileEdit = (userId?: string) => {
+    const targetId = userId || user?.uid || null;
+    setEditingProfileId(targetId);
+    
+    const profileToEdit = userProfiles.find(p => p.userId === targetId);
+    if (profileToEdit) {
+      setTempSkin(profileToEdit.customSkin || null);
+    } else {
+      setTempSkin(null);
+    }
+    
+    setShowProfileModal(true);
+  };
+
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  const loginWithGoogle = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+      setShowLoginModal(false);
     } catch (error) {
       console.error("Login failed", error);
+      setLoginError("Google Login fehlgeschlagen.");
+    }
+  };
+
+  const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoginError(null);
+    const formData = new FormData(e.currentTarget);
+    const username = formData.get('username') as string;
+    const password = formData.get('password') as string;
+
+    if (!username || !password) {
+      setLoginError("Bitte fülle alle Felder aus.");
+      return;
+    }
+
+    // Map username to a fake email for Firebase
+    const email = `${username.toLowerCase()}@community.local`;
+
+    try {
+      if (isRegistering) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+      setShowLoginModal(false);
+    } catch (error: any) {
+      console.error("Auth error", error);
+      if (error.code === 'auth/user-not-found') {
+        setLoginError("Benutzer nicht gefunden. Willst du dich registrieren?");
+      } else if (error.code === 'auth/wrong-password') {
+        setLoginError("Falsches Passwort.");
+      } else if (error.code === 'auth/email-already-in-use') {
+        setLoginError("Dieser Name ist bereits vergeben.");
+      } else {
+        setLoginError("Fehler: " + error.message);
+      }
     }
   };
 
@@ -212,7 +281,8 @@ export default function App() {
 
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!user) return;
+    const targetId = editingProfileId || user?.uid;
+    if (!targetId) return;
 
     const formData = new FormData(e.currentTarget);
     const displayName = formData.get('displayName') as string;
@@ -221,8 +291,8 @@ export default function App() {
     const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
 
     try {
-      await setDoc(doc(db, 'user_profiles', user.uid), {
-        userId: user.uid,
+      await setDoc(doc(db, 'user_profiles', targetId), {
+        userId: targetId,
         displayName,
         minecraftUsername,
         isOnline,
@@ -232,7 +302,7 @@ export default function App() {
       });
       setShowProfileModal(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `user_profiles/${user.uid}`);
+      handleFirestoreError(err, OperationType.WRITE, `user_profiles/${targetId}`);
     }
   };
 
@@ -266,8 +336,36 @@ export default function App() {
     }
   };
 
+  const updateServerStatus = async (server: 'pvp' | 'survival', updates: Partial<ServerStatus>) => {
+    if (!isAdmin) return;
+    try {
+      const status = server === 'pvp' ? pvpStatus : survivalStatus;
+      await setDoc(doc(db, 'server_status', server), { ...status, ...updates });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `server_status/${server}`);
+    }
+  };
+
+  const updateRealmCode = async (server: 'pvp' | 'survival', code: string) => {
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'realm_codes'), { ...realmCodes, [server.toUpperCase()]: code });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'app_config/realm_codes');
+    }
+  };
+
+  const kickPlayer = async (playerId: string) => {
+    if (!isAdmin) return;
+    try {
+      await deleteDoc(doc(db, 'online_players', playerId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `online_players/${playerId}`);
+    }
+  };
+
   const clearPlayers = async () => {
-    if (!user) return;
+    if (!isAdmin) return;
     try {
       const snapshot = await getDocs(collection(db, 'online_players'));
       for (const d of snapshot.docs) {
@@ -283,6 +381,25 @@ export default function App() {
   const pvpPlayers = players.filter(p => p.server === 'pvp');
   const survivalPlayers = players.filter(p => p.server === 'survival');
   
+  // Combined lists for specific servers
+  const combinedPvpPlayers = [
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' })),
+    ...userProfiles
+      .filter(p => p.isOnline && p.currentServer === 'pvp')
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile' }))
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+  );
+
+  const combinedSurvivalPlayers = [
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' })),
+    ...userProfiles
+      .filter(p => p.isOnline && p.currentServer === 'survival')
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile' }))
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+  );
+
   // Combined online players from both manual list and user profiles
   const combinedOnline = [
     ...players.map(p => ({
@@ -296,6 +413,7 @@ export default function App() {
         username: p.minecraftUsername,
         server: p.currentServer,
         displayName: p.displayName,
+        userId: p.userId,
         type: 'profile'
       }))
   ].filter((player, index, self) => 
@@ -305,7 +423,13 @@ export default function App() {
   const totalOnline = combinedOnline.length;
 
   return (
-    <div className="min-h-screen relative overflow-hidden pixel-grid">
+    <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+      {/* Background Video/Effect */}
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-mc-red/5 to-transparent animate-pulse" />
+        <div className="w-full h-full opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #ff4747 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+      </div>
+
       {/* Background Glows */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-mc-gold/5 rounded-full blur-[120px] pointer-events-none" />
@@ -314,16 +438,17 @@ export default function App() {
       <nav className="relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center">
-              <Gamepad2 className="text-white" size={24} />
+            <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
+               <div className="absolute inset-0 bg-white/10 animate-pulse" />
+              <Gamepad2 className="text-white relative z-10" size={24} />
             </div>
             <span className="font-extrabold text-xl tracking-tight hidden sm:block">MC HUB</span>
           </div>
           <div className="flex items-center gap-4">
             {!user ? (
               <button 
-                onClick={login}
-                className="mc-button mc-button-primary py-2 text-sm"
+                onClick={() => setShowLoginModal(true)}
+                className="mc-button mc-button-primary py-2 text-sm shadow-lg shadow-mc-red/20"
               >
                 <LogIn size={18} />
                 Anmelden
@@ -331,11 +456,11 @@ export default function App() {
             ) : (
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={() => setShowProfileModal(true)}
-                  className="mc-button mc-button-secondary py-2 text-sm hidden sm:flex"
+                  onClick={() => openProfileEdit()}
+                  className="mc-button mc-button-secondary py-2 text-sm hidden sm:flex border-mc-gold/20"
                 >
-                  <UserIcon size={18} />
-                  Profil
+                  <UserIcon size={18} className="text-mc-gold" />
+                  Mein Profil
                 </button>
                 {isAdmin && (
                   <button 
@@ -375,23 +500,111 @@ export default function App() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="relative z-10 bg-mc-red/5 border-b border-mc-red/20 overflow-hidden"
+            className="relative z-10 bg-neutral-900 border-b border-neutral-800 overflow-hidden"
           >
-            <div className="max-w-7xl mx-auto px-6 py-8 flex flex-wrap gap-6 items-center">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-bold text-mc-red uppercase tracking-wider">Live Simulation</span>
-                <p className="text-neutral-400 text-xs text-wrap max-w-xs">Simuliere echte Spielerdaten für dein Dashboard. Diese Daten werden in Firestore gespeichert.</p>
+            <div className="max-w-7xl mx-auto px-6 py-10 flex flex-col gap-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-mc-gold font-bold flex items-center gap-2">
+                    <ShieldCheck size={18} />
+                    ADMIN CONTROL CENTER
+                  </h4>
+                  <p className="text-neutral-500 text-xs">Diese Sektion ist nur für dich sichtbar.</p>
+                </div>
+                <button onClick={() => setShowAdmin(false)} className="text-neutral-500 hover:text-white">
+                  <LogOut size={16} />
+                </button>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <button onClick={() => addRandomPlayer('pvp')} className="mc-button bg-red-500/20 text-red-400 text-xs py-2 h-10">
-                  <UserPlus size={14} /> PVP Spieler +1
-                </button>
-                <button onClick={() => addRandomPlayer('survival')} className="mc-button bg-mc-red/20 text-mc-red text-xs py-2 h-10">
-                  <UserPlus size={14} /> Survival Spieler +1
-                </button>
-                <button onClick={clearPlayers} className="mc-button bg-neutral-800 text-neutral-400 text-xs py-2 h-10">
-                  <Trash2 size={14} /> Alle Leeren
-                </button>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {/* PVP Controls */}
+                <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                  <span className="text-[10px] uppercase font-bold text-red-400 tracking-widest">PVP Server Control</span>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Status</span>
+                      <button 
+                        onClick={() => updateServerStatus('pvp', { online: !pvpStatus.online })}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${pvpStatus.online ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}
+                      >
+                        {pvpStatus.online ? 'Online' : 'Offline'}
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Max. Spieler</label>
+                      <input 
+                        type="number"
+                        defaultValue={pvpStatus.maxPlayers}
+                        onBlur={(e) => updateServerStatus('pvp', { maxPlayers: parseInt(e.target.value) || 10 })}
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Code</label>
+                      <input 
+                        type="text"
+                        defaultValue={realmCodes.PVP}
+                        onBlur={(e) => updateRealmCode('pvp', e.target.value)}
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => addRandomPlayer('pvp')} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-xs py-2 rounded-lg flex items-center justify-center gap-1">
+                         <UserPlus size={12} /> +1 Spieler
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Survival Controls */}
+                <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                  <span className="text-[10px] uppercase font-bold text-mc-red tracking-widest">Survival Server Control</span>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Status</span>
+                      <button 
+                        onClick={() => updateServerStatus('survival', { online: !survivalStatus.online })}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${survivalStatus.online ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}
+                      >
+                        {survivalStatus.online ? 'Online' : 'Offline'}
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Max. Spieler</label>
+                      <input 
+                        type="number"
+                        defaultValue={survivalStatus.maxPlayers}
+                        onBlur={(e) => updateServerStatus('survival', { maxPlayers: parseInt(e.target.value) || 10 })}
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Code</label>
+                      <input 
+                        type="text"
+                        defaultValue={realmCodes.SURVIVAL}
+                        onBlur={(e) => updateRealmCode('survival', e.target.value)}
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => addRandomPlayer('survival')} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-xs py-2 rounded-lg flex items-center justify-center gap-1">
+                         <UserPlus size={12} /> +1 Spieler
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Global Actions */}
+                <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                  <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
+                  <div className="flex flex-col gap-3">
+                    <button onClick={clearPlayers} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-3 rounded-xl border border-red-500/20 flex items-center justify-center gap-2">
+                      <Trash2 size={14} /> Alle Online-Listen leeren
+                    </button>
+                    <p className="text-[8px] text-neutral-600 text-center uppercase tracking-wide">Vorsicht: Dies löscht alle simulierten Spieler.</p>
+                  </div>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -512,10 +725,11 @@ export default function App() {
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
-                  className="relative group"
+                  className="relative group cursor-pointer"
+                  onClick={() => isAdmin && p.type === 'profile' && openProfileEdit(p.userId)}
                 >
                   <img 
-                    src={p.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.username)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p.username}`} 
+                    src={p.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p.username}`} 
                     alt={p.username}
                     className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
                     title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
@@ -558,7 +772,7 @@ export default function App() {
                       <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Live Status</span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono bg-red-500/10 text-red-400 px-3 py-1 rounded-full border border-red-500/20">
-                          {pvpPlayers.length} / {pvpStatus.maxPlayers} Online
+                          {combinedPvpPlayers.length} / {pvpStatus.maxPlayers} Online
                         </span>
                       </div>
                     </div>
@@ -572,10 +786,18 @@ export default function App() {
                   <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {pvpPlayers.length > 0 ? pvpPlayers.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs">
+                      {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map(p => (
+                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           {p.username}
+                          {isAdmin && p.type === 'manual' && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); kickPlayer(p.id); }}
+                              className="ml-1 opacity-0 group-hover/item:opacity-100 transition-opacity text-neutral-500 hover:text-mc-red"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          )}
                         </div>
                       )) : (
                         <span className="text-xs text-neutral-600 italic">Warte auf Spieler...</span>
@@ -585,13 +807,13 @@ export default function App() {
                 </div>
                 
                 <div 
-                  onClick={() => copyToClipboard(REALM_CODES.PVP, 'pvp')}
+                  onClick={() => copyToClipboard(realmCodes.PVP, 'pvp')}
                   className="mt-auto bg-black/40 border border-neutral-800 rounded-xl p-4 flex items-center justify-between cursor-pointer hover:border-neutral-700 transition-colors group/code"
                 >
                   <div className="flex flex-col">
                     <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">Realm Code</span>
                     <span className="font-mono text-xl text-mc-gold group-hover/code:text-white transition-colors">
-                      {REALM_CODES.PVP}
+                      {realmCodes.PVP}
                     </span>
                   </div>
                   <div className="p-2 text-neutral-500">
@@ -616,7 +838,7 @@ export default function App() {
                       <span className="text-[10px] font-bold text-mc-red uppercase tracking-widest mb-1">Live Status</span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono bg-mc-red/10 text-mc-red px-3 py-1 rounded-full border border-mc-red/20">
-                          {survivalPlayers.length} / {survivalStatus.maxPlayers} Online
+                          {combinedSurvivalPlayers.length} / {survivalStatus.maxPlayers} Online
                         </span>
                       </div>
                     </div>
@@ -630,10 +852,18 @@ export default function App() {
                    <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {survivalPlayers.length > 0 ? survivalPlayers.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs">
+                      {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map(p => (
+                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           {p.username}
+                          {isAdmin && p.type === 'manual' && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); kickPlayer(p.id); }}
+                              className="ml-1 opacity-0 group-hover/item:opacity-100 transition-opacity text-neutral-500 hover:text-mc-red"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          )}
                         </div>
                       )) : (
                         <span className="text-xs text-neutral-600 italic">Warte auf Spieler...</span>
@@ -643,13 +873,13 @@ export default function App() {
                 </div>
                 
                 <div 
-                  onClick={() => copyToClipboard(REALM_CODES.SURVIVAL, 'survival')}
+                  onClick={() => copyToClipboard(realmCodes.SURVIVAL, 'survival')}
                   className="mt-auto bg-black/40 border border-neutral-800 rounded-xl p-4 flex items-center justify-between cursor-pointer hover:border-neutral-700 transition-colors group/code"
                 >
                   <div className="flex flex-col">
                     <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">Realm Code</span>
                     <span className="font-mono text-xl text-mc-gold group-hover/code:text-white transition-colors">
-                      {REALM_CODES.SURVIVAL}
+                      {realmCodes.SURVIVAL}
                     </span>
                   </div>
                   <div className="p-2 text-neutral-500">
@@ -673,8 +903,14 @@ export default function App() {
                   key={p.userId}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 hover:border-mc-red/30 transition-colors group"
+                  className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
+                  onClick={() => isAdmin && openProfileEdit(p.userId)}
                 >
+                  {isAdmin && (
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ShieldCheck size={14} className="text-mc-gold" />
+                    </div>
+                  )}
                   <div className="relative mb-4">
                     <img 
                       src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'steve'}`} 
@@ -697,7 +933,7 @@ export default function App() {
               ))}
               {!user && (
                 <div 
-                  onClick={login}
+                  onClick={() => setShowLoginModal(true)}
                   className="mc-card p-4 flex flex-col items-center justify-center text-center border-dashed border-neutral-800 hover:border-mc-gold/50 cursor-pointer transition-colors"
                 >
                   <div className="w-16 h-16 rounded-lg bg-neutral-900 flex items-center justify-center border-2 border-dashed border-neutral-800 text-neutral-600 mb-2">
@@ -867,6 +1103,92 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLoginModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+            >
+              <div className="p-8">
+                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                  <LogIn className="text-mc-gold" />
+                  {isRegistering ? 'Account erstellen' : 'Anmelden'}
+                </h3>
+                
+                <form onSubmit={handleAuth} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Benutzername</label>
+                    <input 
+                      name="username"
+                      placeholder="Dein Name"
+                      required
+                      className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Passwort</label>
+                    <input 
+                      type="password"
+                      name="password"
+                      placeholder="••••••••"
+                      required
+                      className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
+                    />
+                  </div>
+
+                  {loginError && (
+                    <p className="text-mc-red text-xs font-medium bg-mc-red/10 p-3 rounded-lg border border-mc-red/20">
+                      {loginError}
+                    </p>
+                  )}
+
+                  <button 
+                    type="submit"
+                    className="w-full px-6 py-4 rounded-xl font-bold bg-mc-gold text-black hover:bg-yellow-500 transition-all shadow-lg shadow-mc-gold/20"
+                  >
+                    {isRegistering ? 'Registrieren' : 'Jetzt Einloggen'}
+                  </button>
+                </form>
+
+                <div className="mt-6 flex flex-col gap-4">
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-neutral-800"></div></div>
+                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-neutral-900 px-2 text-neutral-500">Oder</span></div>
+                  </div>
+
+                  <button 
+                    onClick={loginWithGoogle}
+                    className="w-full px-6 py-4 rounded-xl font-bold bg-white text-black hover:bg-neutral-200 transition-all flex items-center justify-center gap-2"
+                  >
+                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+                    Mit Google anmelden
+                  </button>
+
+                  <button 
+                    onClick={() => setIsRegistering(!isRegistering)}
+                    className="text-center text-xs text-neutral-500 hover:text-white transition-colors"
+                  >
+                    {isRegistering ? 'Bereits einen Account? Hier einloggen' : 'Noch keinen Account? Hier registrieren'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Profile Modal */}
       <AnimatePresence>
         {showProfileModal && (
@@ -887,7 +1209,7 @@ export default function App() {
               <div className="p-8">
                 <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
                   <UserIcon className="text-mc-red" />
-                  Dein Spieler-Profil
+                  {isAdmin && editingProfileId !== user?.uid ? `Profil von ${userProfiles.find(p => p.userId === editingProfileId)?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
                 </h3>
                 
                 <form onSubmit={saveProfile} className="space-y-6">
@@ -897,7 +1219,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Display Name</label>
                         <input 
                           name="displayName"
-                          defaultValue={myProfile?.displayName || user?.displayName || ''}
+                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.displayName || (editingProfileId === user?.uid ? user?.displayName : '') || ''}
                           placeholder="Wie willst du genannt werden?"
                           required
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
@@ -908,7 +1230,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Minecraft Username</label>
                         <input 
                           name="minecraftUsername"
-                          defaultValue={myProfile?.minecraftUsername || ''}
+                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.minecraftUsername || ''}
                           placeholder="Dein In-Game Name"
                           required
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
@@ -919,7 +1241,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Aktueller Server</label>
                         <select 
                           name="currentServer"
-                          defaultValue={myProfile?.currentServer || 'none'}
+                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.currentServer || 'none'}
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors appearance-none"
                         >
                           <option value="none">Keiner / Menü</option>
@@ -994,12 +1316,12 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center justify-between p-4 bg-black/40 border border-neutral-800 rounded-xl">
-                    <span className="text-sm font-medium">Bist du gerade online?</span>
+                    <span className="text-sm font-medium">Gerade online anzeigen?</span>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input 
                         type="checkbox" 
                         name="isOnline"
-                        defaultChecked={myProfile?.isOnline || false}
+                        defaultChecked={userProfiles.find(p => p.userId === editingProfileId)?.isOnline || false}
                         className="sr-only peer" 
                       />
                       <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-mc-red"></div>
