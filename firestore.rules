@@ -86,11 +86,30 @@ service cloud.firestore {
     }
 
     function isValidClanMember(data, userId) {
-      return data.keys().hasAll(['userId', 'role', 'joinedAt']) &&
-             data.keys().size() == 3 &&
+      return data.keys().hasAll(['userId', 'role', 'joinedAt', 'xpContribution']) &&
+             data.keys().size() == 4 &&
              data.userId == userId &&
              data.role in ['Leader', 'Officer', 'Member'] &&
+             data.xpContribution is int &&
              data.joinedAt is timestamp;
+    }
+
+    function isValidJoinRequest(data, userId) {
+      return data.keys().hasAll(['userId', 'minecraftUsername', 'requestedAt']) &&
+             (data.keys().size() >= 3 && data.keys().size() <= 4) &&
+             data.userId == userId &&
+             data.minecraftUsername is string &&
+             data.requestedAt is timestamp;
+    }
+
+    function isValidQuest(data) {
+      return data.keys().hasAll(['title', 'goal', 'current', 'rewardXp', 'completed']) &&
+             data.keys().size() == 5 &&
+             data.title is string &&
+             data.goal is int &&
+             data.current is int &&
+             data.rewardXp is int &&
+             data.completed is bool;
     }
 
     // User Profiles Collection
@@ -124,6 +143,18 @@ service cloud.firestore {
                       request.resource.data.userId == request.auth.uid &&
                       request.resource.data.text is string && request.resource.data.text.size() <= 200;
         allow delete: if isSignedIn() && (request.auth.uid == resource.data.userId || isAdmin());
+      }
+
+      match /requests/{userId} {
+        allow read: if isSignedIn() && (userId == request.auth.uid || exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)));
+        allow create: if isSignedIn() && userId == request.auth.uid && isValidJoinRequest(incoming(), userId);
+        allow delete: if isSignedIn() && (userId == request.auth.uid || exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)));
+      }
+
+      match /quests/{questId} {
+        allow read: if true;
+        allow update: if isSignedIn() && exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)) && isValidQuest(incoming());
+        allow create, delete: if isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/clans/$(clanId)).data.leaderId == request.auth.uid);
       }
     }
 

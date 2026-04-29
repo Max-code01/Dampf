@@ -29,7 +29,8 @@ import {
   Send,
   Box,
   Key,
-  Star
+  Star,
+  Target
 } from 'lucide-react';
 import { 
   collection, 
@@ -114,6 +115,24 @@ interface ClanMember {
   userId: string;
   role: 'Leader' | 'Officer' | 'Member';
   joinedAt: any;
+  xpContribution: number;
+}
+
+interface ClanJoinRequest {
+  id: string;
+  userId: string;
+  minecraftUsername: string;
+  message?: string;
+  requestedAt: any;
+}
+
+interface ClanQuest {
+  id: string;
+  title: string;
+  goal: number;
+  current: number;
+  rewardXp: number;
+  completed: boolean;
 }
 
 export default function App() {
@@ -151,7 +170,10 @@ export default function App() {
   const [isClansOpen, setIsClansOpen] = useState(false);
   const [clanChatMessages, setClanChatMessages] = useState<ChatMessage[]>([]);
   const [clanChatInput, setClanChatInput] = useState('');
-  const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks'>('members');
+  const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks' | 'requests' | 'quests'>('members');
+  const [clanRequests, setClanRequests] = useState<ClanJoinRequest[]>([]);
+  const [clanQuests, setClanQuests] = useState<ClanQuest[]>([]);
+  const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
 
   // Constants
   const DISCORD_GUILD_ID = '1451980583969230882'; // Aktualisierte Server ID
@@ -391,6 +413,19 @@ export default function App() {
       setClanMembers(members);
     }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`));
 
+    const unsubscribeRequests = onSnapshot(collection(db, 'clans', activeClanId, 'requests'), (snapshot) => {
+      const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanJoinRequest));
+      setClanRequests(requests);
+    }, (err) => {
+       // Only leaders/officers can see this, so silent fail is okay
+       setClanRequests([]);
+    });
+
+    const unsubscribeQuests = onSnapshot(collection(db, 'clans', activeClanId, 'quests'), (snapshot) => {
+      const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanQuest));
+      setClanQuests(quests);
+    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`));
+
     const unsubscribeChat = onSnapshot(query(collection(db, 'clans', activeClanId, 'chat'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setClanChatMessages(msgs);
@@ -401,6 +436,8 @@ export default function App() {
 
     return () => {
       unsubscribeMembers();
+      unsubscribeRequests();
+      unsubscribeQuests();
       unsubscribeChat();
     };
   }, [activeClanId, user]);
@@ -426,6 +463,29 @@ export default function App() {
       
       // Also gain some clan XP for chatting!
       gainClanXp(activeClanId, 5);
+
+      // Update contribution
+      const myMember = clanMembers.find(m => m.userId === user.uid);
+      if (myMember) {
+         await setDoc(doc(db, 'clans', activeClanId, 'members', user.uid), {
+            xpContribution: (myMember.xpContribution || 0) + 5
+         }, { merge: true });
+      }
+
+      // Quest Progress: Clan-Chat Aktivität
+      const chatQuest = clanQuests.find(q => q.title === 'Clan-Chat Aktivität' && !q.completed);
+      if (chatQuest) {
+        const newCurrent = chatQuest.current + 1;
+        const completed = newCurrent >= chatQuest.goal;
+        await setDoc(doc(db, 'clans', activeClanId, 'quests', chatQuest.id), {
+          current: newCurrent,
+          completed
+        }, { merge: true });
+        
+        if (completed) {
+          gainClanXp(activeClanId, chatQuest.rewardXp);
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `clans/${activeClanId}/chat`);
     }
@@ -480,8 +540,18 @@ export default function App() {
       await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
         userId: user.uid,
         role: 'Leader',
-        joinedAt: serverTimestamp()
+        joinedAt: serverTimestamp(),
+        xpContribution: 0
       });
+
+      // Initial Quests
+      const quests = [
+        { title: 'Clan-Chat Aktivität', goal: 50, current: 0, rewardXp: 500, completed: false },
+        { title: 'Tägliche Online-Zeit', goal: 10, current: 0, rewardXp: 300, completed: false }
+      ];
+      for (const q of quests) {
+        await addDoc(collection(db, 'clans', clanId, 'quests'), q);
+      }
 
       setShowCreateClan(false);
     } catch (err) {
@@ -489,25 +559,52 @@ export default function App() {
     }
   };
 
-  const joinClan = async (clanId: string) => {
+  const submitJoinRequest = async (clanId: string, message: string) => {
+    if (!user || !myProfile) return;
+    try {
+      await setDoc(doc(db, 'clans', clanId, 'requests', user.uid), {
+        userId: user.uid,
+        minecraftUsername: myProfile.minecraftUsername || 'Unbekannt',
+        message,
+        requestedAt: serverTimestamp()
+      });
+      alert('Anfrage gesendet!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `clans/${clanId}/requests`);
+    }
+  };
+
+  const acceptJoinRequest = async (clanId: string, requestId: string) => {
     if (!user) return;
     const clan = clans.find(c => c.id === clanId);
     if (!clan) return;
 
     try {
-      await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
-        userId: user.uid,
+      // 1. Add as member
+      await setDoc(doc(db, 'clans', clanId, 'members', requestId), {
+        userId: requestId,
         role: 'Member',
-        joinedAt: serverTimestamp()
+        joinedAt: serverTimestamp(),
+        xpContribution: 0
       });
       
+      // 2. Increment count
       await setDoc(doc(db, 'clans', clanId), {
         memberCount: (clan.memberCount || 0) + 1
       }, { merge: true });
 
-      setActiveClanId(clanId);
+      // 3. Delete request
+      await deleteDoc(doc(db, 'clans', clanId, 'requests', requestId));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}/members`);
+    }
+  };
+
+  const declineJoinRequest = async (clanId: string, requestId: string) => {
+    try {
+      await deleteDoc(doc(db, 'clans', clanId, 'requests', requestId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}/requests`);
     }
   };
 
@@ -1527,7 +1624,12 @@ export default function App() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-4">
                   {/* Clan List */}
                   <div className="lg:col-span-2 space-y-4">
-                    {clans.map(clan => (
+                    {clans
+                      .sort((a, b) => {
+                        if ((b.level || 1) !== (a.level || 1)) return (b.level || 1) - (a.level || 1);
+                        return (b.xp || 0) - (a.xp || 0);
+                      })
+                      .map(clan => (
                       <motion.div 
                         key={clan.id}
                         layout
@@ -1542,6 +1644,7 @@ export default function App() {
                             <h3 className="text-xl font-bold flex items-center gap-2">
                               {clan.name}
                               <span className="text-xs font-mono bg-mc-red/10 text-mc-red px-2 py-0.5 rounded">[{clan.tag}]</span>
+                              <span className="text-[10px] bg-mc-gold text-black px-1.5 rounded font-black">LVL {clan.level || 1}</span>
                             </h3>
                             <p className="text-neutral-500 text-sm italic mb-2">{clan.description || 'Keine Beschreibung'}</p>
                             <div className="flex items-center gap-4 text-[10px] text-neutral-600 uppercase font-bold tracking-widest">
@@ -1566,9 +1669,20 @@ export default function App() {
                             >
                               Verlassen
                             </button>
+                          ) : clanRequests.some(r => r.userId === user?.uid) ? (
+                            <button 
+                              disabled
+                              className="mc-button opacity-50 border-neutral-700 text-neutral-500 text-xs py-2 px-4 cursor-not-allowed"
+                            >
+                              Anfrage läuft
+                            </button>
                           ) : (
                             <button 
-                              onClick={(e) => { e.stopPropagation(); joinClan(clan.id); }}
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                const msg = prompt('Nachricht an den Clan-Leader:');
+                                if (msg !== null) submitJoinRequest(clan.id, msg);
+                              }}
                               className="mc-button mc-button-secondary text-xs py-2 px-4"
                             >
                               Beitreten
@@ -1587,22 +1701,30 @@ export default function App() {
                   {/* Clan Specific Info (Right Sidebar) */}
                   <div className="mc-card border-neutral-800 bg-black/40 overflow-hidden self-start sticky top-24">
                     <div className="border-b border-neutral-800 flex bg-neutral-900/50">
-                      {(['members', 'chat', 'perks'] as const).map((tab) => (
-                        <button
-                          key={tab}
-                          onClick={() => setClanTab(tab)}
-                          className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
-                            clanTab === tab 
-                              ? 'text-mc-gold bg-mc-gold/5 border-b-2 border-mc-gold' 
-                              : 'text-neutral-600 hover:text-neutral-400'
-                          }`}
-                        >
-                          {tab === 'members' && <Users size={12} className="inline mr-1" />}
-                          {tab === 'chat' && <MessageSquare size={12} className="inline mr-1" />}
-                          {tab === 'perks' && <Award size={12} className="inline mr-1" />}
-                          {tab}
-                        </button>
-                      ))}
+                      {(['members', 'chat', 'quests', 'requests', 'perks'] as const).map((tab) => {
+                        const myMemberData = clanMembers.find(m => m.userId === user?.uid);
+                        const isLeaderOrOfficer = myMemberData?.role === 'Leader' || myMemberData?.role === 'Officer';
+                        if (tab === 'requests' && !isLeaderOrOfficer) return null;
+                        
+                        return (
+                          <button
+                            key={tab}
+                            onClick={() => setClanTab(tab)}
+                            className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
+                              clanTab === tab 
+                                ? 'text-mc-gold bg-mc-gold/5 border-b-2 border-mc-gold' 
+                                : 'text-neutral-600 hover:text-neutral-400'
+                            }`}
+                          >
+                            {tab === 'members' && <Users size={12} className="inline mr-1" />}
+                            {tab === 'chat' && <MessageSquare size={12} className="inline mr-1" />}
+                            {tab === 'perks' && <Award size={12} className="inline mr-1" />}
+                            {tab === 'quests' && <Target size={12} className="inline mr-1" />}
+                            {tab === 'requests' && <UserPlus size={12} className="inline mr-1" />}
+                            {tab}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <div className="p-6">
@@ -1653,7 +1775,13 @@ export default function App() {
                               </div>
 
                               <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-2">Mitglieder</h4>
-                              {clanMembers.map(member => {
+                              {clanMembers
+                                .sort((a, b) => {
+                                  const roleRank = { 'Leader': 0, 'Officer': 1, 'Member': 2 };
+                                  if (roleRank[a.role] !== roleRank[b.role]) return roleRank[a.role] - roleRank[b.role];
+                                  return (b.xpContribution || 0) - (a.xpContribution || 0);
+                                })
+                                .map(member => {
                                 const prof = userProfiles.find(p => p.userId === member.userId);
                                 const isLeader = clans.find(c => c.id === activeClanId)?.leaderId === user?.uid;
                                 
@@ -1667,7 +1795,10 @@ export default function App() {
                                         referrerPolicy="no-referrer"
                                       />
                                       <div>
-                                        <p className="text-xs font-bold leading-tight">{prof?.displayName || 'Spieler'}</p>
+                                        <p className="text-xs font-bold leading-tight flex items-center gap-1">
+                                          {prof?.displayName || 'Spieler'}
+                                          <span className="text-[8px] text-mc-gold font-black">+{member.xpContribution || 0} XP</span>
+                                        </p>
                                         <span className={`text-[7px] px-1 py-0.5 rounded font-black uppercase text-white ${
                                           member.role === 'Leader' ? 'bg-mc-gold' : 
                                           member.role === 'Officer' ? 'bg-mc-red' : 
@@ -1732,6 +1863,71 @@ export default function App() {
                                     </button>
                                   </form>
                                 </>
+                              )}
+                            </div>
+                          )}
+
+                          {clanTab === 'quests' && (
+                            <div className="space-y-4">
+                              <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Clan-Quests</h4>
+                              {clanQuests.map((quest) => (
+                                <div key={quest.id} className={`p-4 rounded-xl border ${quest.completed ? 'bg-green-500/10 border-green-500/30' : 'bg-neutral-900/50 border-neutral-800'}`}>
+                                  <div className="flex justify-between items-start mb-2">
+                                    <p className={`text-xs font-bold ${quest.completed ? 'text-green-400' : 'text-white'}`}>{quest.title}</p>
+                                    <span className="text-[10px] text-mc-gold font-bold">+{quest.rewardXp} XP</span>
+                                  </div>
+                                  <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden mb-1">
+                                    <motion.div 
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${(quest.current / quest.goal) * 100}%` }}
+                                      className={`h-full ${quest.completed ? 'bg-green-500' : 'bg-mc-gold'}`}
+                                    />
+                                  </div>
+                                  <p className="text-[9px] text-neutral-500 text-right">{quest.current} / {quest.goal}</p>
+                                </div>
+                              ))}
+                              {clanQuests.length === 0 && (
+                                <p className="text-xs text-neutral-600 text-center italic py-20">Keine aktiven Quests.</p>
+                              )}
+                            </div>
+                          )}
+
+                          {clanTab === 'requests' && (
+                            <div className="space-y-4">
+                              <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Beitrittsanfragen</h4>
+                              {clanRequests.map((req) => (
+                                <div key={req.id} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <img 
+                                      src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
+                                      alt=""
+                                      className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div>
+                                      <p className="text-xs font-bold">{req.minecraftUsername}</p>
+                                      <p className="text-[9px] text-neutral-500">{new Date(req.requestedAt?.seconds * 1000).toLocaleDateString()}</p>
+                                    </div>
+                                  </div>
+                                  {req.message && <p className="text-[10px] text-neutral-400 italic mb-3">"{req.message}"</p>}
+                                  <div className="flex gap-2">
+                                    <button 
+                                      onClick={() => acceptJoinRequest(activeClanId, req.userId)}
+                                      className="flex-1 py-2 bg-green-500 text-black text-[10px] font-bold rounded-lg hover:bg-green-400 transition-colors"
+                                    >
+                                      Annehmen
+                                    </button>
+                                    <button 
+                                      onClick={() => declineJoinRequest(activeClanId, req.userId)}
+                                      className="flex-1 py-2 bg-neutral-800 text-white text-[10px] font-bold rounded-lg hover:bg-neutral-700 transition-colors"
+                                    >
+                                      Ablehnen
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              {clanRequests.length === 0 && (
+                                <p className="text-xs text-neutral-600 text-center italic py-20">Keine ausstehenden Anfragen.</p>
                               )}
                             </div>
                           )}

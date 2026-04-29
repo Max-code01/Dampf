@@ -133,9 +133,35 @@
       "properties": {
         "userId": { "type": "string" },
         "role": { "type": "string", "enum": ["Leader", "Officer", "Member"] },
-        "joinedAt": { "type": "string", "format": "date-time" }
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "xpContribution": { "type": "integer" }
       },
-      "required": ["userId", "role", "joinedAt"]
+      "required": ["userId", "role", "joinedAt", "xpContribution"]
+    },
+    "ClanJoinRequest": {
+      "title": "Clan Join Request",
+      "description": "A request to join a clan",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "minecraftUsername": { "type": "string" },
+        "message": { "type": "string" },
+        "requestedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "minecraftUsername", "requestedAt"]
+    },
+    "ClanQuest": {
+      "title": "Clan Quest",
+      "description": "A daily challenge for the clan",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "goal": { "type": "integer" },
+        "current": { "type": "integer" },
+        "rewardXp": { "type": "integer" },
+        "completed": { "type": "boolean" }
+      },
+      "required": ["title", "goal", "current", "rewardXp", "completed"]
     }
   },
   "firestore": {
@@ -166,6 +192,14 @@
     "clans/{clanId}/chat/{messageId}": {
       "schema": "ChatMessage",
       "description": "Private clan chat messages"
+    },
+    "clans/{clanId}/requests/{userId}": {
+      "schema": "ClanJoinRequest",
+      "description": "Pending join requests for a clan"
+    },
+    "clans/{clanId}/quests/{questId}": {
+      "schema": "ClanQuest",
+      "description": "Active clan challenges"
     }
   }
 }
