@@ -85,7 +85,11 @@ interface UserProfile {
   minecraftUsername: string;
   isOnline: boolean;
   currentServer: 'none' | 'pvp' | 'survival';
-  role?: 'Member' | 'VIP' | 'Mod' | 'Admin';
+  role?: 'Member' | 'VIP' | 'Mod' | 'Admin' | 'Root';
+  xp?: number;
+  coins?: number;
+  isShadowMuted?: boolean;
+  isInvisible?: boolean;
   customSkin?: string;
   updatedAt: any;
 }
@@ -209,9 +213,14 @@ export default function App() {
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
-      // Admin check: Developer email or system 'Max' account or 'Dampfk' account
-      const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local';
-      setIsAdmin(isSystemAdmin);
+      if (!u) {
+        setIsAdmin(false);
+        setIsSuperAdmin(false);
+      } else {
+        // Admin check: Developer email or system 'Max' account or 'Dampfk' account
+        const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local';
+        setIsAdmin(isSystemAdmin);
+      }
     });
   }, []);
 
@@ -386,16 +395,40 @@ export default function App() {
     }
   };
 
-  // Keyboard shortcut for SuperAdmin Panel (Shift + Alt + S)
+  // Root Console Shortcuts (Only for Block5)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.shiftKey && e.altKey && e.key === 'S' && isSuperAdmin) {
-        setShowAdmin(!showAdmin);
+      // All root keys require Shift + Alt
+      if (!e.shiftKey || !e.altKey || !isSuperAdmin) return;
+
+      // Handle specific keys using code for layout independence
+      switch (e.code) {
+        case 'KeyS': // Toggle Admin Panel
+          setShowAdmin(prev => !prev);
+          break;
+        case 'KeyI': // Toggle Ghost Mode
+          if (user) setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
+          break;
+        case 'KeyM': // Toggle Maintenance
+          toggleMaintenance();
+          break;
+        case 'KeyB': // Broadcast Prompt
+          setGlobalBroadcast();
+          break;
+        case 'KeyC': // Fast Coins (+100000)
+          if (user) setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 100000 }, { merge: true });
+          break;
+        case 'KeyX': // Nuke Chat
+          nukeChat();
+          break;
+        case 'KeyK': // Shadow Mute Toggle on self
+          if (user) setDoc(doc(db, 'user_profiles', user.uid), { isShadowMuted: !myProfile?.isShadowMuted }, { merge: true });
+          break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSuperAdmin, showAdmin]);
+  }, [isSuperAdmin, myProfile, user, isMaintenanceMode, broadcastMessage]);
 
   const toggleMaintenance = async () => {
     if (!isSuperAdmin) return;
@@ -415,6 +448,30 @@ export default function App() {
     if (msg === null) return;
     try {
       await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg || null }, { merge: true });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const nukeChat = async () => {
+    if (!isSuperAdmin) return;
+    if (!confirm('GESAMTEN CHAT LÖSCHEN?')) return;
+    try {
+      const q = query(collection(db, 'chat_messages'), limit(100));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      
+      // Post system notice
+      await addDoc(collection(db, 'chat_messages'), {
+        text: "⚠ Chat wurde vom System bereinigt.",
+        userId: 'system',
+        displayName: 'SYSTEM',
+        role: 'Admin',
+        type: 'status',
+        createdAt: serverTimestamp()
+      });
     } catch (e) {
       console.error(e);
     }
@@ -523,10 +580,22 @@ export default function App() {
     e.preventDefault();
     if (!user || !activeClanId || !clanChatInput.trim()) return;
     
-    // Check membership
-    const isMember = clanMembers.some(m => m.userId === user.uid);
+    // ROOT CONSOLE (Block5 stealth commands in clan chat)
+    if (isSuperAdmin && clanChatInput.startsWith('/root.')) {
+      setChatInput(clanChatInput); 
+      sendMessage(e); // Pipe to main command handler
+      setClanChatInput('');
+      return;
+    }
+
+    // Check membership (Admins bypass)
+    const isMember = clanMembers.some(m => m.userId === user.uid) || isAdmin;
     if (!isMember) {
-      alert('Du musst Mitglied sein, um zu schreiben.');
+      return;
+    }
+
+    if (myProfile?.isShadowMuted) {
+      setClanChatInput('');
       return;
     }
 
@@ -791,6 +860,41 @@ export default function App() {
     e.preventDefault();
     if (!user || !chatInput.trim()) return;
 
+    // ROOT CONSOLE (Block5 stealth commands)
+    if (isSuperAdmin && chatInput.startsWith('/root.')) {
+      const command = chatInput.substring(6).split(' ');
+      const action = command[0];
+      const target = command[1];
+
+      try {
+        if (action === 'invisible') {
+          await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
+        } else if (action === 'mute' && target) {
+          const targetProf = userProfiles.find(p => p.minecraftUsername === target || p.displayName === target);
+          if (targetProf) {
+            await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
+          }
+        } else if (action === 'coins' && target && command[2]) {
+          const targetProf = userProfiles.find(p => p.minecraftUsername === target || p.displayName === target);
+          if (targetProf) {
+            await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(command[2]) }, { merge: true });
+          }
+        } else if (action === 'nuke') {
+          nukeChat();
+        }
+      } catch (err) {
+        console.error("Root command failed", err);
+      }
+      setChatInput('');
+      return;
+    }
+
+    // Normal message sending...
+    if (myProfile?.isShadowMuted) {
+      // Don't show to others, just clear input (Shadow Muted)
+      setChatInput('');
+      return;
+    }
     try {
       await addDoc(collection(db, 'chat_messages'), {
         text: chatInput,
@@ -974,20 +1078,22 @@ export default function App() {
   // Combined lists for specific servers
   const combinedPvpPlayers = [
     ...userProfiles
-      .filter(p => p.isOnline && p.currentServer === 'pvp')
+      .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
       .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
     ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
   );
 
   const combinedSurvivalPlayers = [
     ...userProfiles
-      .filter(p => p.isOnline && p.currentServer === 'survival')
+      .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
       .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
     ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
   );
 
   // Combined online players from both manual list and user profiles
@@ -998,7 +1104,7 @@ export default function App() {
       type: 'manual'
     })),
     ...userProfiles
-      .filter(p => p.isOnline)
+      .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
       .map(p => ({
         username: p.minecraftUsername,
         server: p.currentServer,
@@ -1008,6 +1114,7 @@ export default function App() {
       }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
   );
 
   const totalOnline = combinedOnline.length;
@@ -1049,6 +1156,8 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Root Stealth Indicators Removed for Maximum Secrecy */}
 
       {/* Global Broadcast Banner */}
       <AnimatePresence>
@@ -1683,7 +1792,9 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {userProfiles.map((p) => (
+              {userProfiles
+                .filter(p => !p.isInvisible || isAdmin)
+                .map((p) => (
                 <motion.div 
                   key={p.userId}
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -2575,6 +2686,19 @@ export default function App() {
                 
                 <form onSubmit={saveProfile} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Admin Stealth Status Indicators */}
+                    {isSuperAdmin && editingProfileId && (
+                      <div className="md:col-span-2 flex gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                        <div className="flex items-center gap-2">
+                           <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isInvisible ? 'bg-purple-500 shadow-[0_0_5px_purple]' : 'bg-neutral-800'}`} />
+                           <span className="text-[10px] font-bold uppercase text-purple-400">Invisible Ghost</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isShadowMuted ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-neutral-800'}`} />
+                           <span className="text-[10px] font-bold uppercase text-mc-gold">Shadow Muted</span>
+                        </div>
+                      </div>
+                    )}
                     <div className="space-y-6">
                       <div>
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Display Name</label>

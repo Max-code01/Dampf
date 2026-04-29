@@ -37,6 +37,18 @@
           "type": "string",
           "enum": ["Member", "VIP", "Mod", "Admin"],
           "description": "User role for the community"
+        },
+        "xp": {
+          "type": "integer"
+        },
+        "coins": {
+          "type": "integer"
+        },
+        "isShadowMuted": {
+          "type": "boolean"
+        },
+        "isInvisible": {
+          "type": "boolean"
         }
       },
       "required": ["displayName", "minecraftUsername", "isOnline", "currentServer", "updatedAt", "userId"]
