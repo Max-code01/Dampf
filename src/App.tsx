@@ -313,8 +313,9 @@ export default function App() {
     const formData = new FormData(e.currentTarget);
     const displayName = formData.get('displayName') as string;
     const minecraftUsername = formData.get('minecraftUsername') as string;
-    const isOnline = formData.get('isOnline') === 'on';
     const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
+    // If a server is selected, automatically set online to true
+    const isOnline = currentServer !== 'none' || formData.get('isOnline') === 'on';
     const role = formData.get('role') as any;
 
     try {
@@ -506,19 +507,19 @@ export default function App() {
   
   // Combined lists for specific servers
   const combinedPvpPlayers = [
-    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' })),
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'pvp')
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
   );
 
   const combinedSurvivalPlayers = [
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' })),
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival')
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
   );
