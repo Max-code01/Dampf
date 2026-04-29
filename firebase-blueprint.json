@@ -121,10 +121,11 @@
         "announcement": { "type": "string" },
         "level": { "type": "integer" },
         "xp": { "type": "integer" },
+        "totalKills": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "memberCount": { "type": "integer" }
       },
-      "required": ["name", "tag", "leaderId", "createdAt", "memberCount", "level", "xp"]
+      "required": ["name", "tag", "leaderId", "createdAt", "memberCount", "level", "xp", "totalKills"]
     },
     "ClanMember": {
       "title": "Clan Member",

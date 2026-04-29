@@ -30,7 +30,9 @@ import {
   Box,
   Key,
   Star,
-  Target
+  Target,
+  BarChart2,
+  Sword
 } from 'lucide-react';
 import { 
   collection, 
@@ -108,6 +110,7 @@ interface Clan {
   memberCount: number;
   level: number;
   xp: number;
+  totalKills: number;
 }
 
 interface ClanMember {
@@ -170,7 +173,7 @@ export default function App() {
   const [isClansOpen, setIsClansOpen] = useState(false);
   const [clanChatMessages, setClanChatMessages] = useState<ChatMessage[]>([]);
   const [clanChatInput, setClanChatInput] = useState('');
-  const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks' | 'requests' | 'quests'>('members');
+  const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks' | 'requests' | 'quests' | 'stats'>('members');
   const [clanRequests, setClanRequests] = useState<ClanJoinRequest[]>([]);
   const [clanQuests, setClanQuests] = useState<ClanQuest[]>([]);
   const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
@@ -534,6 +537,7 @@ export default function App() {
         memberCount: 1,
         level: 1,
         xp: 0,
+        totalKills: 0,
         createdAt: serverTimestamp()
       });
 
@@ -659,6 +663,30 @@ export default function App() {
       }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}/members/${targetUserId}`);
+    }
+  };
+
+  const addClanKill = async (clanId: string) => {
+    if (!user) return;
+    const clan = clans.find(c => c.id === clanId);
+    if (!clan) return;
+
+    try {
+      await setDoc(doc(db, 'clans', clanId), {
+        totalKills: (clan.totalKills || 0) + 1
+      }, { merge: true });
+      
+      // Also gain some individual contribution and clan XP
+      gainClanXp(clanId, 10);
+      
+      const myMember = clanMembers.find(m => m.userId === user.uid);
+      if (myMember) {
+        await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
+          xpContribution: (myMember.xpContribution || 0) + 10
+        }, { merge: true });
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}`);
     }
   };
 
@@ -1597,10 +1625,25 @@ export default function App() {
                   </motion.div>
                 </h2>
               </div>
-              <p className="text-neutral-400">Schließe dich mit anderen zusammen und dominiere gemeinsam.</p>
+              <p className="text-neutral-400">Schließe dich mit anderen zusammen und dominiert gemeinsam.</p>
             </div>
             
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-4 items-center">
+              {/* Mini Leaderboard Tags */}
+              <div className="hidden md:flex items-center gap-2 bg-neutral-900/50 p-2 rounded-xl border border-neutral-800">
+                <BarChart2 size={14} className="text-mc-gold ml-2" />
+                <span className="text-[10px] font-black uppercase text-neutral-500 mr-2">Top Clans:</span>
+                {clans
+                  .sort((a,b) => (b.level||0) - (a.level||0))
+                  .slice(0, 3)
+                  .map((c, i) => (
+                    <span key={c.id} className="text-[10px] font-bold px-2 py-1 bg-black/40 rounded border border-neutral-800">
+                      <span className="text-mc-gold mr-1">#{i+1}</span> {c.tag}
+                    </span>
+                  ))
+                }
+              </div>
+
               {user && !myClan && isClansOpen && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); setShowCreateClan(true); }}
@@ -1700,8 +1743,8 @@ export default function App() {
 
                   {/* Clan Specific Info (Right Sidebar) */}
                   <div className="mc-card border-neutral-800 bg-black/40 overflow-hidden self-start sticky top-24">
-                    <div className="border-b border-neutral-800 flex bg-neutral-900/50">
-                      {(['members', 'chat', 'quests', 'requests', 'perks'] as const).map((tab) => {
+                    <div className="border-b border-neutral-800 flex bg-neutral-900/50 overflow-x-auto scrollbar-hide">
+                      {(['members', 'chat', 'quests', 'stats', 'requests', 'perks'] as const).map((tab) => {
                         const myMemberData = clanMembers.find(m => m.userId === user?.uid);
                         const isLeaderOrOfficer = myMemberData?.role === 'Leader' || myMemberData?.role === 'Officer';
                         if (tab === 'requests' && !isLeaderOrOfficer) return null;
@@ -1710,7 +1753,7 @@ export default function App() {
                           <button
                             key={tab}
                             onClick={() => setClanTab(tab)}
-                            className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
+                            className={`flex-1 min-w-[80px] py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
                               clanTab === tab 
                                 ? 'text-mc-gold bg-mc-gold/5 border-b-2 border-mc-gold' 
                                 : 'text-neutral-600 hover:text-neutral-400'
@@ -1720,6 +1763,7 @@ export default function App() {
                             {tab === 'chat' && <MessageSquare size={12} className="inline mr-1" />}
                             {tab === 'perks' && <Award size={12} className="inline mr-1" />}
                             {tab === 'quests' && <Target size={12} className="inline mr-1" />}
+                            {tab === 'stats' && <BarChart2 size={12} className="inline mr-1" />}
                             {tab === 'requests' && <UserPlus size={12} className="inline mr-1" />}
                             {tab}
                           </button>
@@ -1889,6 +1933,67 @@ export default function App() {
                               {clanQuests.length === 0 && (
                                 <p className="text-xs text-neutral-600 text-center italic py-20">Keine aktiven Quests.</p>
                               )}
+                            </div>
+                          )}
+
+                          {clanTab === 'stats' && (
+                            <div className="space-y-6">
+                              <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Clan Performance</h4>
+                              
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="mc-card bg-neutral-900/50 p-4 border-neutral-800">
+                                  <p className="text-[8px] text-neutral-500 uppercase font-black mb-1">Total Kills</p>
+                                  <p className="text-2xl font-black text-mc-red font-mono">
+                                    {(clans.find(c => c.id === activeClanId)?.totalKills || 0).toLocaleString()}
+                                  </p>
+                                </div>
+                                <div className="mc-card bg-neutral-900/50 p-4 border-neutral-800">
+                                  <p className="text-[8px] text-neutral-500 uppercase font-black mb-1">XP Rang</p>
+                                  <p className="text-2xl font-black text-mc-gold font-mono">
+                                    #{clans.sort((a,b) => (b.xp || 0) - (a.xp || 0)).findIndex(c => c.id === activeClanId) + 1}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {clanMembers.some(m => m.userId === user?.uid) && (
+                                <div className="mt-8 p-6 bg-mc-red/5 border border-mc-red/20 rounded-2xl">
+                                  <div className="flex items-center gap-3 mb-4">
+                                    <Sword size={20} className="text-mc-red" />
+                                    <h5 className="text-xs font-bold uppercase tracking-widest">Gefechts-Simulation</h5>
+                                  </div>
+                                  <p className="text-[10px] text-neutral-400 mb-4 italic">
+                                    Im echten PvP-System werden Kills automatisch gezählt. Hier kannst du es zu Testzwecken manuell erhöhen (+10 XP).
+                                  </p>
+                                  <button 
+                                    onClick={() => addClanKill(activeClanId)}
+                                    className="w-full py-3 bg-mc-red text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-600 transition-all active:scale-95"
+                                  >
+                                    Kill melden
+                                  </button>
+                                </div>
+                              )}
+
+                              <div className="pt-4 border-t border-neutral-800/50">
+                                <h5 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Top Beitragsleister</h5>
+                                <div className="space-y-3">
+                                  {clanMembers
+                                    .sort((a,b) => (b.xpContribution || 0) - (a.xpContribution || 0))
+                                    .slice(0, 3)
+                                    .map((m, i) => {
+                                      const p = userProfiles.find(up => up.userId === m.userId);
+                                      return (
+                                        <div key={m.userId} className="flex items-center justify-between text-xs">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-neutral-600 font-mono">#{i+1}</span>
+                                            <span className="font-bold">{p?.displayName || 'Spieler'}</span>
+                                          </div>
+                                          <span className="text-mc-gold font-bold">{(m.xpContribution || 0).toLocaleString()} XP</span>
+                                        </div>
+                                      );
+                                    })
+                                  }
+                                </div>
+                              </div>
                             </div>
                           )}
 

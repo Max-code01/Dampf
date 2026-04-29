@@ -73,14 +73,15 @@ service cloud.firestore {
 
     // Clan Validation
     function isValidClan(data) {
-      return data.keys().hasAll(['name', 'tag', 'leaderId', 'createdAt', 'memberCount', 'level', 'xp']) &&
-             (data.keys().size() >= 7 && data.keys().size() <= 9) &&
+      return data.keys().hasAll(['name', 'tag', 'leaderId', 'createdAt', 'memberCount', 'level', 'xp', 'totalKills']) &&
+             (data.keys().size() >= 8 && data.keys().size() <= 10) &&
              data.name is string && data.name.size() <= 32 &&
              data.tag is string && data.tag.size() <= 4 &&
              data.leaderId is string &&
              data.memberCount is int &&
              data.level is int &&
              data.xp is int &&
+             data.totalKills is int &&
              (!('announcement' in data) || (data.announcement is string && data.announcement.size() <= 200)) &&
              data.createdAt is timestamp;
     }
@@ -125,8 +126,19 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidClan(incoming()) && incoming().leaderId == request.auth.uid;
       allow update: if isSignedIn() && (
         isAdmin() || 
-        (resource.data.leaderId == request.auth.uid && isValidClan(incoming())) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberCount']))
+        (
+          exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)) && 
+          isValidClan(incoming()) && (
+            // Action: Leader/Officer Full Update
+            (get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role in ['Leader', 'Officer']) ||
+            // Action: Member Incremental Update (XP/Kills)
+            (
+              incoming().diff(existing()).affectedKeys().hasOnly(['xp', 'totalKills', 'level', 'memberCount']) &&
+              incoming().xp <= existing().xp + 100 &&
+              incoming().totalKills <= existing().totalKills + 5
+            )
+          )
+        )
       );
       allow delete: if isAdmin() || (isSignedIn() && resource.data.leaderId == request.auth.uid);
 
