@@ -31,6 +31,8 @@ import {
   getDocs,
   query,
   orderBy,
+  limit,
+  addDoc,
   serverTimestamp
 } from 'firebase/firestore';
 import { 
@@ -70,8 +72,18 @@ interface UserProfile {
   minecraftUsername: string;
   isOnline: boolean;
   currentServer: 'none' | 'pvp' | 'survival';
+  role?: 'Member' | 'VIP' | 'Mod' | 'Admin';
   customSkin?: string;
   updatedAt: any;
+}
+
+interface ChatMessage {
+  id: string;
+  text: string;
+  userId: string;
+  displayName: string;
+  role?: string;
+  createdAt: any;
 }
 
 export default function App() {
@@ -94,6 +106,11 @@ export default function App() {
   const [survivalStatus, setSurvivalStatus] = useState<ServerStatus>({ online: true, playerCount: 0, maxPlayers: 10 });
   const [showAdmin, setShowAdmin] = useState(false);
   const [discordData, setDiscordData] = useState<{ online_count: number; members: any[] } | null>(null);
+
+  // Chat State
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
 
   // Constants
   const DISCORD_GUILD_ID = '1451980583969230882'; // Aktualisierte Server ID
@@ -162,12 +179,20 @@ export default function App() {
       if (snapshot.exists()) setRealmCodes(snapshot.data() as any);
     }, (err) => handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes'));
 
+    // Listen to chat
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
+      setChatMessages(msgs);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
       unsubscribeSurvival();
       unsubscribeProfiles();
       unsubscribeCodes();
+      unsubscribeChat();
     };
   }, [user]);
 
@@ -289,6 +314,7 @@ export default function App() {
     const minecraftUsername = formData.get('minecraftUsername') as string;
     const isOnline = formData.get('isOnline') === 'on';
     const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
+    const role = formData.get('role') as any;
 
     try {
       await setDoc(doc(db, 'user_profiles', targetId), {
@@ -297,12 +323,31 @@ export default function App() {
         minecraftUsername,
         isOnline,
         currentServer,
+        role: role || 'Member',
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
       });
       setShowProfileModal(false);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `user_profiles/${targetId}`);
+    }
+  };
+
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !chatInput.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'chat_messages'), {
+        text: chatInput,
+        userId: user.uid,
+        displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
+        role: myProfile?.role || 'Member',
+        createdAt: serverTimestamp()
+      });
+      setChatInput('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
     }
   };
 
@@ -611,6 +656,92 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Floating Chat Button */}
+      <button 
+        onClick={() => setChatOpen(!chatOpen)}
+        className={`fixed bottom-8 right-8 z-[60] w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
+      >
+        <MessageCircle size={24} />
+      </button>
+
+      {/* Chat Drawer */}
+      <AnimatePresence>
+        {chatOpen && (
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed inset-y-0 right-0 w-full sm:w-[400px] bg-black/95 backdrop-blur-xl z-50 border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+          >
+            <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold">Community Chat</h3>
+                <p className="text-neutral-500 text-xs">Schreibe mit anderen Spielern</p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex flex-col ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">{msg.displayName}</span>
+                    {msg.role && msg.role !== 'Member' && (
+                      <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
+                        msg.role === 'Admin' ? 'bg-mc-gold' : 
+                        msg.role === 'Mod' ? 'bg-mc-red' : 
+                        'bg-purple-500'
+                      }`}>
+                        {msg.role}
+                      </span>
+                    )}
+                  </div>
+                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm ${
+                    msg.userId === user?.uid ? 'bg-mc-red text-white' : 'bg-neutral-800 text-neutral-200'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {chatMessages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
+                   <div className="p-4 bg-neutral-900 rounded-full">
+                     <MessageCircle size={32} />
+                   </div>
+                   <p className="text-xs italic">Noch keine Nachrichten... fang an zu schreiben!</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-neutral-800">
+              {user ? (
+                <form onSubmit={sendMessage} className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Sende eine Nachricht..."
+                    className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:border-mc-red outline-none transition-colors"
+                  />
+                  <button 
+                    type="submit"
+                    className="p-3 bg-mc-red rounded-xl hover:bg-mc-red/90 transition-colors"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </form>
+              ) : (
+                <button 
+                  onClick={() => setShowLoginModal(true)}
+                  className="w-full py-3 bg-neutral-800 rounded-xl text-neutral-400 text-sm font-medium hover:bg-neutral-700 transition-colors"
+                >
+                  Anmelden zum Chatten
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main className="relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24">
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
@@ -906,11 +1037,20 @@ export default function App() {
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
                   onClick={() => isAdmin && openProfileEdit(p.userId)}
                 >
-                  {isAdmin && (
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                    {p.role && p.role !== 'Member' && (
+                      <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                        p.role === 'Admin' ? 'bg-mc-gold text-black' :
+                        p.role === 'Mod' ? 'bg-mc-red text-white' :
+                        p.role === 'VIP' ? 'bg-purple-500 text-white' : ''
+                      }`}>
+                        {p.role}
+                      </div>
+                    )}
+                    {isAdmin && (
                       <ShieldCheck size={14} className="text-mc-gold" />
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="relative mb-4">
                     <img 
                       src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'steve'}`} 
@@ -1249,6 +1389,22 @@ export default function App() {
                           <option value="survival">Survival World</option>
                         </select>
                       </div>
+
+                      {isAdmin && (
+                        <div>
+                          <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
+                          <select 
+                            name="role"
+                            defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
+                            className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
+                          >
+                            <option value="Member">Mitglied</option>
+                            <option value="VIP">VIP</option>
+                            <option value="Mod">Moderator</option>
+                            <option value="Admin">Admin</option>
+                          </select>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-col gap-4">

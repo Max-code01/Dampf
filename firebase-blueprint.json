@@ -32,9 +32,42 @@
         },
         "userId": {
           "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Member", "VIP", "Mod", "Admin"],
+          "description": "User role for the community"
         }
       },
       "required": ["displayName", "minecraftUsername", "isOnline", "currentServer", "updatedAt", "userId"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "A message sent in the global community chat",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The message content"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the sender"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the sender at the time of sending"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role of the sender"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["text", "userId", "displayName", "createdAt"]
     },
     "Player": {
       "title": "Player",
@@ -88,6 +121,10 @@
     "server_status/{serverId}": {
       "schema": "ServerStatus",
       "description": "Status information for each server (pvp, survival)"
+    },
+    "chat_messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Global community chat messages"
     }
   }
 }
