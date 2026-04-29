@@ -18,7 +18,10 @@ service cloud.firestore {
         request.auth.token.email == 'max@community.local' ||
         request.auth.token.email == 'dampf@community.local' ||
         request.auth.token.email == 'dampfk@community.local' ||
-        get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5' ||
+        request.auth.token.email == 'block5@community.local' ||
+        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
+         (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Admin' ||
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5')) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }

@@ -1062,20 +1062,28 @@ export default function App() {
       const batch = writeBatch(db);
       
       if (player.type === 'manual') {
-        batch.delete(doc(db, 'online_players', player.id));
+        batch.delete(doc(db, 'online_players', player.id.toLowerCase()));
       } else {
         if (action) {
           // Full Annihilation across multiple collections
+          const profile = userProfiles.find(p => p.userId === player.id);
           batch.delete(doc(db, 'user_profiles', player.id));
           batch.delete(doc(db, 'online_players', player.id));
+          if (profile?.minecraftUsername) {
+            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+          }
         } else {
           // Normal Kick
+          const profile = userProfiles.find(p => p.userId === player.id);
           batch.set(doc(db, 'user_profiles', player.id), { 
             isOnline: false, 
             currentServer: 'none',
             updatedAt: serverTimestamp() 
           }, { merge: true });
           batch.delete(doc(db, 'online_players', player.id));
+          if (profile?.minecraftUsername) {
+            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+          }
         }
       }
       
@@ -1155,16 +1163,22 @@ export default function App() {
     try {
       const batch = writeBatch(db);
       
-      // 1. Delete Profile
+      // Look up profile to find username for online_players cleanup
+      const profile = userProfiles.find(p => p.userId === profileId);
+      
+      // 1. Delete Profile document
       batch.delete(doc(db, 'user_profiles', profileId));
       
-      // 2. Clear Online Data
+      // 2. Clear Online Data - Check by userId and by username
       batch.delete(doc(db, 'online_players', profileId));
+      if (profile?.minecraftUsername) {
+        batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+      }
       
       await batch.commit();
       console.log(`Profile ${profileId} wiped from core.`);
       
-      // Close modal if open for this user
+      // Force immediate local state update for better UI response
       if (editingProfileId === profileId) {
         setShowProfileModal(false);
         setEditingProfileId(null);
@@ -1552,7 +1566,7 @@ export default function App() {
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {chatMessages.map((msg) => (
-                <div key={msg.id} className={`flex flex-col ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
+                <div key={msg.id} className={`flex flex-col group ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">{msg.displayName}</span>
                     {msg.role && msg.role !== 'Member' && (
@@ -1571,14 +1585,14 @@ export default function App() {
                           e.stopPropagation();
                           deleteSingleMessage(msg.id);
                         }}
-                        className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg p-2 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-lg border border-red-500/20"
-                        title="Nachricht unwiderruflich löschen"
+                        className="bg-red-600/40 hover:bg-red-600 text-white rounded-lg p-2.5 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-2xl border border-red-500 scale-110 active:scale-95"
+                        title="NACHRICHT TERMINIEREN"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={16} />
                       </button>
                     )}
                   </div>
-                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative group transition-all hover:ring-1 hover:ring-mc-red/30 ${
+                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative transition-all hover:ring-1 hover:ring-mc-red/30 ${
                     msg.userId === user?.uid ? 'bg-mc-red text-white shadow-lg shadow-mc-red/10' : 'bg-neutral-800 text-neutral-200'
                   }`}>
                     {msg.text}
@@ -1957,13 +1971,21 @@ export default function App() {
                     {isAdmin && (
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={(e) => { e.stopPropagation(); deleteProfile(p.userId); }}
-                          className="p-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/40"
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if(p.isOnline) {
+                              kickPlayer({ id: p.userId, type: 'profile' });
+                            } else {
+                              deleteProfile(p.userId);
+                            }
+                          }}
+                          className="p-1.5 bg-red-600/30 text-red-100 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-lg border border-red-500/30"
+                          title={p.isOnline ? "Spieler Kicken/Entfernen" : "Account Terminieren"}
                         >
-                          <Trash2 size={12} />
+                          {p.isOnline ? <UserMinus size={14} /> : <Trash2 size={14} />}
                         </button>
-                        <div className="p-1.5 bg-mc-gold/20 text-mc-gold rounded-lg">
-                          <ShieldCheck size={12} />
+                        <div className="p-1.5 bg-mc-gold/20 text-mc-gold rounded-lg border border-mc-gold/20">
+                          <ShieldCheck size={14} />
                         </div>
                       </div>
                     )}
