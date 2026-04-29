@@ -20,11 +20,15 @@ import {
   Trash2,
   ShieldCheck,
   ShieldAlert,
+  Command,
+  HelpCircle,
+  Coins,
+  Scroll,
+  MessageSquare,
   User as UserIcon,
   Globe,
   Circle,
   ChevronDown,
-  MessageSquare,
   Award,
   Lock,
   Send,
@@ -104,6 +108,9 @@ interface ChatMessage {
   displayName: string;
   role?: string;
   createdAt: any;
+  isAction?: boolean;
+  isLocal?: boolean;
+  isStaffOnly?: boolean;
 }
 
 interface Clan {
@@ -174,6 +181,7 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -189,6 +197,7 @@ export default function App() {
   const [clanQuests, setClanQuests] = useState<ClanQuest[]>([]);
   const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
   const [visitorInfo, setVisitorInfo] = useState<any>(null);
+  const [showCommandMenu, setShowCommandMenu] = useState(false);
 
   // Constants
   const DISCORD_GUILD_ID = '1451980583969230882'; 
@@ -1063,49 +1072,286 @@ export default function App() {
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !chatInput.trim()) return;
+    const input = chatInput.trim();
 
-    // ROOT CONSOLE (Stealth commands for ALL Admins now as requested)
-    if (isAdmin && chatInput.trim().startsWith('/root.')) {
-      const fullCommand = chatInput.substring(6);
-      const parts = fullCommand.split(' ');
-      const action = parts[0];
-      const target = parts[1];
+    // Helper to send local system message (Only visible to current user)
+    const sendSystemMsg = (text: string, title: string = 'SYSTEM') => {
+      const newLocalMsg: ChatMessage = {
+        id: `local-${Date.now()}-${Math.random()}`,
+        text: text,
+        userId: 'system',
+        displayName: title,
+        role: 'System',
+        createdAt: new Date(),
+        isLocal: true
+      };
+      setLocalMessages(prev => [...prev, newLocalMsg]);
+    };
+
+    // COMMAND HANDLING (Slash Commands)
+    if (input.startsWith('/')) {
+      const parts = input.substring(1).split(' ');
+      const command = parts[0].toLowerCase();
+      const args = parts.slice(1);
 
       try {
-        switch (action) {
-          case 'invisible':
-            await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
-            break;
-          case 'mute': {
-            if (!target) break;
-            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
-            if (targetProf) {
-              await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
-            }
+        switch (command) {
+          case 'help': {
+            const adminCmds = isAdmin ? '\n\n§cADMIN-BEFEHLE:§r\n/root.invisible - Unsichtbarkeit an/aus\n/root.mute [User] - Shadowmute verhängen\n/root.coins [User] [Betrag] - Coins setzen\n/root.nuke - Chat-Verlauf atomisieren\n/root.broadcast [Text] - Globale Ankündigung' : '';
+            sendSystemMsg(`§6--- VERFÜGBARE BEFEHLE ---§r\n/help - Diese Übersicht\n/coins - Dein Reichtum prüfen\n/pay [User] [Betrag] - Coins überweisen\n/me [Text] - Status/Aktion schicken\n/list - Wer ist online?\n/rules - Die heiligen Gesetze\n/discord - Link zum Server\n/rank - Dein Status\n/clan - Deine Gilde\n/top - Die Reichsten der Reichen\n/stats [User] - Profil-Details\n/ping - Reaktionszeit-Test\n/time - Server-Uhrzeit\n/weather - Virtuelle Wettervorhersage\n/roll [max] - Würfeln\n/flip - Münzwurf\n/8ball [Frage] - Das magische Orakel\n/calc [Expr] - Direktrechner\n/joke - Ein schlechter Witz\n/clear - Lokalen Chat bereinigen${adminCmds}`);
             break;
           }
-          case 'coins': {
-            if (!target || !parts[2]) break;
-            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
-            if (targetProf) {
-              await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(parts[2]) }, { merge: true });
+          case 'coins':
+            sendSystemMsg(`Dein Portemonnaie enthält aktuell: §e${myProfile?.coins || 0} Coins§r`);
+            break;
+          case 'pay': {
+            if (args.length < 2) {
+              sendSystemMsg("§cBenutzung: /pay [Name] [Betrag]§r");
+              break;
             }
+            const targetName = args[0];
+            const amount = parseInt(args[1]);
+            if (isNaN(amount) || amount <= 0) {
+              sendSystemMsg("§cUngültiger Betrag!§r");
+              break;
+            }
+            if ((myProfile?.coins || 0) < amount) {
+              sendSystemMsg("§cDu hast nicht genug Coins!§r");
+              break;
+            }
+            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName.toLowerCase() || p.displayName.toLowerCase() === targetName.toLowerCase());
+            if (!targetProf) {
+              sendSystemMsg(`§cSpieler "${targetName}" nicht gefunden.§r`);
+              break;
+            }
+            
+            await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) - amount }, { merge: true });
+            await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: (targetProf.coins || 0) + amount }, { merge: true });
+            
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `💸 ${myProfile?.displayName} hat ${amount} Coins an ${targetProf.displayName} überwiesen!`,
+              userId: 'system',
+              displayName: 'BANK',
+              role: 'System',
+              createdAt: serverTimestamp()
+            });
             break;
           }
-          case 'nuke':
-            nukeChat();
+          case 'me': {
+            if (args.length === 0) break;
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `* ${myProfile?.displayName} ${args.join(' ')}`,
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp(),
+              isAction: true
+            });
             break;
-          case 'broadcast':
-            if (parts[1]) {
-              await setDoc(doc(db, 'app_config', 'system'), { broadcast: parts.slice(1).join(' ') }, { merge: true });
+          }
+          case 'list': {
+            const onlineCount = userProfiles.filter(p => p.isOnline).length;
+            const onlineNames = userProfiles.filter(p => (p.isOnline && !p.isInvisible)).map(p => p.displayName).join(', ');
+            sendSystemMsg(`§aAktuell online (${onlineCount}):§r ${onlineNames}`);
+            break;
+          }
+          case 'rules':
+            sendSystemMsg("§4DIE GESETZE:§r\n1. Respektiere alle Spieler\n2. Hacking/Cheating führt zum Bann\n3. Kein unangemessener Content\n4. Spamming verboten\n5. Scams werden bestraft!");
+            break;
+          case 'discord':
+            sendSystemMsg("§9Offizieller Discord:§r https://discord.gg/mchub");
+            break;
+          case 'stats': {
+            const targetName = args[0] || myProfile?.displayName;
+            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName?.toLowerCase() || p.displayName.toLowerCase() === targetName?.toLowerCase());
+            if (!targetProf) {
+              sendSystemMsg(`§cSpieler "${targetName}" ist unbekannt.§r`);
             } else {
-              await setDoc(doc(db, 'app_config', 'system'), { broadcast: null }, { merge: true });
+              sendSystemMsg(`§bPROFIL VON ${targetProf.displayName}:§r\nMinecraft: ${targetProf.minecraftUsername}\nRang: ${targetProf.role}\nCoins: ${targetProf.coins || 0}\nServer: ${targetProf.currentServer}\nStatus: ${targetProf.isOnline ? '§aOnline§r' : '§cOffline§r'}`);
             }
             break;
+          }
+          case 'top': {
+            const topUsers = [...userProfiles].sort((a, b) => (b.coins || 0) - (a.coins || 0)).slice(0, 5);
+            const topList = topUsers.map((u, i) => `§e${i + 1}.§r ${u.displayName}: ${u.coins || 0} Coins`).join('\n');
+            sendSystemMsg(`§6--- REICHSTE SPIELER ---§r\n${topList}`);
+            break;
+          }
+          case 'ping':
+            sendSystemMsg("§aPong!§r (Latency: ~42ms)");
+            break;
+          case 'time':
+            sendSystemMsg(`§7Serverzeit:§r ${new Date().toLocaleTimeString()}`);
+            break;
+          case 'weather': {
+            const conditions = ['Sonnig ☀️', 'Regen 🌧️', 'Gewitter ⚡', 'Schneefall ❄️', 'Bewölkt ☁️', 'Sandsturm 🏜️'];
+            sendSystemMsg(`§3Wetter-Bericht:§r ${conditions[Math.floor(Math.random() * conditions.length)]}`);
+            break;
+          }
+          case 'roll': {
+            const max = parseInt(args[0]) || 100;
+            const result = Math.floor(Math.random() * max) + 1;
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `🎲 ${myProfile?.displayName} würfelt eine §b${result}§r (1-${max})`,
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp(),
+              isAction: true
+            });
+            break;
+          }
+          case 'flip': {
+            const result = Math.random() > 0.5 ? '§eKOPF§r' : '§7ZAHL§r';
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `🪙 ${myProfile?.displayName} wirft eine Münze: ${result}!`,
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp(),
+              isAction: true
+            });
+            break;
+          }
+          case '8ball': {
+            if (args.length === 0) {
+              sendSystemMsg("§cFrag das Orakel etwas!§r");
+              break;
+            }
+            const answers = ['Ja.', 'Nein.', 'Vielleicht.', 'Frag später nochmal.', 'Auf jeden Fall!', 'Eher nicht.', 'Definitiv.', 'Niemals.', 'Sehr wahrscheinlich.'];
+            sendSystemMsg(`§5Orakel:§r ${answers[Math.floor(Math.random() * answers.length)]}`);
+            break;
+          }
+          case 'calc': {
+            try {
+              const expr = args.join('');
+              const result = eval(expr.replace(/[^-()\d/*+.]/g, ''));
+              sendSystemMsg(`§2Rechner:§r ${expr} = §l${result}§r`);
+            } catch (e) {
+              sendSystemMsg("§cRechenfehler! Nur Zahlen und Operatoren erlaubt.§r");
+            }
+            break;
+          }
+          case 'joke': {
+            const jokes = [
+              "Warum tragen Creeper keine Brillen? Weil sie alles mit einem Knall sehen!",
+              "Was ist der Lieblings-Song eines Endermans? 'Don't Look Back in Anger'.",
+              "Ein Skelett geht in eine Bar... und bestellt ein Bier und einen Wischmopp.",
+              "Was passiert, wenn man einen Creeper und eine Ziege kreuzt? Eine Explosiv-Milch!"
+            ];
+            sendSystemMsg(`§eWitz:§r ${jokes[Math.floor(Math.random() * jokes.length)]}`);
+            break;
+          }
+          case 'shrug': {
+            await addDoc(collection(db, 'chat_messages'), {
+              text: '¯\\_(ツ)_/¯',
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp()
+            });
+            break;
+          }
+          case 'lenny': {
+            await addDoc(collection(db, 'chat_messages'), {
+              text: '( ͡° ͜ʖ ͡°)',
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp()
+            });
+            break;
+          }
+          case 'tableflip': {
+            await addDoc(collection(db, 'chat_messages'), {
+              text: '(╯°□°）╯︵ ┻━┻',
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp()
+            });
+            break;
+          }
+          case 'hug': {
+            if (args.length === 0) break;
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `🤗 ${myProfile?.displayName} umarmt ${args.join(' ')} ganz fest!`,
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp(),
+              isAction: true
+            });
+            break;
+          }
+          case 'slap': {
+            if (args.length === 0) break;
+            await addDoc(collection(db, 'chat_messages'), {
+              text: `👋 ${myProfile?.displayName} gibt ${args.join(' ')} eine fette Backpfeife!`,
+              userId: user.uid,
+              displayName: myProfile?.displayName || 'Unbekannt',
+              role: myProfile?.role || 'Member',
+              createdAt: serverTimestamp(),
+              isAction: true
+            });
+            break;
+          }
+          case 'clear':
+            setLocalMessages([]);
+            sendSystemMsg("§7Dein lokaler Chat-Verlauf wurde geleert.§r");
+            break;
+          default:
+            if (command.startsWith('root.')) {
+              if (!isAdmin) {
+                sendSystemMsg("§cDir fehlen die Admin-Berechtigungen für diesen Befehl!§r");
+                break;
+              }
+              const action = command.substring(5);
+              switch (action) {
+                case 'invisible':
+                  await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
+                  sendSystemMsg(`Du bist nun ${!myProfile?.isInvisible ? '§aUNSICHTBAR§r' : '§cSICHTBAR§r'}.`);
+                  break;
+                case 'mute': {
+                  const target = args[0];
+                  if (!target) { sendSystemMsg("§cUser angeben!§r"); break; }
+                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  if (targetProf) {
+                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
+                    sendSystemMsg(`Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
+                  }
+                  break;
+                }
+                case 'coins': {
+                  const target = args[0];
+                  if (!target || !args[1]) { sendSystemMsg("§cUser und Betrag angeben!§r"); break; }
+                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  if (targetProf) {
+                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
+                    sendSystemMsg(`Coins von ${targetProf.displayName} auf §e${args[1]}§r gesetzt.`);
+                  }
+                  break;
+                }
+                case 'nuke':
+                  nukeChat();
+                  sendSystemMsg("§4DER CHAT WURDE ATOMISIERT.§r");
+                  break;
+                case 'broadcast':
+                  if (args.length > 0) {
+                    await setDoc(doc(db, 'app_config', 'system'), { broadcast: args.join(' ') }, { merge: true });
+                  } else {
+                    await setDoc(doc(db, 'app_config', 'system'), { broadcast: null }, { merge: true });
+                  }
+                  break;
+                default:
+                  sendSystemMsg(`§cUnbekannter Root-Befehl: ${action}§r`);
+              }
+            } else {
+              sendSystemMsg(`§cUnbekannter Befehl: /${command}. Tippe /help für Hilfe!§r`);
+            }
         }
-        console.log(`Root Executed: ${action}`);
       } catch (err) {
-        console.error("Root command terminal fail", err);
+        console.error("Command execution failed", err);
       }
       setChatInput('');
       return;
@@ -1113,7 +1359,6 @@ export default function App() {
 
     // Normal message sending...
     if (myProfile?.isShadowMuted) {
-      // Don't show to others, just clear input (Shadow Muted)
       setChatInput('');
       return;
     }
@@ -1743,10 +1988,20 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {chatMessages.map((msg) => (
+              {[...chatMessages, ...localMessages]
+                .sort((a, b) => {
+                  const timeA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime();
+                  const timeB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime();
+                  return timeA - timeB;
+                })
+                .map((msg) => (
                 <div key={msg.id} className={`flex flex-col group ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">{msg.displayName}</span>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                      msg.userId === 'system' ? 'text-mc-gold' : 'text-neutral-500'
+                    }`}>
+                      {msg.displayName}
+                    </span>
                     {msg.role && msg.role !== 'Member' && (
                       <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
                         msg.role === 'Admin' || msg.role === 'Root' ? 'bg-mc-gold' : 
@@ -1756,28 +2011,35 @@ export default function App() {
                         {msg.role}
                       </span>
                     )}
-                    {isAdmin && (
+                    {msg.isLocal && (
+                      <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase bg-neutral-800 text-neutral-400 border border-neutral-700">
+                        Privat
+                      </span>
+                    )}
+                    {isAdmin && msg.userId !== 'system' && (
                       <button 
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
                           deleteSingleMessage(msg.id);
                         }}
-                        className="bg-red-600/40 hover:bg-red-600 text-white rounded-lg p-2.5 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-2xl border border-red-500 scale-110 active:scale-95"
+                        className="bg-red-600/40 hover:bg-red-600 text-white rounded-lg p-1 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100"
                         title="NACHRICHT TERMINIEREN"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={12} />
                       </button>
                     )}
                   </div>
-                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative transition-all hover:ring-1 hover:ring-mc-red/30 ${
+                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative transition-all hover:ring-1 hover:ring-mc-red/30 whitespace-pre-wrap ${
+                    msg.isAction ? 'italic text-neutral-400 bg-transparent py-1 px-0 shadow-none' :
+                    msg.isLocal ? 'bg-neutral-900 border border-neutral-800 text-neutral-300 italic' :
                     msg.userId === user?.uid ? 'bg-mc-red text-white shadow-lg shadow-mc-red/10' : 'bg-neutral-800 text-neutral-200'
                   }`}>
-                    {msg.text}
+                    {msg.text.replace(/§[a-z0-9]/g, '')}
                   </div>
                 </div>
               ))}
-              {chatMessages.length === 0 && (
+              {chatMessages.length === 0 && localMessages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
                    <div className="p-4 bg-neutral-900 rounded-full">
                      <MessageCircle size={32} />
@@ -1787,14 +2049,55 @@ export default function App() {
               )}
             </div>
 
-            <div className="p-6 border-t border-neutral-800">
+            <div className="p-6 border-t border-neutral-800 relative">
+              {/* QUICK COMMAND MENU */}
+              <AnimatePresence>
+                {showCommandMenu && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute bottom-full left-6 right-6 mb-2 p-2 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl z-50 grid grid-cols-2 gap-2"
+                  >
+                    {[
+                      { icon: HelpCircle, label: 'Hilfe', cmd: '/help' },
+                      { icon: Coins, label: 'Coins', cmd: '/coins' },
+                      { icon: Users, label: 'Spieler', cmd: '/list' },
+                      { icon: MessageSquare, label: 'Status', cmd: '/me ' },
+                      { icon: Scroll, label: 'Regeln', cmd: '/rules' },
+                      { icon: Globe, label: 'Discord', cmd: '/discord' },
+                    ].map((item, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setChatInput(item.cmd);
+                          setShowCommandMenu(false);
+                        }}
+                        className="flex items-center gap-3 p-3 hover:bg-neutral-800 rounded-xl transition-colors text-left"
+                      >
+                        <item.icon size={16} className="text-mc-red" />
+                        <span className="text-xs font-medium text-neutral-300">{item.label}</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {user ? (
                 <form onSubmit={sendMessage} className="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowCommandMenu(!showCommandMenu)}
+                    className={`p-3 rounded-xl transition-all border ${showCommandMenu ? 'bg-mc-red text-white border-mc-red' : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:border-neutral-700'}`}
+                    title="Schnelle Befehle"
+                  >
+                    <Command size={20} />
+                  </button>
                   <input 
                     type="text" 
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Sende eine Nachricht..."
+                    placeholder="Sende eine Nachricht oder /Befehl..."
                     className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:border-mc-red outline-none transition-colors"
                   />
                   <button 
