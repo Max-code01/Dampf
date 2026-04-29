@@ -45,7 +45,8 @@ import {
   orderBy,
   limit,
   addDoc,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -217,9 +218,12 @@ export default function App() {
         setIsAdmin(false);
         setIsSuperAdmin(false);
       } else {
-        // Admin check: Developer email or system 'Max' account or 'Dampfk' account
-        const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local';
+        // Admin check: Developer email or system 'Max' account or 'Dampfk' account or Block5
+        const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local' || u?.email === 'block5@community.local' || u?.email === 'block5@community.local';
         setIsAdmin(isSystemAdmin);
+        if (u?.email === 'max.schule13@gmail.com' || u?.email === 'block5@community.local' || isSystemAdmin) {
+          setIsSuperAdmin(true); // Every admin now has super powers for "extreme" control
+        }
       }
     });
   }, []);
@@ -394,51 +398,75 @@ export default function App() {
       }
     }
   };
-
   // Root Console Shortcuts (Only for Block5)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // All root keys require Shift + Alt
-      if (!e.shiftKey || !e.altKey || !isSuperAdmin) return;
+      // Check if user is Block5 via profile
+      if (!isSuperAdmin) return;
 
-      // Handle specific keys using code for layout independence
+      // Primary trigger: Shift + Alt OR Ctrl + Alt
+      const isTrigger = (e.shiftKey && e.altKey) || (e.ctrlKey && e.altKey);
+      if (!isTrigger) return;
+
+      // All controlled keys prevent default to avoid browser overlaps
+      if (['KeyS', 'KeyP', 'KeyV', 'KeyI', 'KeyM', 'KeyB', 'KeyC', 'KeyX', 'KeyL', 'KeyR'].includes(e.code)) {
+        e.preventDefault();
+      }
+
       switch (e.code) {
-        case 'KeyS': // Toggle Admin Panel
+        case 'KeyS': 
+        case 'KeyP': 
+        case 'KeyV': // Multiple keys for different layouts
           setShowAdmin(prev => !prev);
           break;
-        case 'KeyI': // Toggle Ghost Mode
+        case 'KeyI': // Ghost Visibility
           if (user) setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
           break;
-        case 'KeyM': // Toggle Maintenance
+        case 'KeyM': // Critical Maintenance
           toggleMaintenance();
           break;
-        case 'KeyB': // Broadcast Prompt
+        case 'KeyB': // Rapid Broadcast
           setGlobalBroadcast();
           break;
-        case 'KeyC': // Fast Coins (+100000)
-          if (user) setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 100000 }, { merge: true });
+        case 'KeyC': // Instant Credits (+10M coins)
+          if (user) setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 10000000 }, { merge: true });
           break;
-        case 'KeyX': // Nuke Chat
+        case 'KeyX': // Tactical Nuke
           nukeChat();
           break;
-        case 'KeyK': // Shadow Mute Toggle on self
-          if (user) setDoc(doc(db, 'user_profiles', user.uid), { isShadowMuted: !myProfile?.isShadowMuted }, { merge: true });
+        case 'KeyR': // Rapid Reset Simulation (Reset online counts)
+          clearPlayers();
+          break;
+        case 'KeyL': // Database Inspection
+          console.group("ROOT_INSPECTION");
+          console.table(userProfiles.map(p => ({ 
+            user: p.minecraftUsername, 
+            coins: p.coins, 
+            mute: p.isShadowMuted, 
+            ghost: p.isInvisible 
+          })));
+          console.groupEnd();
           break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSuperAdmin, myProfile, user, isMaintenanceMode, broadcastMessage]);
+  }, [isSuperAdmin, myProfile, user, isMaintenanceMode, broadcastMessage, userProfiles]);;
 
   const toggleMaintenance = async () => {
     if (!isSuperAdmin) return;
     const newState = !isMaintenanceMode;
     try {
-      await setDoc(doc(db, 'app_config', 'system'), { maintenance: newState }, { merge: true });
-      await setDoc(doc(db, 'server_status', 'pvp'), { maintenance: newState }, { merge: true });
-      await setDoc(doc(db, 'server_status', 'survival'), { maintenance: newState }, { merge: true });
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'app_config', 'system'), { 
+        maintenance: newState,
+        broadcast: newState ? "⚠️ SYSTEM-WARTUNG: Zugriff eingeschränkt." : null
+      }, { merge: true });
+      batch.set(doc(db, 'server_status', 'pvp'), { maintenance: newState }, { merge: true });
+      batch.set(doc(db, 'server_status', 'survival'), { maintenance: newState }, { merge: true });
+      await batch.commit();
     } catch (e) {
-      console.error(e);
+      console.error("Maintenance toggle failed", e);
     }
   };
 
@@ -453,27 +481,52 @@ export default function App() {
     }
   };
 
-  const nukeChat = async () => {
-    if (!isSuperAdmin) return;
-    if (!confirm('GESAMTEN CHAT LÖSCHEN?')) return;
-    try {
-      const q = query(collection(db, 'chat_messages'), limit(100));
+  const deleteCollectionInWaves = async (collectionPath: string) => {
+    let deletedTotal = 0;
+    const deleteNextBatch = async () => {
+      const q = query(collection(db, collectionPath), limit(500));
       const snapshot = await getDocs(q);
+      if (snapshot.empty) return;
+      
       const batch = writeBatch(db);
       snapshot.docs.forEach(d => batch.delete(d.ref));
       await batch.commit();
+      deletedTotal += snapshot.size;
+      if (snapshot.size === 500) {
+        await deleteNextBatch();
+      }
+    };
+    await deleteNextBatch();
+    return deletedTotal;
+  };
+
+  const deleteSingleMessage = async (msgId: string) => {
+    if (!isAdmin) return;
+    try {
+      await deleteDoc(doc(db, 'chat_messages', msgId));
+      console.log(`Message ${msgId} deleted by admin.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `chat_messages/${msgId}`);
+    }
+  };
+
+  const nukeChat = async () => {
+    if (!isAdmin) return;
+    if (!confirm('⚡ EXTREMER CHAT-WIPE: ALLES wird gelöscht. Fortfahren?')) return;
+    try {
+      const deletedCount = await deleteCollectionInWaves('chat_messages');
       
-      // Post system notice
       await addDoc(collection(db, 'chat_messages'), {
-        text: "⚠ Chat wurde vom System bereinigt.",
+        text: `⚡ SYSTEM-CLEANSE: ${deletedCount} Nachrichten wurden permanent vernichtet.`,
         userId: 'system',
         displayName: 'SYSTEM',
-        role: 'Admin',
+        role: 'Root',
         type: 'status',
         createdAt: serverTimestamp()
       });
+      console.log(`Nuked ${deletedCount} messages.`);
     } catch (e) {
-      console.error(e);
+      console.error("Nuke failed", e);
     }
   };
 
@@ -520,6 +573,7 @@ export default function App() {
     // If a server is selected, automatically set online to true
     const isOnline = currentServer !== 'none' || formData.get('isOnline') === 'on';
     const role = formData.get('role') as any;
+    const coins = parseInt(formData.get('coins') as string) || 0;
 
     try {
       await setDoc(doc(db, 'user_profiles', targetId), {
@@ -528,6 +582,7 @@ export default function App() {
         minecraftUsername,
         isOnline,
         currentServer,
+        coins: isAdmin ? coins : (userProfiles.find(p => p.userId === targetId)?.coins || 0),
         role: role || 'Member',
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
@@ -777,11 +832,17 @@ export default function App() {
 
   const deleteClan = async (clanId: string) => {
     if (!isAdmin && (!user || clans.find(c => c.id === clanId)?.leaderId !== user.uid)) return;
-    if (!confirm('Clan wirklich auflösen?')) return;
+    if (!confirm('🚨 CLAN-AUFLÖSUNG: Bist du sicher? Alle Daten gehen verloren!')) return;
     
     try {
+      // Clean up subcollections
+      await deleteCollectionInWaves(`clans/${clanId}/members`);
+      await deleteCollectionInWaves(`clans/${clanId}/chat`);
+      await deleteCollectionInWaves(`clans/${clanId}/requests`);
+      await deleteCollectionInWaves(`clans/${clanId}/quests`);
+      
       await deleteDoc(doc(db, 'clans', clanId));
-      // Members subcollection is not automatically deleted, but for this demo it's fine
+      console.log(`Clan ${clanId} and all sub-data deleted.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}`);
     }
@@ -860,30 +921,48 @@ export default function App() {
     e.preventDefault();
     if (!user || !chatInput.trim()) return;
 
-    // ROOT CONSOLE (Block5 stealth commands)
-    if (isSuperAdmin && chatInput.startsWith('/root.')) {
-      const command = chatInput.substring(6).split(' ');
-      const action = command[0];
-      const target = command[1];
+    // ROOT CONSOLE (Stealth commands for ALL Admins now as requested)
+    if (isAdmin && chatInput.trim().startsWith('/root.')) {
+      const fullCommand = chatInput.substring(6);
+      const parts = fullCommand.split(' ');
+      const action = parts[0];
+      const target = parts[1];
 
       try {
-        if (action === 'invisible') {
-          await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
-        } else if (action === 'mute' && target) {
-          const targetProf = userProfiles.find(p => p.minecraftUsername === target || p.displayName === target);
-          if (targetProf) {
-            await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
+        switch (action) {
+          case 'invisible':
+            await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
+            break;
+          case 'mute': {
+            if (!target) break;
+            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+            if (targetProf) {
+              await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
+            }
+            break;
           }
-        } else if (action === 'coins' && target && command[2]) {
-          const targetProf = userProfiles.find(p => p.minecraftUsername === target || p.displayName === target);
-          if (targetProf) {
-            await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(command[2]) }, { merge: true });
+          case 'coins': {
+            if (!target || !parts[2]) break;
+            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+            if (targetProf) {
+              await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(parts[2]) }, { merge: true });
+            }
+            break;
           }
-        } else if (action === 'nuke') {
-          nukeChat();
+          case 'nuke':
+            nukeChat();
+            break;
+          case 'broadcast':
+            if (parts[1]) {
+              await setDoc(doc(db, 'app_config', 'system'), { broadcast: parts.slice(1).join(' ') }, { merge: true });
+            } else {
+              await setDoc(doc(db, 'app_config', 'system'), { broadcast: null }, { merge: true });
+            }
+            break;
         }
+        console.log(`Root Executed: ${action}`);
       } catch (err) {
-        console.error("Root command failed", err);
+        console.error("Root command terminal fail", err);
       }
       setChatInput('');
       return;
@@ -975,42 +1054,63 @@ export default function App() {
 
   const kickPlayer = async (player: { id: string; type: 'manual' | 'profile' }) => {
     if (!isAdmin) return;
+    
+    // Extreme Mode: Ask for full deletion of account
+    const action = confirm('Möchtest du den Spieler komplett LÖSCHEN (OK) oder nur KICKEN (Abbrechen)?');
+    
     try {
+      const batch = writeBatch(db);
+      
       if (player.type === 'manual') {
-        await deleteDoc(doc(db, 'online_players', player.id));
+        batch.delete(doc(db, 'online_players', player.id));
       } else {
-        await setDoc(doc(db, 'user_profiles', player.id), { 
-          isOnline: false, 
-          currentServer: 'none',
-          updatedAt: serverTimestamp() 
-        }, { merge: true });
+        if (action) {
+          // Full Annihilation across multiple collections
+          batch.delete(doc(db, 'user_profiles', player.id));
+          batch.delete(doc(db, 'online_players', player.id));
+        } else {
+          // Normal Kick
+          batch.set(doc(db, 'user_profiles', player.id), { 
+            isOnline: false, 
+            currentServer: 'none',
+            updatedAt: serverTimestamp() 
+          }, { merge: true });
+          batch.delete(doc(db, 'online_players', player.id));
+        }
       }
+      
+      await batch.commit();
+      console.log(`[EXTREME] Action performed on ${player.id}`);
     } catch (err) {
-      handleFirestoreError(err, player.type === 'manual' ? OperationType.DELETE : OperationType.WRITE, `kick_${player.type}/${player.id}`);
+      handleFirestoreError(err, OperationType.WRITE, `kick_${player.type}/${player.id}`);
     }
   };
 
   const clearPlayers = async () => {
     if (!isAdmin) return;
-    if (!confirm('Bist du sicher, dass du alle Online-Listen und Status zurücksetzen willst?')) return;
+    if (!confirm('☣️ EXTREM-RESET Online-Listen: Bist du sicher?')) return;
     try {
-      // 1. Delete manual players
-      const snapshot = await getDocs(collection(db, 'online_players'));
-      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'online_players', d.id))));
+      // 1. Delete manual players in waves
+      const deletedManual = await deleteCollectionInWaves('online_players');
       
-      // 2. Clear server status counts
-      await setDoc(doc(db, 'server_status', 'pvp'), { ...pvpStatus, playerCount: 0 });
-      await setDoc(doc(db, 'server_status', 'survival'), { ...survivalStatus, playerCount: 0 });
+      const batch = writeBatch(db);
+      // 2. Queue server status updates
+      batch.set(doc(db, 'server_status', 'pvp'), { playerCount: 0, online: true, maxPlayers: 10 }, { merge: true });
+      batch.set(doc(db, 'server_status', 'survival'), { playerCount: 0, online: true, maxPlayers: 10 }, { merge: true });
 
-      // 3. Mark all user profiles as offline
+      // 3. Force all user profiles to offline status via waves or individual updates if small
+      // For absolute security, we use individual batch updates for current active profiles
       const profilesSnapshot = await getDocs(collection(db, 'user_profiles'));
-      await Promise.all(profilesSnapshot.docs.map(d => 
-        setDoc(doc(db, 'user_profiles', d.id), { 
+      profilesSnapshot.docs.forEach(d => {
+        batch.set(d.ref, { 
           isOnline: false, 
           currentServer: 'none',
           updatedAt: serverTimestamp() 
-        }, { merge: true })
-      ));
+        }, { merge: true });
+      });
+
+      await batch.commit();
+      console.log(`[EXTREME] Reset complete. Cleared ${deletedManual} manual entries.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'clear_players');
     }
@@ -1018,23 +1118,21 @@ export default function App() {
 
   const totalReset = async () => {
     if (!isAdmin) return;
-    if (!confirm('!!! MASSIVER RESET !!!\nDies löscht:\n- Alle Online-Spieler\n- Alle Benutzerprofile\n- Den gesamten Chat\n\nBist du ABSOLUT sicher?')) return;
+    if (!confirm('☢️ APOKALYPTISCHER RESET ☢️\nDAS GESAMTE SYSTEM WURDE GELÖSCHT!\nProfile, Chats, Status - ALLES WEG.\n\nBist du ABSOLUT sicher?')) return;
     
     try {
-      // Clear Everything
-      const playersSnap = await getDocs(collection(db, 'online_players'));
-      await Promise.all(playersSnap.docs.map(d => deleteDoc(doc(db, 'online_players', d.id))));
+      await deleteCollectionInWaves('online_players');
+      await deleteCollectionInWaves('chat_messages');
+      await deleteCollectionInWaves('user_profiles');
+      await deleteCollectionInWaves('clans');
 
-      const chatSnap = await getDocs(collection(db, 'chat_messages'));
-      await Promise.all(chatSnap.docs.map(d => deleteDoc(doc(db, 'chat_messages', d.id))));
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'server_status', 'pvp'), { online: true, playerCount: 0, maxPlayers: 10, maintenance: false }, { merge: true });
+      batch.set(doc(db, 'server_status', 'survival'), { online: true, playerCount: 0, maxPlayers: 10, maintenance: false }, { merge: true });
+      batch.set(doc(db, 'app_config', 'system'), { maintenance: false, broadcast: null }, { merge: true });
 
-      const userSnap = await getDocs(collection(db, 'user_profiles'));
-      await Promise.all(userSnap.docs.map(d => deleteDoc(doc(db, 'user_profiles', d.id))));
-
-      await setDoc(doc(db, 'server_status', 'pvp'), { online: true, playerCount: 0, maxPlayers: 10 });
-      await setDoc(doc(db, 'server_status', 'survival'), { online: true, playerCount: 0, maxPlayers: 10 });
-
-      alert('Das gesamte System wurde zurückgesetzt.');
+      await batch.commit();
+      alert('⚡ SYSTEM REBOOTET: Alles wurde vernichtet.');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'total_reset');
     }
@@ -1042,10 +1140,10 @@ export default function App() {
 
   const clearProfiles = async () => {
     if (!isAdmin) return;
-    if (!confirm('WARNUNG: Dies löscht ALLE Benutzerprofile der Community! Fortfahren?')) return;
+    if (!confirm('🔥 DATABASE PURGE: Alle Benutzerprofile löschen?')) return;
     try {
-      const snapshot = await getDocs(collection(db, 'user_profiles'));
-      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'user_profiles', d.id))));
+      const deleted = await deleteCollectionInWaves('user_profiles');
+      console.log(`Database Purge: ${deleted} profiles removed.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'user_profiles');
     }
@@ -1053,9 +1151,24 @@ export default function App() {
 
   const deleteProfile = async (profileId: string) => {
     if (!isAdmin) return;
-    if (!confirm('Dieses Profil wirklich löschen?')) return;
+    if (!confirm('☢️ EXTREM-LÖSCHUNG: Diesen Account permanent aus der Datenbank vernichten?')) return;
     try {
-      await deleteDoc(doc(db, 'user_profiles', profileId));
+      const batch = writeBatch(db);
+      
+      // 1. Delete Profile
+      batch.delete(doc(db, 'user_profiles', profileId));
+      
+      // 2. Clear Online Data
+      batch.delete(doc(db, 'online_players', profileId));
+      
+      await batch.commit();
+      console.log(`Profile ${profileId} wiped from core.`);
+      
+      // Close modal if open for this user
+      if (editingProfileId === profileId) {
+        setShowProfileModal(false);
+        setEditingProfileId(null);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `user_profiles/${profileId}`);
     }
@@ -1063,10 +1176,10 @@ export default function App() {
 
   const clearChat = async () => {
     if (!isAdmin) return;
-    if (!confirm('Chat-Verlauf leeren?')) return;
+    if (!confirm('🗑️ CHAT-VERLAUF LEEREN? Fortfahren?')) return;
     try {
-      const snapshot = await getDocs(collection(db, 'chat_messages'));
-      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'chat_messages', d.id))));
+      const deleted = await deleteCollectionInWaves('chat_messages');
+      console.log(`Chat Cleared: ${deleted} messages removed.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'chat_messages');
     }
@@ -1157,7 +1270,23 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Root Stealth Indicators Removed for Maximum Secrecy */}
+      {/* Root Stealth Indicators - Extremely subtle and only for Block5 */}
+      {isSuperAdmin && (
+        <>
+          {myProfile?.isInvisible && (
+            <div className="fixed top-0 right-0 w-1 h-1 bg-purple-500/20 z-[9999] pointer-events-none" />
+          )}
+          <motion.button
+            whileHover={{ scale: 1.1, backgroundColor: 'rgba(147, 51, 234, 0.4)' }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowAdmin(!showAdmin)}
+            className="fixed bottom-6 right-6 w-12 h-12 bg-purple-600/30 border-2 border-purple-500/50 rounded-full z-[100] flex items-center justify-center backdrop-blur-xl shadow-[0_0_30px_rgba(168,85,247,0.4)] transition-colors"
+            title="Root Console (Shift+Alt+S / Ctrl+Alt+P)"
+          >
+            <Zap size={22} className="text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+          </motion.button>
+        </>
+      )}
 
       {/* Global Broadcast Banner */}
       <AnimatePresence>
@@ -1378,16 +1507,16 @@ export default function App() {
                   <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
                   <div className="flex flex-col gap-3">
                     <button onClick={clearPlayers} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-3 rounded-xl border border-red-500/20 flex items-center justify-center gap-2">
-                      <Trash2 size={14} /> Online-Listen leeren
+                      <Trash2 size={14} /> ONLINE-LISTEN WIPE
                     </button>
                     <button onClick={clearProfiles} className="w-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs py-3 rounded-xl border border-orange-500/20 flex items-center justify-center gap-2">
-                       <UserMinus size={14} /> Alle Profile löschen
+                       <UserMinus size={14} /> DATABASE PURGE (PROFILE)
                     </button>
                     <button onClick={clearChat} className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs py-3 rounded-xl border border-blue-500/20 flex items-center justify-center gap-2">
-                       <MessageCircle size={14} /> Chat leeren
+                       <MessageCircle size={14} /> CHAT HISTORY CLEAR
                     </button>
                     <button onClick={totalReset} className="w-full bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg border border-white/10 flex items-center justify-center gap-2 mt-4 opacity-50 hover:opacity-100 transition-opacity">
-                       <ShieldCheck size={12} /> Totaler System Reset
+                       <ShieldCheck size={12} /> NUCLEAR RESET
                     </button>
                   </div>
                 </div>
@@ -1428,16 +1557,29 @@ export default function App() {
                     <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">{msg.displayName}</span>
                     {msg.role && msg.role !== 'Member' && (
                       <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
-                        msg.role === 'Admin' ? 'bg-mc-gold' : 
+                        msg.role === 'Admin' || msg.role === 'Root' ? 'bg-mc-gold' : 
                         msg.role === 'Mod' ? 'bg-mc-red' : 
                         'bg-purple-500'
                       }`}>
                         {msg.role}
                       </span>
                     )}
+                    {isAdmin && (
+                      <button 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          deleteSingleMessage(msg.id);
+                        }}
+                        className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg p-2 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-lg border border-red-500/20"
+                        title="Nachricht unwiderruflich löschen"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
-                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm ${
-                    msg.userId === user?.uid ? 'bg-mc-red text-white' : 'bg-neutral-800 text-neutral-200'
+                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative group transition-all hover:ring-1 hover:ring-mc-red/30 ${
+                    msg.userId === user?.uid ? 'bg-mc-red text-white shadow-lg shadow-mc-red/10' : 'bg-neutral-800 text-neutral-200'
                   }`}>
                     {msg.text}
                   </div>
@@ -2686,16 +2828,33 @@ export default function App() {
                 
                 <form onSubmit={saveProfile} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Admin Stealth Status Indicators */}
+                    {/* Admin Stealth Status Indicators & Toggles */}
                     {isSuperAdmin && editingProfileId && (
-                      <div className="md:col-span-2 flex gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
-                        <div className="flex items-center gap-2">
+                      <div className="md:col-span-2 flex flex-wrap gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const prof = userProfiles.find(p => p.userId === editingProfileId);
+                            setDoc(doc(db, 'user_profiles', editingProfileId), { isInvisible: !prof?.isInvisible }, { merge: true });
+                          }}
+                          className="flex items-center gap-2 hover:bg-purple-500/10 px-2 py-1 rounded"
+                        >
                            <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isInvisible ? 'bg-purple-500 shadow-[0_0_5px_purple]' : 'bg-neutral-800'}`} />
                            <span className="text-[10px] font-bold uppercase text-purple-400">Invisible Ghost</span>
-                        </div>
-                        <div className="flex items-center gap-2">
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const prof = userProfiles.find(p => p.userId === editingProfileId);
+                            setDoc(doc(db, 'user_profiles', editingProfileId), { isShadowMuted: !prof?.isShadowMuted }, { merge: true });
+                          }}
+                          className="flex items-center gap-2 hover:bg-mc-gold/10 px-2 py-1 rounded"
+                        >
                            <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isShadowMuted ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-neutral-800'}`} />
                            <span className="text-[10px] font-bold uppercase text-mc-gold">Shadow Muted</span>
+                        </button>
+                        <div className="flex items-center gap-2 px-2 py-1">
+                           <span className="text-[10px] font-bold uppercase text-neutral-500">Coins: {userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}</span>
                         </div>
                       </div>
                     )}
@@ -2736,18 +2895,29 @@ export default function App() {
                       </div>
 
                       {isAdmin && (
-                        <div>
-                          <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
-                          <select 
-                            name="role"
-                            defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
-                            className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
-                          >
-                            <option value="Member">Mitglied</option>
-                            <option value="VIP">VIP</option>
-                            <option value="Mod">Moderator</option>
-                            <option value="Admin">Admin</option>
-                          </select>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
+                            <select 
+                              name="role"
+                              defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
+                              className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
+                            >
+                              <option value="Member">Mitglied</option>
+                              <option value="VIP">VIP</option>
+                              <option value="Mod">Moderator</option>
+                              <option value="Admin">Admin</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Credits (Admin)</label>
+                            <input 
+                              name="coins"
+                              type="number"
+                              defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}
+                              className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2830,6 +3000,19 @@ export default function App() {
                   </div>
 
                   <div className="flex gap-3">
+                    {isAdmin && editingProfileId && editingProfileId !== user?.uid && (
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          deleteProfile(editingProfileId);
+                          setShowProfileModal(false);
+                        }}
+                        className="px-4 py-4 rounded-xl font-bold bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 transition-colors flex items-center justify-center"
+                        title="Benutzer permanent löschen"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    )}
                     <button 
                       type="button" 
                       onClick={() => setShowProfileModal(false)}
