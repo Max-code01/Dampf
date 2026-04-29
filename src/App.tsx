@@ -609,7 +609,15 @@ export default function App() {
   const deleteSingleMessage = async (msgId: string) => {
     if (!isAdmin) return;
     try {
+      const msg = chatMessages.find(m => m.id === msgId);
       await deleteDoc(doc(db, 'chat_messages', msgId));
+      
+      notifyDiscord(
+        "🗑️ NACHRICHT GELÖSCHT",
+        `**Admin:** ${myProfile?.displayName || user?.displayName}\n**Sender:** ${msg?.displayName || 'Unbekannt'}\n**Inhalt:** ${msg?.text || 'N/A'}`,
+        16753920 // Orange
+      );
+      
       console.log(`Message ${msgId} deleted by admin.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `chat_messages/${msgId}`);
@@ -622,6 +630,12 @@ export default function App() {
     try {
       const deletedCount = await deleteCollectionInWaves('chat_messages');
       
+      notifyDiscord(
+        "☢️ CHAT ATOMISIERT",
+        `**Admin:** ${myProfile?.displayName || user?.displayName}\n**Vernichtete Nachrichten:** ${deletedCount}\n**Status:** CHAT_VACUUM_COMPLETED`,
+        16711680 // Red
+      );
+
       await addDoc(collection(db, 'chat_messages'), {
         text: `⚡ SYSTEM-CLEANSE: ${deletedCount} Nachrichten wurden permanent vernichtet.`,
         userId: 'system',
@@ -681,6 +695,8 @@ export default function App() {
     const role = formData.get('role') as any;
     const coins = parseInt(formData.get('coins') as string) || 0;
 
+    const targetProfile = userProfiles.find(p => p.userId === targetId);
+    
     try {
       await setDoc(doc(db, 'user_profiles', targetId), {
         userId: targetId,
@@ -693,6 +709,13 @@ export default function App() {
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
       }, { merge: true }); // Use merge to be safer
+
+      notifyDiscord(
+        "🧬 PROFIL-UPDATE (ADMIN)",
+        `**Ziel:** ${targetProfile?.displayName || 'Unbekannt'}\n**Admin:** ${myProfile?.displayName || user?.displayName}\n**Änderungen:** Rolle=${role || targetProfile?.role}, Coins=${coins}`,
+        65280 // Green
+      );
+
       setShowProfileModal(false);
       setEditingProfileId(null);
     } catch (err) {
@@ -947,6 +970,7 @@ export default function App() {
     if (!confirm('🚨 CLAN-AUFLÖSUNG: Bist du sicher? Alle Daten gehen verloren!')) return;
     
     try {
+      const clan = clans.find(c => c.id === clanId);
       // Clean up subcollections
       await deleteCollectionInWaves(`clans/${clanId}/members`);
       await deleteCollectionInWaves(`clans/${clanId}/chat`);
@@ -954,6 +978,13 @@ export default function App() {
       await deleteCollectionInWaves(`clans/${clanId}/quests`);
       
       await deleteDoc(doc(db, 'clans', clanId));
+      
+      notifyDiscord(
+        "🏚️ CLAN AUFGELÖST",
+        `**Clan:** ${clan?.name} [${clan?.tag}]\n**Admin:** ${myProfile?.displayName || user?.displayName}\n**Aktion:** Vollständige Datenlöschung`,
+        16711680 // Red
+      );
+
       console.log(`Clan ${clanId} and all sub-data deleted.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}`);
@@ -1207,6 +1238,13 @@ export default function App() {
       }
       
       await batch.commit();
+      
+      notifyDiscord(
+        "🦶 SPIELER GEKICKT/ENTFERNT",
+        `**Ziel-ID:** ${player.id}\n**Admin:** ${myProfile?.displayName || user?.displayName}\n**Methode:** ${action ? 'VOLLSTÄNDIGE LÖSCHUNG' : 'SOFT_KICK'}`,
+        16776960 // Yellow
+      );
+
       console.log(`[EXTREME] Action performed on ${player.id}`);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `kick_${player.type}/${player.id}`);
@@ -1237,6 +1275,13 @@ export default function App() {
       });
 
       await batch.commit();
+      
+      notifyDiscord(
+        "🌊 ONLINE-LISTEN WIPE",
+        `**Admin:** ${myProfile?.displayName || user?.displayName}\n**Manuelle Einträge gelöscht:** ${deletedManual}\n**Status:** ALL_PROFILES_OFFLINED`,
+        16753920 // Orange
+      );
+
       console.log(`[EXTREME] Reset complete. Cleared ${deletedManual} manual entries.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'clear_players');
@@ -1259,6 +1304,13 @@ export default function App() {
       batch.set(doc(db, 'app_config', 'system'), { maintenance: false, broadcast: null }, { merge: true });
 
       await batch.commit();
+      
+      notifyDiscord(
+        "🔥 TOTALER SYSTEM-RESET",
+        `**Admin:** ${myProfile?.displayName || user?.displayName}\n**Aktion:** APOCALYPSE_TRIGGERED\n**Ergebnis:** Alle Kollektionen geleert.`,
+        16711680 // Special Red
+      );
+
       alert('⚡ SYSTEM REBOOTET: Alles wurde vernichtet.');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'total_reset');
@@ -1295,6 +1347,13 @@ export default function App() {
       }
       
       await batch.commit();
+
+      notifyDiscord(
+        "💀 ACCOUNT TERMINIERT",
+        `**User:** ${profile?.displayName}\n**Email:** ${profile?.userId}\n**Admin:** ${myProfile?.displayName || user?.displayName}`,
+        0 // Black
+      );
+
       console.log(`Profile ${profileId} wiped from core.`);
       
       // Force immediate local state update for better UI response
