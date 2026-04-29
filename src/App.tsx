@@ -16,6 +16,7 @@ import {
   LogIn,
   LogOut,
   UserPlus,
+  UserMinus,
   Trash2,
   ShieldCheck,
   User as UserIcon,
@@ -140,7 +141,7 @@ export default function App() {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
       // Admin check: Developer email or system 'Max' account (max@community.local)
-      setIsAdmin(u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local');
+      setIsAdmin(u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local');
     });
   }, []);
 
@@ -326,8 +327,9 @@ export default function App() {
         role: role || 'Member',
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true }); // Use merge to be safer
       setShowProfileModal(false);
+      setEditingProfileId(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `user_profiles/${targetId}`);
     }
@@ -400,26 +402,102 @@ export default function App() {
     }
   };
 
-  const kickPlayer = async (playerId: string) => {
+  const kickPlayer = async (player: { id: string; type: 'manual' | 'profile' }) => {
     if (!isAdmin) return;
     try {
-      await deleteDoc(doc(db, 'online_players', playerId));
+      if (player.type === 'manual') {
+        await deleteDoc(doc(db, 'online_players', player.id));
+      } else {
+        await setDoc(doc(db, 'user_profiles', player.id), { 
+          isOnline: false, 
+          currentServer: 'none',
+          updatedAt: serverTimestamp() 
+        }, { merge: true });
+      }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `online_players/${playerId}`);
+      handleFirestoreError(err, player.type === 'manual' ? OperationType.DELETE : OperationType.WRITE, `kick_${player.type}/${player.id}`);
     }
   };
 
   const clearPlayers = async () => {
     if (!isAdmin) return;
+    if (!confirm('Bist du sicher, dass du alle Online-Listen und Status zurücksetzen willst?')) return;
     try {
+      // 1. Delete manual players
       const snapshot = await getDocs(collection(db, 'online_players'));
-      for (const d of snapshot.docs) {
-        await deleteDoc(doc(db, 'online_players', d.id));
-      }
+      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'online_players', d.id))));
+      
+      // 2. Clear server status counts
       await setDoc(doc(db, 'server_status', 'pvp'), { ...pvpStatus, playerCount: 0 });
       await setDoc(doc(db, 'server_status', 'survival'), { ...survivalStatus, playerCount: 0 });
+
+      // 3. Mark all user profiles as offline
+      const profilesSnapshot = await getDocs(collection(db, 'user_profiles'));
+      await Promise.all(profilesSnapshot.docs.map(d => 
+        setDoc(doc(db, 'user_profiles', d.id), { 
+          isOnline: false, 
+          currentServer: 'none',
+          updatedAt: serverTimestamp() 
+        }, { merge: true })
+      ));
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'online_players');
+      handleFirestoreError(err, OperationType.WRITE, 'clear_players');
+    }
+  };
+
+  const totalReset = async () => {
+    if (!isAdmin) return;
+    if (!confirm('!!! MASSIVER RESET !!!\nDies löscht:\n- Alle Online-Spieler\n- Alle Benutzerprofile\n- Den gesamten Chat\n\nBist du ABSOLUT sicher?')) return;
+    
+    try {
+      // Clear Everything
+      const playersSnap = await getDocs(collection(db, 'online_players'));
+      await Promise.all(playersSnap.docs.map(d => deleteDoc(doc(db, 'online_players', d.id))));
+
+      const chatSnap = await getDocs(collection(db, 'chat_messages'));
+      await Promise.all(chatSnap.docs.map(d => deleteDoc(doc(db, 'chat_messages', d.id))));
+
+      const userSnap = await getDocs(collection(db, 'user_profiles'));
+      await Promise.all(userSnap.docs.map(d => deleteDoc(doc(db, 'user_profiles', d.id))));
+
+      await setDoc(doc(db, 'server_status', 'pvp'), { online: true, playerCount: 0, maxPlayers: 10 });
+      await setDoc(doc(db, 'server_status', 'survival'), { online: true, playerCount: 0, maxPlayers: 10 });
+
+      alert('Das gesamte System wurde zurückgesetzt.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'total_reset');
+    }
+  };
+
+  const clearProfiles = async () => {
+    if (!isAdmin) return;
+    if (!confirm('WARNUNG: Dies löscht ALLE Benutzerprofile der Community! Fortfahren?')) return;
+    try {
+      const snapshot = await getDocs(collection(db, 'user_profiles'));
+      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'user_profiles', d.id))));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'user_profiles');
+    }
+  };
+
+  const deleteProfile = async (profileId: string) => {
+    if (!isAdmin) return;
+    if (!confirm('Dieses Profil wirklich löschen?')) return;
+    try {
+      await deleteDoc(doc(db, 'user_profiles', profileId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `user_profiles/${profileId}`);
+    }
+  };
+
+  const clearChat = async () => {
+    if (!isAdmin) return;
+    if (!confirm('Chat-Verlauf leeren?')) return;
+    try {
+      const snapshot = await getDocs(collection(db, 'chat_messages'));
+      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, 'chat_messages', d.id))));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'chat_messages');
     }
   };
 
@@ -428,19 +506,19 @@ export default function App() {
   
   // Combined lists for specific servers
   const combinedPvpPlayers = [
-    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' })),
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' })),
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'pvp')
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
   );
 
   const combinedSurvivalPlayers = [
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' })),
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' })),
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival')
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
   );
@@ -645,9 +723,17 @@ export default function App() {
                   <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
                   <div className="flex flex-col gap-3">
                     <button onClick={clearPlayers} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-3 rounded-xl border border-red-500/20 flex items-center justify-center gap-2">
-                      <Trash2 size={14} /> Alle Online-Listen leeren
+                      <Trash2 size={14} /> Online-Listen leeren
                     </button>
-                    <p className="text-[8px] text-neutral-600 text-center uppercase tracking-wide">Vorsicht: Dies löscht alle simulierten Spieler.</p>
+                    <button onClick={clearProfiles} className="w-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs py-3 rounded-xl border border-orange-500/20 flex items-center justify-center gap-2">
+                       <UserMinus size={14} /> Alle Profile löschen
+                    </button>
+                    <button onClick={clearChat} className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs py-3 rounded-xl border border-blue-500/20 flex items-center justify-center gap-2">
+                       <MessageCircle size={14} /> Chat leeren
+                    </button>
+                    <button onClick={totalReset} className="w-full bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg border border-white/10 flex items-center justify-center gap-2 mt-4 opacity-50 hover:opacity-100 transition-opacity">
+                       <ShieldCheck size={12} /> Totaler System Reset
+                    </button>
                   </div>
                 </div>
               </div>
@@ -920,10 +1006,21 @@ export default function App() {
                       {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map(p => (
                         <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
-                          {p.username}
-                          {isAdmin && p.type === 'manual' && (
+                          <span className="flex items-center gap-1.5">
+                            {p.username}
+                            {p.role && p.role !== 'Member' && (
+                              <span className={`text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase ${
+                                p.role === 'Admin' ? 'bg-mc-gold text-black' :
+                                p.role === 'Mod' ? 'bg-mc-red text-white' :
+                                'bg-purple-500 text-white'
+                              }`}>
+                                {p.role}
+                              </span>
+                            )}
+                          </span>
+                          {isAdmin && (
                             <button 
-                              onClick={(e) => { e.stopPropagation(); kickPlayer(p.id); }}
+                              onClick={(e) => { e.stopPropagation(); kickPlayer({ id: p.id, type: p.type as any }); }}
                               className="ml-1 opacity-0 group-hover/item:opacity-100 transition-opacity text-neutral-500 hover:text-mc-red"
                             >
                               <Trash2 size={10} />
@@ -986,10 +1083,21 @@ export default function App() {
                       {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map(p => (
                         <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
-                          {p.username}
-                          {isAdmin && p.type === 'manual' && (
+                          <span className="flex items-center gap-1.5">
+                            {p.username}
+                            {p.role && p.role !== 'Member' && (
+                              <span className={`text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase ${
+                                p.role === 'Admin' ? 'bg-mc-gold text-black' :
+                                p.role === 'Mod' ? 'bg-mc-red text-white' :
+                                'bg-purple-500 text-white'
+                              }`}>
+                                {p.role}
+                              </span>
+                            )}
+                          </span>
+                          {isAdmin && (
                             <button 
-                              onClick={(e) => { e.stopPropagation(); kickPlayer(p.id); }}
+                              onClick={(e) => { e.stopPropagation(); kickPlayer({ id: p.id, type: p.type as any }); }}
                               className="ml-1 opacity-0 group-hover/item:opacity-100 transition-opacity text-neutral-500 hover:text-mc-red"
                             >
                               <Trash2 size={10} />
@@ -1037,9 +1145,9 @@ export default function App() {
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
                   onClick={() => isAdmin && openProfileEdit(p.userId)}
                 >
-                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                  <div className="absolute top-2 right-2 flex gap-1 z-20">
                     {p.role && p.role !== 'Member' && (
-                      <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                      <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
                         p.role === 'Admin' ? 'bg-mc-gold text-black' :
                         p.role === 'Mod' ? 'bg-mc-red text-white' :
                         p.role === 'VIP' ? 'bg-purple-500 text-white' : ''
@@ -1048,7 +1156,17 @@ export default function App() {
                       </div>
                     )}
                     {isAdmin && (
-                      <ShieldCheck size={14} className="text-mc-gold" />
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteProfile(p.userId); }}
+                          className="p-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/40"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                        <div className="p-1.5 bg-mc-gold/20 text-mc-gold rounded-lg">
+                          <ShieldCheck size={12} />
+                        </div>
+                      </div>
                     )}
                   </div>
                   <div className="relative mb-4">
