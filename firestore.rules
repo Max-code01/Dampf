@@ -14,16 +14,23 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'max.schule13@gmail.com' ||
-        request.auth.token.email == 'max@community.local' ||
-        request.auth.token.email == 'dampf@community.local' ||
-        request.auth.token.email == 'dampfk@community.local' ||
-        request.auth.token.email == 'block5@community.local' ||
+        request.auth.token.email in [
+          'max.schule13@gmail.com',
+          'max@community.local',
+          'dampf@community.local',
+          'dampfk@community.local',
+          'block5@community.local'
+        ] ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-         (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Admin' ||
-          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5')) ||
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Admin') ||
+        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
     }
 
     function isRoot() {
@@ -69,9 +76,9 @@ service cloud.firestore {
     // UserProfile Validation
     function isValidUserProfile(data, docId) {
       return data.keys().hasAll(['displayName', 'minecraftUsername', 'isOnline', 'currentServer', 'updatedAt', 'userId']) &&
-             (data.keys().size() >= 6 && data.keys().size() <= 12) &&
-             data.displayName is string && data.displayName.size() <= 32 &&
-             data.minecraftUsername is string && data.minecraftUsername.size() <= 16 &&
+             data.keys().size() >= 6 &&
+             data.displayName is string &&
+             data.minecraftUsername is string &&
              data.isOnline is bool &&
              data.currentServer in ['none', 'pvp', 'survival'] &&
              // Ensure nobody can set themselves as Admin unless they are already Admin/Root

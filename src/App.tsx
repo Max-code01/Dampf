@@ -309,7 +309,7 @@ export default function App() {
           );
         }
       } catch (err) {
-        console.error("Profile sync error", err);
+        handleFirestoreError(err, OperationType.WRITE, `user_profiles/${user.uid}`);
       }
     };
 
