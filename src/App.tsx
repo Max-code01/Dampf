@@ -19,6 +19,7 @@ import {
   UserMinus,
   Trash2,
   ShieldCheck,
+  ShieldAlert,
   User as UserIcon,
   Globe,
   Circle,
@@ -41,6 +42,7 @@ import {
   doc, 
   deleteDoc, 
   getDocs,
+  getDoc,
   query,
   orderBy,
   limit,
@@ -186,9 +188,54 @@ export default function App() {
   const [clanRequests, setClanRequests] = useState<ClanJoinRequest[]>([]);
   const [clanQuests, setClanQuests] = useState<ClanQuest[]>([]);
   const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
+  const [visitorInfo, setVisitorInfo] = useState<any>(null);
 
   // Constants
-  const DISCORD_GUILD_ID = '1451980583969230882'; // Aktualisierte Server ID
+  const DISCORD_GUILD_ID = '1451980583969230882'; 
+  const WEBHOOK_URL = (import.meta as any).env.VITE_DISCORD_WEBHOOK_URL;
+
+  // Discord Notifier
+  const notifyDiscord = async (title: string, message: string, color: number = 16711680) => {
+    if (!WEBHOOK_URL) return;
+    try {
+      await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          embeds: [{
+            title: title,
+            description: message,
+            color: color,
+            timestamp: new Date().toISOString(),
+            footer: { text: "MC HUB Surveillance System" }
+          }]
+        })
+      });
+    } catch (e) {
+      console.error("Webhook failed", e);
+    }
+  };
+
+  // Fetch IP and Location Info
+  useEffect(() => {
+    const trackVisitor = async () => {
+      try {
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
+        setVisitorInfo(data);
+        
+        // Notify Discord about new visit
+        notifyDiscord(
+          "🌐 Neuer Besucher detektiert",
+          `**IP:** ${data.ip}\n**Ort:** ${data.city}, ${data.region} (${data.country_name})\n**Provider:** ${data.org}\n**Anbieter:** ${data.asn}`,
+          3447003 // Blue
+        );
+      } catch (e) {
+        console.error("IP tracking failed", e);
+      }
+    };
+    trackVisitor();
+  }, []);
 
   // Fetch Discord Status
   useEffect(() => {
@@ -209,6 +256,65 @@ export default function App() {
     const interval = setInterval(fetchDiscord, 30000); // Alle 30 Sek aktualisieren
     return () => clearInterval(interval);
   }, [DISCORD_GUILD_ID]);
+
+  // Sync User Profile and Tracking
+  useEffect(() => {
+    if (!user) return;
+
+    const syncProfile = async () => {
+      try {
+        const profileRef = doc(db, 'user_profiles', user.uid);
+        const snapshot = await getDoc(profileRef);
+
+        if (!snapshot.exists()) {
+          // New User Registration
+          const newProfile = {
+            userId: user.uid,
+            displayName: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
+            minecraftUsername: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
+            coins: 100,
+            role: (user.email === 'max.schule13@gmail.com' || user.email === 'block5@community.local') ? 'Admin' : 'Member',
+            isOnline: true,
+            currentServer: 'none',
+            isShadowMuted: false,
+            isInvisible: false,
+            joinDate: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            // Surveillance Data
+            registrationIp: visitorInfo?.ip || 'N/A',
+            registrationCity: visitorInfo?.city || 'N/A',
+            registrationOrg: visitorInfo?.org || 'N/A',
+            registrationAsn: visitorInfo?.asn || 'N/A'
+          };
+          await setDoc(profileRef, newProfile);
+          
+          notifyDiscord(
+            "🆕 NEUE REGISTRIERUNG",
+            `**User:** ${newProfile.displayName}\n**Email:** ${user.email}\n**IP:** ${visitorInfo?.ip || 'Unbekannt'}\n**Ort:** ${visitorInfo?.city || 'Unbekannt'}\n**Provider:** ${visitorInfo?.org || 'Unbekannt'}`,
+            65280 // Green
+          );
+        } else {
+          // Returning User
+          await setDoc(profileRef, { 
+            isOnline: true, 
+            lastLoginIp: visitorInfo?.ip || 'N/A',
+            lastLoginCity: visitorInfo?.city || 'N/A',
+            updatedAt: serverTimestamp() 
+          }, { merge: true });
+
+          notifyDiscord(
+            "🔑 LOGIN-EVENT",
+            `**User:** ${snapshot.data()?.displayName}\n**IP:** ${visitorInfo?.ip || 'Unbekannt'}\n**Service:** ${visitorInfo?.org || 'Unbekannt'}`,
+            16776960 // Yellow
+          );
+        }
+      } catch (err) {
+        console.error("Profile sync error", err);
+      }
+    };
+
+    syncProfile();
+  }, [user, visitorInfo]);
 
   // Auth Listener
   useEffect(() => {
@@ -739,6 +845,12 @@ export default function App() {
         createdAt: serverTimestamp()
       });
 
+      notifyDiscord(
+        "🛡️ NEUER CLAN GEGRÜNDET",
+        `**Clan:** ${name} [${tag.toUpperCase()}]\n**Leader:** ${myProfile?.displayName || user.displayName}\n**Ziel:** Weltherrschaft`,
+        15105570 // Gold-ish
+      );
+
       await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
         userId: user.uid,
         role: 'Leader',
@@ -982,6 +1094,13 @@ export default function App() {
         role: myProfile?.role || 'Member',
         createdAt: serverTimestamp()
       });
+      
+      notifyDiscord(
+        "💬 CHAT-LIVESTREAM",
+        `**${myProfile?.displayName || user.displayName}**: ${chatInput}`,
+        3447003 // Blue
+      );
+      
       setChatInput('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
@@ -2939,6 +3058,24 @@ export default function App() {
                               defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}
                               className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
                             />
+                          </div>
+                          
+                          {/* SURVEILLANCE DATA */}
+                          <div className="col-span-2 p-4 bg-red-500/10 border border-red-500/30 rounded-xl space-y-2">
+                             <div className="flex items-center gap-2 text-red-400 mb-2">
+                               <ShieldAlert size={14} />
+                               <span className="text-[10px] font-black uppercase tracking-widest">Surveillance Feed (Top Secret)</span>
+                             </div>
+                             <div className="grid grid-cols-2 gap-y-2 text-[10px] font-mono">
+                                <span className="text-neutral-500">Reg-IP:</span>
+                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || 'NO_DATA'}</span>
+                                <span className="text-neutral-500">Reg-Location:</span>
+                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.registrationCity || 'N/A'}, {userProfiles.find(p => p.userId === editingProfileId)?.registrationOrg || 'N/A'}</span>
+                                <span className="text-neutral-500">Last-IP:</span>
+                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}</span>
+                                <span className="text-neutral-500">ASN/Anbieter:</span>
+                                <span className="text-white text-right truncate">{userProfiles.find(p => p.userId === editingProfileId)?.registrationAsn || 'UNKNOWN'}</span>
+                             </div>
                           </div>
                         </div>
                       )}
