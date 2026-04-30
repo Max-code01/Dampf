@@ -1212,6 +1212,9 @@ export default function App() {
       setLocalMessages(prev => [...prev, newLocalMsg]);
     };
 
+    const getLevel = (xp: number = 0) => Math.floor(Math.sqrt(xp / 100)) + 1;
+    const getXPForLevel = (level: number) => Math.pow(level - 1, 2) * 100;
+
     // COMMAND HANDLING (Slash Commands)
     if (input.startsWith('/')) {
       const parts = input.substring(1).split(' ');
@@ -1221,31 +1224,35 @@ export default function App() {
       try {
         switch (command) {
           case 'help': {
-            const adminCmds = isAdmin ? '\n\n§cADMIN-BEFEHLE:§r\n/root.invisible - Unsichtbarkeit an/aus\n/root.mute [User] - Shadowmute verhängen\n/root.coins [User] [Betrag] - Coins setzen\n/root.nuke - Chat-Verlauf atomisieren\n/root.broadcast [Text] - Globale Ankündigung' : '';
-            sendSystemMsg(`§6--- VERFÜGBARE BEFEHLE ---§r\n/help - Diese Übersicht\n/coins - Dein Reichtum prüfen\n/pay [User] [Betrag] - Coins überweisen\n/me [Text] - Status/Aktion schicken\n/list - Wer ist online?\n/rules - Die heiligen Gesetze\n/discord - Link zum Server\n/rank - Dein Status\n/clan - Deine Gilde\n/top - Die Reichsten der Reichen\n/stats [User] - Profil-Details\n/ping - Reaktionszeit-Test\n/time - Server-Uhrzeit\n/weather - Virtuelle Wettervorhersage\n/roll [max] - Würfeln\n/flip - Münzwurf\n/8ball [Frage] - Das magische Orakel\n/calc [Expr] - Direktrechner\n/joke - Ein schlechter Witz\n/clear - Lokalen Chat bereinigen${adminCmds}`);
+            const adminCmds = isAdmin ? '\n\n§c[ADMIN-BEDIENER]§r\n§7/root.invisible§r - Ninja-Modus\n§7/root.mute [User]§r - Silent-Mute\n§7/root.coins [User] [Betrag]§r - Kontostand hacken\n§7/root.xp [User] [Betrag]§r - Level manipulieren\n§7/root.nuke§r - Alles weglöschen\n§7/root.broadcast [Text]§r - Globale Megaphon-Nachricht' : '';
+            sendSystemMsg(`§6§l--- BEFEHLS-ZENTRALE ---§r\n§e/stats [Spieler]§r - Level, Coins & XP abrufen\n§e/pay [User] [Betrag]§r - Coins spendieren\n§e/top§r - Wer ist der Beste?\n§e/list§r - Wer treibt sich hier rum?\n§e/me [Aktion]§r - Rollenspiel-Action\n§e/rank§r - XP-Fortschritt checken\n§e/rules§r - Was darf ich?\n§e/discord§r - Server-Invite\n§e/ping§r - Verbindungs-Check\n§e/calc [Formel]§r - Der smarte Rechner\n§e/roll [max]§r - Glücksrad\n§e/flip§r - Münze werfen\n§e/joke§r - Lass mich dich unterhalten\n§e/clear§r - Chat sauber machen${adminCmds}`);
             break;
           }
           case 'coins':
-            sendSystemMsg(`Dein Portemonnaie enthält aktuell: §e${myProfile?.coins || 0} Coins§r`);
+            sendSystemMsg(`💰 Dein Kontostand: §e${myProfile?.coins || 0} Coins§r`);
             break;
           case 'pay': {
             if (args.length < 2) {
-              sendSystemMsg("§cBenutzung: /pay [Name] [Betrag]§r");
+              sendSystemMsg("§cVerwendung: /pay [Name] [Betrag]§r");
               break;
             }
             const targetName = args[0];
             const amount = parseInt(args[1]);
             if (isNaN(amount) || amount <= 0) {
-              sendSystemMsg("§cUngültiger Betrag!§r");
+              sendSystemMsg("§cBetrag muss eine positive Zahl sein!§r");
+              break;
+            }
+            if (targetName.toLowerCase() === myProfile?.minecraftUsername.toLowerCase() || targetName.toLowerCase() === myProfile?.displayName.toLowerCase()) {
+              sendSystemMsg("§cDu kannst dir nicht selbst Geld überweisen!§r");
               break;
             }
             if ((myProfile?.coins || 0) < amount) {
-              sendSystemMsg("§cDu hast nicht genug Coins!§r");
+              sendSystemMsg("§cOperation abgelehnt: Guthaben nicht ausreichend!§r");
               break;
             }
             const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName.toLowerCase() || p.displayName.toLowerCase() === targetName.toLowerCase());
             if (!targetProf) {
-              sendSystemMsg(`§cSpieler "${targetName}" nicht gefunden.§r`);
+              sendSystemMsg(`§cEmpfänger "${targetName}" im System unauffindbar.§r`);
               break;
             }
             
@@ -1253,7 +1260,7 @@ export default function App() {
             await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: (targetProf.coins || 0) + amount }, { merge: true });
             
             await addDoc(collection(db, 'chat_messages'), {
-              text: `💸 ${myProfile?.displayName} hat ${amount} Coins an ${targetProf.displayName} überwiesen!`,
+              text: `💸 **${myProfile?.displayName}** hat **${amount} Coins** an **${targetProf.displayName}** überwiesen!`,
               userId: 'system',
               displayName: 'BANK',
               role: 'System',
@@ -1274,49 +1281,76 @@ export default function App() {
             break;
           }
           case 'list': {
-            const onlineCount = userProfiles.filter(p => p.isOnline).length;
-            const onlineNames = userProfiles.filter(p => (p.isOnline && !p.isInvisible)).map(p => p.displayName).join(', ');
-            sendSystemMsg(`§aAktuell online (${onlineCount}):§r ${onlineNames}`);
+            const visibleOnline = userProfiles.filter(p => (p.isOnline && (!p.isInvisible || isAdmin)));
+            const onlineText = visibleOnline.map(p => `§7[${p.role || 'Member'}]§r ${p.displayName} (§b${p.currentServer}§r)`).join('\n');
+            sendSystemMsg(`§a§lAKTUELL AKTIV (${visibleOnline.length}):§r\n${onlineText}`);
+            break;
+          }
+          case 'rank': {
+            const xp = myProfile?.xp || 0;
+            const lv = getLevel(xp);
+            const nextLv = lv + 1;
+            const xpForNext = getXPForLevel(nextLv);
+            const xpThisLv = xp - getXPForLevel(lv);
+            const nextLvCost = xpForNext - getXPForLevel(lv);
+            const progress = Math.min(100, Math.floor((xpThisLv / nextLvCost) * 100));
+            sendSystemMsg(`§b--- DEIN RANG-STATUS ---§r\nLevel: §l${lv}§r\nXP: §7${xp} / ${xpForNext}§r\nFortschritt: §a${progress}%§r`);
             break;
           }
           case 'rules':
-            sendSystemMsg("§4DIE GESETZE:§r\n1. Respektiere alle Spieler\n2. Hacking/Cheating führt zum Bann\n3. Kein unangemessener Content\n4. Spamming verboten\n5. Scams werden bestraft!");
+            sendSystemMsg("§4§lOFFIZIELLES REGELWERK:§r\n§71.§r Sei kein Schwein (Respekt)\n§72.§r Cheats & Hacks = Permanent Bann\n§73.§r Kein Spam, keine Scams\n§74.§r Die Admins haben immer recht\n§75.§r Spaß haben ist Pflicht!");
             break;
           case 'discord':
-            sendSystemMsg("§9Offizieller Discord:§r https://discord.com/invite/bdc79dqh");
+            sendSystemMsg(`§9§lDISCORD VERBINDUNG:§r\n${DISCORD_URL}`);
             break;
           case 'stats': {
             const targetName = args[0] || myProfile?.displayName;
             const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName?.toLowerCase() || p.displayName.toLowerCase() === targetName?.toLowerCase());
             if (!targetProf) {
-              sendSystemMsg(`§cSpieler "${targetName}" ist unbekannt.§r`);
+              sendSystemMsg(`§cFehler: Spieler-Profil "${targetName}" nicht gefunden.§r`);
             } else {
-              sendSystemMsg(`§bPROFIL VON ${targetProf.displayName}:§r\nMinecraft: ${targetProf.minecraftUsername}\nRang: ${targetProf.role}\nCoins: ${targetProf.coins || 0}\nServer: ${targetProf.currentServer}\nStatus: ${targetProf.isOnline ? '§aOnline§r' : '§cOffline§r'}`);
+              const lv = getLevel(targetProf.xp || 0);
+              const statusStr = targetProf.isOnline ? '§aONLINE§r' : '§cOFFLINE§r';
+              sendSystemMsg(`§b§lAKTE: ${targetProf.displayName.toUpperCase()}§r\n§8----------------------§r\n§eRang:§r ${targetProf.role || 'Member'}\n§eLevel:§r §l${lv}§r (${targetProf.xp || 0} XP)\n§eCoins:§r ${targetProf.coins || 0}\n§eRealm:§r ${targetProf.currentServer || 'Keiner'}\n§eStatus:§r ${statusStr}`);
             }
             break;
           }
           case 'top': {
-            const topUsers = [...userProfiles].sort((a, b) => (b.coins || 0) - (a.coins || 0)).slice(0, 5);
-            const topList = topUsers.map((u, i) => `§e${i + 1}.§r ${u.displayName}: ${u.coins || 0} Coins`).join('\n');
-            sendSystemMsg(`§6--- REICHSTE SPIELER ---§r\n${topList}`);
+            const category = args[0]?.toLowerCase() || 'coins';
+            let list = [];
+            let title = '';
+            
+            if (category === 'xp' || category === 'level') {
+              title = 'SITZFLEISCH-KÖNIGE (XP)';
+              list = [...userProfiles].sort((a, b) => (b.xp || 0) - (a.xp || 0)).slice(0, 5);
+            } else {
+              title = 'REICHSTE SPIELER (COINS)';
+              list = [...userProfiles].sort((a, b) => (b.coins || 0) - (a.coins || 0)).slice(0, 5);
+            }
+            
+            const topList = list.map((u, i) => `§e${i + 1}.§r ${u.displayName} - ${category === 'xp' || category === 'level' ? `§bLv. ${getLevel(u.xp)}§r` : `§6${u.coins} Coins§r`}`).join('\n');
+            sendSystemMsg(`§6§l--- ${title} ---§r\n${topList}\n§7(Tipp: /top xp oder /top coins)§r`);
             break;
           }
-          case 'ping':
-            sendSystemMsg("§aPong!§r (Latency: ~42ms)");
+          case 'ping': {
+            const pings = [12, 24, 38, 42, 11, 401, 15, 29];
+            const p = pings[Math.floor(Math.random() * pings.length)];
+            sendSystemMsg(`§fVerbindung: §l${p}ms§r ${p > 100 ? '§c(Laggy!)§r' : '§a(Stable)§r'}`);
             break;
+          }
           case 'time':
-            sendSystemMsg(`§7Serverzeit:§r ${new Date().toLocaleTimeString()}`);
+            sendSystemMsg(`§7Server-Uhr:§r ${new Date().toLocaleTimeString('de-DE')} Uhr`);
             break;
           case 'weather': {
-            const conditions = ['Sonnig ☀️', 'Regen 🌧️', 'Gewitter ⚡', 'Schneefall ❄️', 'Bewölkt ☁️', 'Sandsturm 🏜️'];
-            sendSystemMsg(`§3Wetter-Bericht:§r ${conditions[Math.floor(Math.random() * conditions.length)]}`);
+            const conditions = ['Sonnig ☀️', 'Regen 🌧️', 'Gewitter ⚡', 'Schneefall ❄️', 'Bewölkt ☁️', 'Sandsturm 🏜️', 'Blutmond 🌑'];
+            sendSystemMsg(`§3Meteorologe:§r Heute ist mit §l${conditions[Math.floor(Math.random() * conditions.length)]}§r zu rechnen.`);
             break;
           }
           case 'roll': {
             const max = parseInt(args[0]) || 100;
             const result = Math.floor(Math.random() * max) + 1;
             await addDoc(collection(db, 'chat_messages'), {
-              text: `🎲 ${myProfile?.displayName} würfelt eine §b${result}§r (1-${max})`,
+              text: `🎲 **${myProfile?.displayName}** würfelt eine **${result}** (1-${max})`,
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
@@ -1328,7 +1362,7 @@ export default function App() {
           case 'flip': {
             const result = Math.random() > 0.5 ? '§eKOPF§r' : '§7ZAHL§r';
             await addDoc(collection(db, 'chat_messages'), {
-              text: `🪙 ${myProfile?.displayName} wirft eine Münze: ${result}!`,
+              text: `🪙 **${myProfile?.displayName}** wirft eine Münze: ${result}!`,
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
@@ -1339,31 +1373,34 @@ export default function App() {
           }
           case '8ball': {
             if (args.length === 0) {
-              sendSystemMsg("§cFrag das Orakel etwas!§r");
+              sendSystemMsg("§cDu musst dem Orakel eine Frage stellen!§r");
               break;
             }
-            const answers = ['Ja.', 'Nein.', 'Vielleicht.', 'Frag später nochmal.', 'Auf jeden Fall!', 'Eher nicht.', 'Definitiv.', 'Niemals.', 'Sehr wahrscheinlich.'];
-            sendSystemMsg(`§5Orakel:§r ${answers[Math.floor(Math.random() * answers.length)]}`);
+            const answers = ['Ja.', 'Nein.', 'Vielleicht.', 'Frag später nochmal.', 'Auf jeden Fall!', 'Eher nicht.', 'Definitiv.', 'Niemals.', 'Sehr wahrscheinlich.', 'Konzentriere dich und frage erneut.', 'Meine Quellen sagen Nein.'];
+            sendSystemMsg(`§5[ORAKEL]§r ${answers[Math.floor(Math.random() * answers.length)]}`);
             break;
           }
           case 'calc': {
             try {
               const expr = args.join('');
-              const result = eval(expr.replace(/[^-()\d/*+.]/g, ''));
-              sendSystemMsg(`§2Rechner:§r ${expr} = §l${result}§r`);
+              const cleanExpr = expr.replace(/[^-()\d/*+.]/g, '');
+              const result = eval(cleanExpr);
+              sendSystemMsg(`§2§lRECHNER:§r ${cleanExpr} = §l${result}§r`);
             } catch (e) {
-              sendSystemMsg("§cRechenfehler! Nur Zahlen und Operatoren erlaubt.§r");
+              sendSystemMsg("§cSyntax-Fehler! Nur Zahlen und Operatoren (+, -, *, /) zulässig.§r");
             }
             break;
           }
           case 'joke': {
             const jokes = [
+              "Hacker beim Angeln. Er fängt einen dicken Fisch. 'Warum schaust du so?' - 'Ich finde den Download-Button nicht!'",
               "Warum tragen Creeper keine Brillen? Weil sie alles mit einem Knall sehen!",
               "Was ist der Lieblings-Song eines Endermans? 'Don't Look Back in Anger'.",
               "Ein Skelett geht in eine Bar... und bestellt ein Bier und einen Wischmopp.",
-              "Was passiert, wenn man einen Creeper und eine Ziege kreuzt? Eine Explosiv-Milch!"
+              "Was passiert, wenn man einen Creeper und eine Ziege kreuzt? Eine Explosiv-Milch!",
+              "Woran erkennt man einen motivierten Programmierer? Er hat seine Überstunden schon in Binär gezählt."
             ];
-            sendSystemMsg(`§eWitz:§r ${jokes[Math.floor(Math.random() * jokes.length)]}`);
+            sendSystemMsg(`§e[COMEDY]§r ${jokes[Math.floor(Math.random() * jokes.length)]}`);
             break;
           }
           case 'shrug': {
@@ -1399,7 +1436,7 @@ export default function App() {
           case 'hug': {
             if (args.length === 0) break;
             await addDoc(collection(db, 'chat_messages'), {
-              text: `🤗 ${myProfile?.displayName} umarmt ${args.join(' ')} ganz fest!`,
+              text: `🤗 **${myProfile?.displayName}** umarmt **${args.join(' ')}** ganz fest!`,
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
@@ -1411,7 +1448,7 @@ export default function App() {
           case 'slap': {
             if (args.length === 0) break;
             await addDoc(collection(db, 'chat_messages'), {
-              text: `👋 ${myProfile?.displayName} gibt ${args.join(' ')} eine fette Backpfeife!`,
+              text: `👋 **${myProfile?.displayName}** gibt **${args.join(' ')}** eine fette Backpfeife!`,
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
@@ -1422,23 +1459,23 @@ export default function App() {
           }
           case 'clear':
             setLocalMessages([]);
-            sendSystemMsg("§7Dein lokaler Chat-Verlauf wurde geleert.§r");
+            sendSystemMsg("§7Dein lokaler Chat-Verlauf wurde bereinigt.§r");
             break;
           default:
             if (command.startsWith('root.')) {
               if (!isAdmin) {
-                sendSystemMsg("§cDir fehlen die Admin-Berechtigungen für diesen Befehl!§r");
+                sendSystemMsg("§cZugriff verweigert: Admin-Privilegien erforderlich!§r");
                 break;
               }
               const action = command.substring(5);
               switch (action) {
                 case 'invisible':
                   await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
-                  sendSystemMsg(`Du bist nun ${!myProfile?.isInvisible ? '§aUNSICHTBAR§r' : '§cSICHTBAR§r'}.`);
+                  sendSystemMsg(`Root-Modus: Du bist nun ${!myProfile?.isInvisible ? '§aUNSICHTBAR§r' : '§cSICHTBAR§r'}.`);
                   break;
                 case 'mute': {
                   const target = args[0];
-                  if (!target) { sendSystemMsg("§cUser angeben!§r"); break; }
+                  if (!target) { sendSystemMsg("§cAnwendung: /root.mute [Name]§r"); break; }
                   const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
@@ -1448,11 +1485,21 @@ export default function App() {
                 }
                 case 'coins': {
                   const target = args[0];
-                  if (!target || !args[1]) { sendSystemMsg("§cUser und Betrag angeben!§r"); break; }
+                  if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.coins [Name] [Betrag]§r"); break; }
                   const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
-                    sendSystemMsg(`Coins von ${targetProf.displayName} auf §e${args[1]}§r gesetzt.`);
+                    sendSystemMsg(`Kontostand von ${targetProf.displayName} auf §e${args[1]}§r Coins gesetzt.`);
+                  }
+                  break;
+                }
+                case 'xp': {
+                  const target = args[0];
+                  if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.xp [Name] [Betrag]§r"); break; }
+                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  if (targetProf) {
+                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
+                    sendSystemMsg(`Erfahrung von ${targetProf.displayName} auf §b${args[1]} XP§r gesetzt.`);
                   }
                   break;
                 }
@@ -1462,20 +1509,24 @@ export default function App() {
                   break;
                 case 'broadcast':
                   if (args.length > 0) {
-                    await setDoc(doc(db, 'app_config', 'system'), { broadcast: args.join(' ') }, { merge: true });
+                    const msg = args.join(' ');
+                    await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg }, { merge: true });
+                    sendSystemMsg(`§aBroadcast gesetzt:§r ${msg}`);
                   } else {
                     await setDoc(doc(db, 'app_config', 'system'), { broadcast: null }, { merge: true });
+                    sendSystemMsg("§7Broadcast entfernt.§r");
                   }
                   break;
                 default:
-                  sendSystemMsg(`§cUnbekannter Root-Befehl: ${action}§r`);
+                  sendSystemMsg(`§cKommandozentrale: Unbekannter Root-Befehl "${action}"§r`);
               }
             } else {
-              sendSystemMsg(`§cUnbekannter Befehl: /${command}. Tippe /help für Hilfe!§r`);
+              sendSystemMsg(`§cBefehl nicht erkannt: /${command}. Nutze /help für eine Übersicht.§r`);
             }
         }
       } catch (err) {
-        console.error("Command execution failed", err);
+        console.error("Critical command failure", err);
+        sendSystemMsg("§cSystem-Fehler bei der Befehlsverarbeitung!§r");
       }
       setChatInput('');
       return;
