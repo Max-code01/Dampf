@@ -153,6 +153,7 @@ interface ClanQuest {
   completed: boolean;
 }
 
+// App component - Main entry point
 export default function App() {
   const [realmCodes, setRealmCodes] = useState({
     PVP: 'w3PHnwq-5_kcfoE',
