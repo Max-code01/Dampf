@@ -224,5 +224,22 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isSignedIn() || isAdmin(); // Allow anyone signed in to vote
     }
+
+    // Shop Collection
+    function isValidShopItem(data) {
+      return data.keys().hasAll(['name', 'description', 'price', 'category', 'isActive', 'createdAt']) &&
+             data.keys().size() == 6 &&
+             data.name is string && data.name.size() <= 64 &&
+             data.description is string && data.description.size() <= 200 &&
+             data.price is int && data.price >= 0 &&
+             data.category in ['Ränge', 'Items', 'Vorteile', 'Boxen'] &&
+             data.isActive is bool &&
+             data.createdAt is timestamp;
+    }
+
+    match /shop/{itemId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidShopItem(incoming());
+    }
   }
 }

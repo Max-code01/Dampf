@@ -201,6 +201,20 @@
         }
       },
       "required": ["question", "isActive", "createdAt", "options"]
+    },
+    "ShopItem": {
+      "title": "Shop Item",
+      "description": "An item available in the global shop",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "integer" },
+        "category": { "type": "string", "enum": ["Ränge", "Items", "Vorteile", "Boxen"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "description", "price", "category", "isActive", "createdAt"]
     }
   },
   "firestore": {
@@ -247,6 +261,10 @@
     "polls/{pollId}": {
       "schema": "Poll",
       "description": "Community polls"
+    },
+    "shop/{itemId}": {
+      "schema": "ShopItem",
+      "description": "Items available in the global shop"
     }
   }
 }

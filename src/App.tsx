@@ -43,7 +43,9 @@ import {
   X,
   Rocket,
   Plus,
-  Unlock
+  Unlock,
+  ShoppingBag,
+  Store
 } from 'lucide-react';
 import { 
   collection, 
@@ -139,6 +141,18 @@ interface Poll {
   createdAt: any;
 }
 
+interface ShopItem {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: 'Ränge' | 'Items' | 'Vorteile' | 'Boxen';
+  icon?: string;
+  stock?: number;
+  isActive: boolean;
+  createdAt: any;
+}
+
 interface Clan {
   id: string;
   name: string;
@@ -213,6 +227,8 @@ export default function App() {
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [shopItems, setShopItems] = useState<ShopItem[]>([]);
+  const [shopOpen, setShopOpen] = useState(false);
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -466,6 +482,11 @@ export default function App() {
       setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
     }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
 
+    // Listen to shop
+    const unsubscribeShop = onSnapshot(query(collection(db, 'shop'), orderBy('price', 'asc')), (snapshot) => {
+      setShopItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
@@ -477,6 +498,7 @@ export default function App() {
       unsubscribeAppConfig();
       unsubscribeNews();
       unsubscribePolls();
+      unsubscribeShop();
     };
   }, [user]);
 
@@ -754,6 +776,69 @@ export default function App() {
       await setDoc(doc(db, 'polls', pollId), { isActive: !poll.isActive }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `polls/${pollId}`);
+    }
+  };
+
+  // Shop Management
+  const addShopItem = async () => {
+    if (!isAdmin) return;
+    const name = prompt("Item Name:");
+    const desc = prompt("Beschreibung:");
+    const priceStr = prompt("Preis (Coins):");
+    const cat = prompt("Kategorie (Ränge, Items, Vorteile, Boxen):") as any;
+    if (!name || !desc || !priceStr || !cat) return;
+    
+    try {
+      await addDoc(collection(db, 'shop'), {
+        name,
+        description: desc,
+        price: parseInt(priceStr) || 0,
+        category: cat,
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+      notifyDiscord("🏪 NEUES SHOP-ITEM", `**${name}** hinzugefügt!\nKategorie: ${cat}\nPreis: ${priceStr} Coins`, 3447003);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'shop');
+    }
+  };
+
+  const buyItem = async (item: ShopItem) => {
+    if (!user || !myProfile) return;
+    if ((myProfile.coins || 0) < item.price) {
+      alert("❌ Du hast nicht genug Coins für diesen Kauf!");
+      return;
+    }
+    if (!confirm(`Möchtest du "${item.name}" für ${item.price} Coins kaufen?`)) return;
+
+    try {
+      await setDoc(doc(db, 'user_profiles', user.uid), { 
+        coins: (myProfile.coins || 0) - item.price 
+      }, { merge: true });
+
+      notifyDiscord("💰 SHOP-KAUF", `**${myProfile.displayName}** hat **${item.name}** gekauft!`, 16776960);
+      
+      await addDoc(collection(db, 'chat_messages'), {
+        text: `🛍️ **${myProfile.displayName}** hat gerade **${item.name}** im Shop erworben!`,
+        userId: 'system',
+        displayName: 'SHOP',
+        role: 'System',
+        createdAt: serverTimestamp()
+      });
+      
+      alert("✅ Kauf erfolgreich! Das Item wird dir in Kürze gutgeschrieben.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `shop_purchase/${item.id}`);
+    }
+  };
+
+  const deleteShopItem = async (itemId: string) => {
+    if (!isAdmin) return;
+    if (!confirm("Item aus dem Shop entfernen?")) return;
+    try {
+      await deleteDoc(doc(db, 'shop', itemId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `shop/${itemId}`);
     }
   };
 
@@ -2167,6 +2252,15 @@ export default function App() {
 
       {/* Floating Action Group */}
       <div className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3">
+        {/* Shop Button */}
+        <button 
+          onClick={() => { setShopOpen(!shopOpen); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${shopOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
+          title="Globaler Shop"
+        >
+          <ShoppingBag size={24} />
+        </button>
+
         {/* News Button */}
         <button 
           onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
@@ -2187,7 +2281,7 @@ export default function App() {
 
         {/* Chat Button */}
         <button 
-          onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); }}
+          onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); setShopOpen(false); }}
           className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
           title="Chat"
         >
@@ -2333,6 +2427,129 @@ export default function App() {
                   </div>
                 );
               })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Shop Drawer */}
+      <AnimatePresence>
+        {shopOpen && (
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-black/95 backdrop-blur-xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+          >
+            <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <ShoppingBag className="text-mc-gold" />
+                  Globaler Shop
+                </h3>
+                <p className="text-neutral-500 text-xs">Kaufe Ränge, Items und mehr mit Coins</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); addShopItem(); }}
+                    className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
+                    title="Item hinzufügen"
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
+                <button onClick={() => setShopOpen(false)} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
+              <div className="flex items-center gap-2 bg-black/50 px-3 py-1 rounded-full border border-mc-gold/20">
+                <span className="text-mc-gold font-bold">{myProfile?.coins || 0}</span>
+                <span className="text-[10px] text-mc-gold/60 uppercase font-bold tracking-tighter">Coins</span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
+                const items = shopItems.filter(i => i.category === cat);
+                if (items.length === 0 && !isAdmin) return null;
+                
+                return (
+                  <div key={cat} className="space-y-4">
+                    <h4 className="text-[10px] uppercase font-bold text-neutral-500 tracking-[0.2em] border-b border-neutral-800 pb-2 flex items-center gap-2">
+                      {cat === 'Ränge' && <Award size={14} className="text-mc-gold" />}
+                      {cat === 'Items' && <Sword size={14} className="text-mc-gold" />}
+                      {cat === 'Vorteile' && <Zap size={14} className="text-mc-gold" />}
+                      {cat === 'Boxen' && <Box size={14} className="text-mc-gold" />}
+                      {cat}
+                    </h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      {items.map((item) => (
+                        <div key={item.id} className="mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/50 to-black">
+                          {item.price >= 5000 && (
+                            <div className="absolute -top-1 -left-1 bg-mc-gold text-black text-[8px] font-extrabold px-3 py-1 rounded-br-xl z-20 shadow-lg tracking-widest uppercase">
+                              Legendär
+                            </div>
+                          )}
+                          
+                          <div className="flex justify-between items-start mb-3 relative z-10">
+                            <div className="space-y-1">
+                              <h5 className="font-bold text-base text-white group-hover:text-mc-gold transition-colors">{item.name}</h5>
+                              <p className="text-[10px] text-neutral-400 leading-relaxed max-w-[220px] font-medium italic">"{item.description}"</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-3">
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => deleteShopItem(item.id)}
+                                  className="text-red-500/50 hover:text-red-500 transition-all p-1"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => buyItem(item)}
+                                className="bg-mc-gold text-black px-4 py-2 rounded-xl text-xs font-black hover:bg-white hover:scale-105 transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 border-mc-gold/30"
+                              >
+                                {item.price} <Coins size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 mt-2">
+                             <div className="h-1 flex-1 bg-neutral-800 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: '100%' }}
+                                  transition={{ duration: 2, delay: 0.5 }}
+                                  className="h-full bg-mc-gold/20"
+                                />
+                             </div>
+                             <span className="text-[8px] text-neutral-500 uppercase font-black tracking-widest whitespace-nowrap">Verfügbar</span>
+                          </div>
+
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-mc-gold/5 blur-3xl -mr-16 -mt-16 group-hover:bg-mc-gold/20 transition-all duration-700" />
+                        </div>
+                      ))}
+                      {items.length === 0 && (
+                        <div className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold">
+                          Coming Soon
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {shopItems.length === 0 && !isAdmin && (
+                <div className="text-center py-20 opacity-30">
+                  <ShoppingBag size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-xs uppercase tracking-[0.2em]">Der Laden ist derzeit geschlossen</p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -2883,9 +3100,9 @@ export default function App() {
         </section>
 
         {/* Clan System Section */}
-        <section id="clans" className="mb-24 py-12 border-t border-neutral-800/50">
+        <section id="clans" className="mb-12 py-8 border-t border-neutral-800/50">
           <div 
-            className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8 cursor-pointer group"
+            className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-6 cursor-pointer group"
             onClick={() => setIsClansOpen(!isClansOpen)}
           >
             <div>
@@ -3365,8 +3582,8 @@ export default function App() {
         </section>
 
         {/* Server Rules Section */}
-        <section className="mb-24 py-12 border-t border-neutral-800/50">
-          <div className="flex items-center gap-3 mb-10">
+        <section className="mb-12 py-8 border-t border-neutral-800/50">
+          <div className="flex items-center gap-3 mb-8">
             <ShieldCheck className="text-mc-red" size={32} />
             <h2 className="text-3xl font-bold">Server Rules</h2>
           </div>
@@ -3425,9 +3642,9 @@ export default function App() {
         </section>
 
         {/* Information & Rules */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-12 py-12 border-t border-neutral-800/50">
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-12 py-8 border-t border-neutral-800/50">
           <div>
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3 mb-4">
               <Info className="text-mc-gold" size={24} />
               <h2 className="text-3xl font-bold">Wichtige Infos</h2>
             </div>
