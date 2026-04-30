@@ -241,5 +241,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin() && isValidShopItem(incoming());
     }
+
+    // Shop Logs
+    match /shop_logs/{logId} {
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.createdAt == request.time;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
   }
 }

@@ -215,6 +215,20 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "description", "price", "category", "isActive", "createdAt"]
+    },
+    "ShopLog": {
+      "title": "Shop Log",
+      "description": "A record of a shop purchase",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "price": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "itemId", "itemName", "price", "createdAt"]
     }
   },
   "firestore": {
@@ -265,6 +279,10 @@
     "shop/{itemId}": {
       "schema": "ShopItem",
       "description": "Items available in the global shop"
+    },
+    "shop_logs/{logId}": {
+      "schema": "ShopLog",
+      "description": "Admin logs for shop purchases"
     }
   }
 }

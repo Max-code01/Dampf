@@ -45,7 +45,9 @@ import {
   Plus,
   Unlock,
   ShoppingBag,
-  Store
+  Store,
+  Edit2,
+  History
 } from 'lucide-react';
 import { 
   collection, 
@@ -228,7 +230,9 @@ export default function App() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
+  const [shopLogs, setShopLogs] = useState<any[]>([]);
   const [shopOpen, setShopOpen] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -501,6 +505,16 @@ export default function App() {
       unsubscribeShop();
     };
   }, [user]);
+
+  // Separate effect for admin logs
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
+      setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop_logs'));
+
+    return () => unsubscribeLogs();
+  }, [isAdmin, user]);
 
   // Update my profile when user object changes
   useEffect(() => {
@@ -877,6 +891,26 @@ export default function App() {
       await deleteDoc(doc(db, 'shop', itemId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `shop/${itemId}`);
+    }
+  };
+
+  const editShopItem = async (item: ShopItem) => {
+    if (!isAdmin) return;
+    const newName = prompt("Neuer Name:", item.name) || item.name;
+    const newDesc = prompt("Neue Beschreibung:", item.description) || item.description;
+    const newPrice = prompt("Neuer Preis:", item.price.toString()) || item.price.toString();
+    const newCat = prompt("Kategorie (Ränge, Items, Vorteile, Boxen):", item.category) as any || item.category;
+
+    try {
+      await setDoc(doc(db, 'shop', item.id), {
+        name: newName,
+        description: newDesc,
+        price: parseInt(newPrice),
+        category: newCat
+      }, { merge: true });
+      alert("✅ Item aktualisiert!");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `shop/${item.id}`);
     }
   };
 
@@ -2489,13 +2523,24 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); addShopItem(); }}
-                    className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
-                    title="Item hinzufügen"
-                  >
-                    <Plus size={20} />
-                  </button>
+                  <>
+                    <button 
+                      onClick={() => setShowLogs(!showLogs)}
+                      className={`p-2 rounded-lg transition-all shadow-lg active:scale-95 ${showLogs ? 'bg-mc-red text-white' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}
+                      title="Verkauf-Logs"
+                    >
+                      <History size={20} />
+                    </button>
+                    {!showLogs && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); addShopItem(); }}
+                        className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
+                        title="Item hinzufügen"
+                      >
+                        <Plus size={20} />
+                      </button>
+                    )}
+                  </>
                 )}
                 <button onClick={() => setShopOpen(false)} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors">
                   <X size={24} />
@@ -2504,15 +2549,45 @@ export default function App() {
             </div>
             
             <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
-              <div className="flex items-center gap-2 bg-black/50 px-3 py-1 rounded-full border border-mc-gold/20">
-                <span className="text-mc-gold font-bold">{myProfile?.coins || 0}</span>
-                <span className="text-[10px] text-mc-gold/60 uppercase font-bold tracking-tighter">Coins</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
+                <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
+              </div>
+              <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
+                <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
+                <Coins size={14} className="text-mc-gold" />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
-              {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
+              {showLogs && isAdmin ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-neutral-400">Verkaufs-Protokoll</h4>
+                    <Activity size={14} className="text-mc-red animate-pulse" />
+                  </div>
+                  <div className="space-y-2">
+                    {shopLogs.map((log) => (
+                      <div key={log.id} className="p-3 bg-neutral-900/50 rounded-lg border border-neutral-800 flex justify-between items-center group">
+                        <div>
+                          <div className="text-xs font-bold text-white group-hover:text-mc-gold transition-colors">{log.userName}</div>
+                          <div className="text-[10px] text-neutral-500">{log.itemName}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-black text-mc-gold">-{log.price} C</div>
+                          <div className="text-[9px] text-neutral-600">
+                            {log.createdAt?.toDate().toLocaleTimeString('de-DE')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {shopLogs.length === 0 && (
+                      <div className="text-center py-10 text-neutral-600 italic text-xs">Noch keine Verkäufe verzeichnet.</div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                ['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
                 const items = shopItems.filter(i => i.category === cat);
                 if (items.length === 0 && !isAdmin) return null;
                 
@@ -2533,56 +2608,79 @@ export default function App() {
                       {items.map((item) => (
                         <motion.div 
                           key={item.id} 
-                          whileHover={{ y: -4 }}
-                          className="mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none"
+                          whileHover={{ y: -4, scale: 1.01 }}
+                          className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''}`}
                         >
                           <div className="flex justify-between items-start mb-4 relative z-10">
                             <div className="space-y-1.5">
-                              <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors flex items-center gap-2">
-                                {item.name}
+                              <div className="flex items-center gap-2">
+                                <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors">
+                                  {item.name}
+                                </h5>
                                 {item.price >= 10000 && (
-                                  <span className="inline-block w-2 h-2 rounded-full bg-mc-red animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.8)]" />
+                                  <span className="bg-mc-gold/20 text-mc-gold text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border border-mc-gold/20">PREMIUM</span>
                                 )}
-                              </h5>
+                              </div>
                               <p className="text-[11px] text-neutral-400 leading-snug max-w-[260px] font-medium italic opacity-80">
                                 {item.description}
                               </p>
                             </div>
+                            
                             <div className="flex flex-col items-end gap-3 translate-x-2 group-hover:translate-x-0 transition-transform">
-                              {isAdmin && (
-                                <button 
-                                  onClick={() => deleteShopItem(item.id)}
-                                  className="text-red-500/30 hover:text-red-500 transition-all p-1"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
+                              <div className="flex items-center gap-1 group/admin">
+                                {isAdmin && (
+                                  <>
+                                    <button 
+                                      onClick={() => editShopItem(item)}
+                                      className="text-blue-500/30 hover:text-blue-400 transition-all p-1.5 bg-blue-500/5 rounded-lg border border-blue-500/0 hover:border-blue-500/20"
+                                      title="Bearbeiten"
+                                    >
+                                      <Edit2 size={12} />
+                                    </button>
+                                    <button 
+                                      onClick={() => deleteShopItem(item.id)}
+                                      className="text-red-500/30 hover:text-red-500 transition-all p-1.5 bg-red-500/5 rounded-lg border border-red-500/0 hover:border-red-500/20"
+                                      title="Löschen"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                              
                               <div className="relative group/btn">
                                 <button 
                                   onClick={() => buyItem(item)}
                                   disabled={!myProfile || myProfile.coins < item.price}
-                                  className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${(!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white'}`}
+                                  className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${(!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
                                 >
                                   {item.price.toLocaleString()} <Coins size={12} />
                                 </button>
                                 {myProfile && myProfile.coins < item.price && (
-                                  <div className="absolute top-full right-0 mt-2 bg-red-900 text-white text-[8px] px-2 py-0.5 rounded opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none">
-                                    Zu wenig Coins!
+                                  <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
+                                    Nicht genug Coins!
                                   </div>
                                 )}
                               </div>
                             </div>
                           </div>
                           
-                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/50">
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/30">
                              <div className="flex items-center gap-1.5">
-                                <span className={`w-1.5 h-1.5 rounded-full ${item.price > 10000 ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-green-500'}`} />
-                                <span className="text-[8px] text-neutral-500 uppercase font-black tracking-widest">{item.price > 10000 ? 'Premium' : 'Standard'}</span>
+                                <div className={`w-2 h-2 rounded-full ${item.price > 10000 ? 'bg-mc-gold animate-pulse' : 'bg-green-500'}`} />
+                                <span className={`text-[9px] uppercase font-black tracking-[0.1em] ${item.price > 10000 ? 'text-mc-gold' : 'text-neutral-500'}`}>
+                                  {item.price > 10000 ? 'Legendärer Gegenstand' : 'Verfügbar'}
+                                </span>
                              </div>
-                             <span className="text-[8px] text-neutral-600 font-mono">ID: {item.id.slice(0,6)}</span>
+                             <div className="flex items-center gap-1 opacity-20 hover:opacity-100 transition-opacity cursor-help">
+                               <Info size={10} className="text-white" />
+                               <span className="text-[8px] text-neutral-400 font-mono">UID:{item.id.slice(0,4)}</span>
+                             </div>
                           </div>
 
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-mc-gold/5 blur-3xl -mr-16 -mt-16 group-hover:bg-mc-gold/15 transition-all duration-700" />
+                          {/* Glow Effects */}
+                          <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 transition-all duration-700 opacity-20 pointer-events-none ${item.price >= 10000 ? 'bg-mc-gold' : 'bg-mc-blue'}`} />
+                          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-mc-gold/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         </motion.div>
                       ))}
                       {items.length === 0 && isAdmin && (
@@ -2597,7 +2695,7 @@ export default function App() {
                     </div>
                   </div>
                 );
-              })}
+              }))}
               
               {shopItems.length === 0 && !isAdmin && (
                 <div className="text-center py-24 opacity-30 flex flex-col items-center">
@@ -2610,6 +2708,22 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {isAdmin && (
+              <div className="p-4 border-t border-neutral-800 bg-neutral-900/30 flex items-center justify-between">
+                <div className="text-[8px] uppercase font-black tracking-widest text-neutral-600">Admin-Konsole</div>
+                <button 
+                  onClick={async () => {
+                    if (!user || !myProfile) return;
+                    await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile.coins || 0) + 10000 }, { merge: true });
+                    alert("💸 10.000 Coins gutgeschrieben (Admin-Cheat)!");
+                  }}
+                  className="px-3 py-1 bg-neutral-800 hover:bg-mc-gold hover:text-black transition-all rounded text-[9px] font-bold uppercase tracking-tighter"
+                >
+                  +10k Coins (Test)
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
