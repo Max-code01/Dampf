@@ -175,6 +175,32 @@
         "completed": { "type": "boolean" }
       },
       "required": ["title", "goal", "current", "rewardXp", "completed"]
+    },
+    "NewsItem": {
+      "title": "News Item",
+      "description": "A news update for the community",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "text", "createdAt"]
+    },
+    "Poll": {
+      "title": "Poll",
+      "description": "A community poll",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "options": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["question", "isActive", "createdAt", "options"]
     }
   },
   "firestore": {
@@ -213,6 +239,14 @@
     "clans/{clanId}/quests/{questId}": {
       "schema": "ClanQuest",
       "description": "Active clan challenges"
+    },
+    "news/{newsId}": {
+      "schema": "NewsItem",
+      "description": "General community news"
+    },
+    "polls/{pollId}": {
+      "schema": "Poll",
+      "description": "Community polls"
     }
   }
 }

@@ -37,7 +37,13 @@ import {
   Star,
   Target,
   BarChart2,
-  Sword
+  Sword,
+  Newspaper,
+  Vote,
+  X,
+  Rocket,
+  Plus,
+  Unlock
 } from 'lucide-react';
 import { 
   collection, 
@@ -113,6 +119,26 @@ interface ChatMessage {
   isStaffOnly?: boolean;
 }
 
+interface NewsItem {
+  id: string;
+  title: string;
+  text: string;
+  createdAt: any;
+}
+
+interface PollOption {
+  label: string;
+  votes: number;
+}
+
+interface Poll {
+  id: string;
+  question: string;
+  options: PollOption[];
+  isActive: boolean;
+  createdAt: any;
+}
+
 interface Clan {
   id: string;
   name: string;
@@ -180,9 +206,13 @@ export default function App() {
 
   // Chat State
   const [chatOpen, setChatOpen] = useState(false);
+  const [newsOpen, setNewsOpen] = useState(false);
+  const [pollsOpen, setPollsOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -426,6 +456,16 @@ export default function App() {
       setClans(clanList);
     }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
 
+    // Listen to news
+    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'news'));
+
+    // Listen to polls
+    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
+
     return () => {
       unsubscribePlayers();
       unsubscribePvp();
@@ -435,6 +475,8 @@ export default function App() {
       unsubscribeChat();
       unsubscribeClans();
       unsubscribeAppConfig();
+      unsubscribeNews();
+      unsubscribePolls();
     };
   }, [user]);
 
@@ -631,6 +673,87 @@ export default function App() {
       console.log(`Message ${msgId} deleted by admin.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `chat_messages/${msgId}`);
+    }
+  };
+
+  // News & Poll Management
+  const addNews = async () => {
+    if (!isAdmin) return;
+    const title = prompt("News Titel:");
+    const text = prompt("News Inhalt:");
+    if (!title || !text) return;
+    try {
+      await addDoc(collection(db, 'news'), {
+        title,
+        text,
+        createdAt: serverTimestamp()
+      });
+      notifyDiscord("📰 NEUE NEWS", `**${title}**\n${text}`, 3066993);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'news');
+    }
+  };
+
+  const deleteNewsItem = async (newsId: string) => {
+    if (!isAdmin) return;
+    if (!confirm("News-Beitrag wirklich vernichten?")) return;
+    try {
+      await deleteDoc(doc(db, 'news', newsId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `news/${newsId}`);
+    }
+  };
+
+  const addPoll = async () => {
+    if (!isAdmin) return;
+    const question = prompt("Umfrage-Frage:");
+    const optionsStr = prompt("Optionen (durch Komma trennen):");
+    if (!question || !optionsStr) return;
+    const options = optionsStr.split(',').map(o => ({ label: o.trim(), votes: 0 }));
+    try {
+      await addDoc(collection(db, 'polls'), {
+        question,
+        options,
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+      notifyDiscord("🗳️ NEUE UMFRAGE", `**Frage:** ${question}\n**Optionen:** ${optionsStr}`, 15105570);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'polls');
+    }
+  };
+
+  const votePoll = async (pollId: string, optionIndex: number) => {
+    if (!user) return;
+    try {
+      const poll = polls.find(p => p.id === pollId);
+      if (!poll || !poll.isActive) return;
+      const newOptions = [...poll.options];
+      newOptions[optionIndex].votes += 1;
+      await setDoc(doc(db, 'polls', pollId), { options: newOptions }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `polls/${pollId}`);
+    }
+  };
+
+  const deletePoll = async (pollId: string) => {
+    if (!isAdmin) return;
+    if (!confirm("Umfrage wirklich terminieren?")) return;
+    try {
+      await deleteDoc(doc(db, 'polls', pollId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `polls/${pollId}`);
+    }
+  };
+
+  const togglePollStatus = async (pollId: string) => {
+    if (!isAdmin) return;
+    const poll = polls.find(p => p.id === pollId);
+    if (!poll) return;
+    try {
+      await setDoc(doc(db, 'polls', pollId), { isActive: !poll.isActive }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `polls/${pollId}`);
     }
   };
 
@@ -1160,7 +1283,7 @@ export default function App() {
             sendSystemMsg("§4DIE GESETZE:§r\n1. Respektiere alle Spieler\n2. Hacking/Cheating führt zum Bann\n3. Kein unangemessener Content\n4. Spamming verboten\n5. Scams werden bestraft!");
             break;
           case 'discord':
-            sendSystemMsg("§9Offizieller Discord:§r https://discord.gg/mchub");
+            sendSystemMsg("§9Offizieller Discord:§r https://discord.com/invite/bdc79dqh");
             break;
           case 'stats': {
             const targetName = args[0] || myProfile?.displayName;
@@ -1652,7 +1775,7 @@ export default function App() {
     ...players.map(p => ({
       username: p.username,
       server: p.server,
-      type: 'manual'
+      type: 'manual' as const
     })),
     ...userProfiles
       .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
@@ -1661,12 +1784,39 @@ export default function App() {
         server: p.currentServer,
         displayName: p.displayName,
         userId: p.userId,
-        type: 'profile'
+        type: 'profile' as const
       }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
     && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
   );
+
+  // Synchronized list for "Community Status" section
+  const communityDisplayList = [
+    ...combinedOnline.map(p => {
+      const profile = userProfiles.find(up => up.userId === p.userId || (up.minecraftUsername && up.minecraftUsername.toLowerCase() === p.username.toLowerCase()));
+      return {
+        ...p,
+        profile,
+        isOnline: true,
+        displayName: profile?.displayName || p.username,
+        role: profile?.role || 'Besucher'
+      };
+    }),
+    ...userProfiles
+      .filter(p => !p.isOnline && (!p.isInvisible || isAdmin))
+      .filter(p => !combinedOnline.some(o => o.username.toLowerCase() === p.minecraftUsername.toLowerCase()))
+      .map(p => ({
+        username: p.minecraftUsername,
+        server: 'none',
+        displayName: p.displayName,
+        userId: p.userId,
+        type: 'profile' as const,
+        profile: p,
+        isOnline: false,
+        role: p.role || 'Member'
+      }))
+  ];
 
   const totalOnline = combinedOnline.length;
 
@@ -1718,7 +1868,7 @@ export default function App() {
             whileHover={{ scale: 1.1, backgroundColor: 'rgba(147, 51, 234, 0.4)' }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setShowAdmin(!showAdmin)}
-            className="fixed bottom-6 right-6 w-12 h-12 bg-purple-600/30 border-2 border-purple-500/50 rounded-full z-[100] flex items-center justify-center backdrop-blur-xl shadow-[0_0_30px_rgba(168,85,247,0.4)] transition-colors"
+            className="fixed bottom-6 left-6 w-12 h-12 bg-purple-600/30 border-2 border-purple-500/50 rounded-full z-[100] flex items-center justify-center backdrop-blur-xl shadow-[0_0_30px_rgba(168,85,247,0.4)] transition-colors"
             title="Root Console (Shift+Alt+S / Ctrl+Alt+P)"
           >
             <Zap size={22} className="text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
@@ -1964,13 +2114,178 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Chat Button */}
-      <button 
-        onClick={() => setChatOpen(!chatOpen)}
-        className={`fixed bottom-8 right-8 z-[60] w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
-      >
-        <MessageCircle size={24} />
-      </button>
+      {/* Floating Action Group */}
+      <div className="fixed bottom-8 right-8 z-[60] flex flex-col sm:flex-row gap-3">
+        {/* News Button */}
+        <button 
+          onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${newsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
+          title="News-Feed"
+        >
+          <Newspaper size={24} />
+        </button>
+
+        {/* Polls Button */}
+        <button 
+          onClick={() => { setPollsOpen(!pollsOpen); setNewsOpen(false); setChatOpen(false); }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${pollsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
+          title="Umfragen"
+        >
+          <Vote size={24} />
+        </button>
+
+        {/* Chat Button */}
+        <button 
+          onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
+          title="Chat"
+        >
+          {chatOpen ? <X size={28} /> : <MessageCircle size={28} />}
+        </button>
+      </div>
+
+      {/* News Drawer */}
+      <AnimatePresence>
+        {newsOpen && (
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed inset-y-0 right-0 w-full sm:w-[400px] bg-black/95 backdrop-blur-xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+          >
+            <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <Newspaper className="text-mc-red" />
+                  News-Feed
+                </h3>
+                <p className="text-neutral-500 text-xs">Aktuelle Updates & Ankündigungen</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); addNews(); }}
+                    className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
+                    title="News hinzufügen"
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
+                <button onClick={() => setNewsOpen(false)} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {news.length === 0 ? (
+                <div className="text-center py-10 opacity-30 text-xs uppercase tracking-widest">Keine News verfügbar</div>
+              ) : news.map((item) => (
+                <div key={item.id} className="mc-card p-4 border-neutral-800 hover:border-mc-red/30 transition-colors group">
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-bold text-sm text-mc-red">{item.title}</h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-neutral-500">
+                        {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : 'Gerade eben'}
+                      </span>
+                      {isAdmin && (
+                        <button 
+                          onClick={() => deleteNewsItem(item.id)}
+                          className="text-red-500 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-400 leading-relaxed whitespace-pre-wrap">{item.text}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Polls Drawer */}
+      <AnimatePresence>
+        {pollsOpen && (
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed inset-y-0 right-0 w-full sm:w-[400px] bg-black/95 backdrop-blur-xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+          >
+            <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <Vote className="text-mc-red" />
+                  Community Umfragen
+                </h3>
+                <p className="text-neutral-500 text-xs">Deine Meinung zählt!</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); addPoll(); }}
+                    className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
+                    title="Umfrage erstellen"
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
+                <button onClick={() => setPollsOpen(false)} className="p-2 hover:bg-neutral-800 rounded-lg transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-8">
+              {polls.length === 0 ? (
+                <div className="text-center py-10 opacity-30 text-xs uppercase tracking-widest">Keine Umfragen verfügbar</div>
+              ) : polls.map((poll) => {
+                const totalVotes = poll.options.reduce((acc, opt) => acc + opt.votes, 0);
+                return (
+                  <div key={poll.id} className="space-y-4 relative group">
+                    <div className={`p-4 rounded-xl border transition-all ${poll.isActive ? 'bg-mc-red/10 border-mc-red/20' : 'bg-neutral-900 border-neutral-800 opacity-80'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-bold text-sm">{poll.question}</h4>
+                        {isAdmin && (
+                          <div className="flex gap-1">
+                            <button onClick={() => togglePollStatus(poll.id)} className="p-1 hover:bg-black/20 rounded">
+                              {poll.isActive ? <Lock size={12} title="Beenden" /> : <Unlock size={12} title="Aktivieren" />}
+                            </button>
+                            <button onClick={() => deletePoll(poll.id)} className="p-1 hover:bg-black/20 rounded text-red-500">
+                              <Trash2 size={12} title="Löschen" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {!poll.isActive && <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">Beendet</p>}
+                      
+                      <div className="space-y-2">
+                        {poll.options.map((opt, idx) => (
+                          <button 
+                            key={idx}
+                            disabled={!poll.isActive}
+                            onClick={() => votePoll(poll.id, idx)}
+                            className={`w-full bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-left text-xs hover:border-mc-red/50 transition-all relative overflow-hidden group ${!poll.isActive ? 'cursor-default' : ''}`}
+                          >
+                            <div className="relative z-10 flex justify-between">
+                              <span>{opt.label}</span>
+                              <span className="text-neutral-500">{totalVotes > 0 ? Math.round((opt.votes / totalVotes) * 100) : 0}%</span>
+                            </div>
+                            <div className="absolute inset-y-0 left-0 bg-mc-red/10 transition-all duration-500" style={{ width: `${totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0}%` }} />
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-[9px] text-neutral-500 text-right uppercase tracking-widest">{totalVotes} Stimmen insgesamt</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Chat Drawer */}
       <AnimatePresence>
@@ -1979,7 +2294,7 @@ export default function App() {
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
-            className="fixed inset-y-0 right-0 w-full sm:w-[400px] bg-black/95 backdrop-blur-xl z-50 border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+            className="fixed inset-y-0 right-0 w-full sm:w-[400px] bg-black/95 backdrop-blur-xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
           >
             <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
               <div>
@@ -2430,22 +2745,21 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {userProfiles
-                .filter(p => !p.isInvisible || isAdmin)
-                .map((p) => (
+              {communityDisplayList.map((p) => (
                 <motion.div 
-                  key={p.userId}
+                  key={p.userId || p.username}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
-                  onClick={() => isAdmin && openProfileEdit(p.userId)}
+                  onClick={() => isAdmin && p.userId && openProfileEdit(p.userId)}
                 >
                   <div className="absolute top-2 right-2 flex gap-1 z-20">
                     {p.role && p.role !== 'Member' && (
                       <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
                         p.role === 'Admin' ? 'bg-mc-gold text-black' :
                         p.role === 'Mod' ? 'bg-mc-red text-white' :
-                        p.role === 'VIP' ? 'bg-purple-500 text-white' : ''
+                        p.role === 'VIP' ? 'bg-purple-500 text-white' : 
+                        p.role === 'Besucher' ? 'bg-neutral-700 text-neutral-300' : ''
                       }`}>
                         {p.role}
                       </div>
@@ -2456,8 +2770,8 @@ export default function App() {
                           onClick={(e) => { 
                             e.stopPropagation(); 
                             if(p.isOnline) {
-                              kickPlayer({ id: p.userId, type: 'profile' });
-                            } else {
+                              kickPlayer({ id: p.userId || p.username, type: p.type });
+                            } else if (p.userId) {
                               deleteProfile(p.userId);
                             }
                           }}
@@ -2474,7 +2788,7 @@ export default function App() {
                   </div>
                   <div className="relative mb-4">
                     <img 
-                      src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'steve'}`} 
+                      src={p.profile?.customSkin || `https://mc-heads.net/avatar/${p.username || 'steve'}`} 
                       alt={p.displayName}
                       className="w-16 h-16 rounded-lg bg-neutral-900 pixelated border-2 border-neutral-800 group-hover:border-mc-red/50 transition-colors object-cover"
                       referrerPolicy="no-referrer"
@@ -2484,9 +2798,9 @@ export default function App() {
                   <h4 className="font-bold text-sm truncate w-full mb-1">{p.displayName}</h4>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[10px] text-neutral-500 uppercase tracking-widest">{p.isOnline ? 'Online' : 'Offline'}</p>
-                    {p.isOnline && p.currentServer && p.currentServer !== 'none' && (
-                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${p.currentServer === 'pvp' ? 'bg-red-500/20 text-red-400' : 'bg-mc-red/20 text-mc-red'}`}>
-                        {p.currentServer}
+                    {p.isOnline && p.server && p.server !== 'none' && (
+                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${p.server === 'pvp' ? 'bg-red-500/20 text-red-400' : 'bg-mc-red/20 text-mc-red'}`}>
+                        {p.server}
                       </span>
                     )}
                   </div>
