@@ -805,31 +805,69 @@ export default function App() {
 
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
+    
+    // Aktuellste Daten holen um sicherzugehen
     if ((myProfile.coins || 0) < item.price) {
       alert("❌ Du hast nicht genug Coins für diesen Kauf!");
       return;
     }
-    if (!confirm(`Möchtest du "${item.name}" für ${item.price} Coins kaufen?`)) return;
+    
+    if (!confirm(`MÖCHTEST DU KAUFEN?\n\nItem: ${item.name}\nPreis: ${item.price} Coins\nKategorie: ${item.category}`)) return;
 
     try {
+      const newCoins = (myProfile.coins || 0) - item.price;
+      
+      // Batch update wäre besser, aber hier reicht setDoc mit merge
       await setDoc(doc(db, 'user_profiles', user.uid), { 
-        coins: (myProfile.coins || 0) - item.price 
+        coins: newCoins 
       }, { merge: true });
 
-      notifyDiscord("💰 SHOP-KAUF", `**${myProfile.displayName}** hat **${item.name}** gekauft!`, 16776960);
+      // In Firestore History loggen
+      await addDoc(collection(db, 'shop_logs'), {
+        userId: user.uid,
+        userName: myProfile.displayName,
+        itemId: item.id,
+        itemName: item.name,
+        price: item.price,
+        createdAt: serverTimestamp()
+      });
+
+      notifyDiscord("🛍️ ERFOLGREICHER KAUF", `**${myProfile.displayName}** hat **${item.name}** für ${item.price} Coins erworben!`, 65280);
       
       await addDoc(collection(db, 'chat_messages'), {
-        text: `🛍️ **${myProfile.displayName}** hat gerade **${item.name}** im Shop erworben!`,
+        text: `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! HGW!`,
         userId: 'system',
         displayName: 'SHOP',
         role: 'System',
         createdAt: serverTimestamp()
       });
       
-      alert("✅ Kauf erfolgreich! Das Item wird dir in Kürze gutgeschrieben.");
+      alert(`🎉 Glückwunsch! Du hast ${item.name} gekauft.\nDein neues Guthaben: ${newCoins} Coins`);
     } catch (err) {
+      console.error("Purchase failed", err);
       handleFirestoreError(err, OperationType.WRITE, `shop_purchase/${item.id}`);
     }
+  };
+
+  // Hilfsfunktion für Admins um Standard-Items zu spawnen
+  const seedShop = async () => {
+    if (!isAdmin) return;
+    const items = [
+      { name: 'VIP Rang', description: 'Dauerhafter VIP Status mit goldenem Namen!', price: 10000, category: 'Ränge' },
+      { name: 'MVP Rang', description: 'Der ultimative Rang für Legenden!', price: 25000, category: 'Ränge' },
+      { name: '10x Vote-Keys', description: 'Öffne Cases am Spawn!', price: 500, category: 'Items' },
+      { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
+      { name: 'Legendäre Box', description: 'Enthält zufällige krasse Items!', price: 5000, category: 'Boxen' },
+    ];
+
+    for (const item of items) {
+      await addDoc(collection(db, 'shop'), {
+        ...item,
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+    }
+    alert("Standard-Items wurden hinzugefügt!");
   };
 
   const deleteShopItem = async (itemId: string) => {
@@ -2473,71 +2511,88 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
               {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
                 const items = shopItems.filter(i => i.category === cat);
                 if (items.length === 0 && !isAdmin) return null;
                 
                 return (
-                  <div key={cat} className="space-y-4">
-                    <h4 className="text-[10px] uppercase font-bold text-neutral-500 tracking-[0.2em] border-b border-neutral-800 pb-2 flex items-center gap-2">
-                      {cat === 'Ränge' && <Award size={14} className="text-mc-gold" />}
-                      {cat === 'Items' && <Sword size={14} className="text-mc-gold" />}
-                      {cat === 'Vorteile' && <Zap size={14} className="text-mc-gold" />}
-                      {cat === 'Boxen' && <Box size={14} className="text-mc-gold" />}
-                      {cat}
-                    </h4>
+                  <div key={cat} className="space-y-5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-1.5 bg-mc-gold/10 rounded-lg border border-mc-gold/20">
+                        {cat === 'Ränge' && <Award size={16} className="text-mc-gold" />}
+                        {cat === 'Items' && <Sword size={16} className="text-mc-gold" />}
+                        {cat === 'Vorteile' && <Zap size={16} className="text-mc-gold" />}
+                        {cat === 'Boxen' && <Box size={16} className="text-mc-gold" />}
+                      </div>
+                      <h4 className="text-xs uppercase font-black text-white tracking-[0.25em]">{cat}</h4>
+                      <div className="h-px flex-1 bg-gradient-to-r from-neutral-800 to-transparent" />
+                    </div>
+
                     <div className="grid grid-cols-1 gap-4">
                       {items.map((item) => (
-                        <div key={item.id} className="mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/50 to-black">
-                          {item.price >= 5000 && (
-                            <div className="absolute -top-1 -left-1 bg-mc-gold text-black text-[8px] font-extrabold px-3 py-1 rounded-br-xl z-20 shadow-lg tracking-widest uppercase">
-                              Legendär
+                        <motion.div 
+                          key={item.id} 
+                          whileHover={{ y: -4 }}
+                          className="mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none"
+                        >
+                          <div className="flex justify-between items-start mb-4 relative z-10">
+                            <div className="space-y-1.5">
+                              <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors flex items-center gap-2">
+                                {item.name}
+                                {item.price >= 10000 && (
+                                  <span className="inline-block w-2 h-2 rounded-full bg-mc-red animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.8)]" />
+                                )}
+                              </h5>
+                              <p className="text-[11px] text-neutral-400 leading-snug max-w-[260px] font-medium italic opacity-80">
+                                {item.description}
+                              </p>
                             </div>
-                          )}
-                          
-                          <div className="flex justify-between items-start mb-3 relative z-10">
-                            <div className="space-y-1">
-                              <h5 className="font-bold text-base text-white group-hover:text-mc-gold transition-colors">{item.name}</h5>
-                              <p className="text-[10px] text-neutral-400 leading-relaxed max-w-[220px] font-medium italic">"{item.description}"</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-3">
+                            <div className="flex flex-col items-end gap-3 translate-x-2 group-hover:translate-x-0 transition-transform">
                               {isAdmin && (
                                 <button 
                                   onClick={() => deleteShopItem(item.id)}
-                                  className="text-red-500/50 hover:text-red-500 transition-all p-1"
+                                  className="text-red-500/30 hover:text-red-500 transition-all p-1"
                                 >
-                                  <Trash2 size={12} />
+                                  <Trash2 size={14} />
                                 </button>
                               )}
-                              <button 
-                                onClick={() => buyItem(item)}
-                                className="bg-mc-gold text-black px-4 py-2 rounded-xl text-xs font-black hover:bg-white hover:scale-105 transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 border-mc-gold/30"
-                              >
-                                {item.price} <Coins size={12} />
-                              </button>
+                              <div className="relative group/btn">
+                                <button 
+                                  onClick={() => buyItem(item)}
+                                  disabled={!myProfile || myProfile.coins < item.price}
+                                  className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${(!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white'}`}
+                                >
+                                  {item.price.toLocaleString()} <Coins size={12} />
+                                </button>
+                                {myProfile && myProfile.coins < item.price && (
+                                  <div className="absolute top-full right-0 mt-2 bg-red-900 text-white text-[8px] px-2 py-0.5 rounded opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none">
+                                    Zu wenig Coins!
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                           
-                          <div className="flex items-center gap-4 mt-2">
-                             <div className="h-1 flex-1 bg-neutral-800 rounded-full overflow-hidden">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: '100%' }}
-                                  transition={{ duration: 2, delay: 0.5 }}
-                                  className="h-full bg-mc-gold/20"
-                                />
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/50">
+                             <div className="flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${item.price > 10000 ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-green-500'}`} />
+                                <span className="text-[8px] text-neutral-500 uppercase font-black tracking-widest">{item.price > 10000 ? 'Premium' : 'Standard'}</span>
                              </div>
-                             <span className="text-[8px] text-neutral-500 uppercase font-black tracking-widest whitespace-nowrap">Verfügbar</span>
+                             <span className="text-[8px] text-neutral-600 font-mono">ID: {item.id.slice(0,6)}</span>
                           </div>
 
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-mc-gold/5 blur-3xl -mr-16 -mt-16 group-hover:bg-mc-gold/20 transition-all duration-700" />
-                        </div>
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-mc-gold/5 blur-3xl -mr-16 -mt-16 group-hover:bg-mc-gold/15 transition-all duration-700" />
+                        </motion.div>
                       ))}
-                      {items.length === 0 && (
-                        <div className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold">
-                          Coming Soon
-                        </div>
+                      {items.length === 0 && isAdmin && (
+                        <button 
+                          onClick={seedShop}
+                          className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold hover:opacity-100 hover:border-mc-gold/50 transition-all flex flex-col items-center gap-2 group"
+                        >
+                          <Plus className="group-hover:scale-125 transition-transform" />
+                          Beispiel-Items generieren
+                        </button>
                       )}
                     </div>
                   </div>
@@ -2545,9 +2600,13 @@ export default function App() {
               })}
               
               {shopItems.length === 0 && !isAdmin && (
-                <div className="text-center py-20 opacity-30">
-                  <ShoppingBag size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-xs uppercase tracking-[0.2em]">Der Laden ist derzeit geschlossen</p>
+                <div className="text-center py-24 opacity-30 flex flex-col items-center">
+                  <div className="relative mb-6">
+                    <ShoppingBag size={64} className="opacity-10 animate-pulse text-mc-gold" />
+                    <X size={32} className="absolute inset-0 m-auto text-mc-red opacity-50" />
+                  </div>
+                  <p className="text-xs uppercase tracking-[0.3em] font-black">Lager leer</p>
+                  <p className="text-[10px] text-neutral-500 mt-2">Die Händler sind gerade auf Reisen...</p>
                 </div>
               )}
             </div>
