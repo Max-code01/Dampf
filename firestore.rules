@@ -239,13 +239,20 @@ service cloud.firestore {
 
     match /shop/{itemId} {
       allow read: if true;
-      allow write: if isAdmin() && isValidShopItem(incoming());
+      allow create, update: if isAdmin() && isValidShopItem(incoming());
+      allow delete: if isAdmin();
     }
 
-    // Shop Logs
+    // Shop Logs & User Purchases
     match /shop_logs/{logId} {
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.createdAt == request.time;
       allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /users/{userId}/purchases/{purchaseId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == userId;
       allow update, delete: if false;
     }
   }

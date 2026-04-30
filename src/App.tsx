@@ -47,7 +47,9 @@ import {
   ShoppingBag,
   Store,
   Edit2,
-  History
+  History,
+  Check,
+  Package
 } from 'lucide-react';
 import { 
   collection, 
@@ -109,6 +111,14 @@ interface UserProfile {
   isInvisible?: boolean;
   customSkin?: string;
   updatedAt: any;
+  // NEUE FELDER
+  inventory?: {
+    keys?: number;
+    cases?: number;
+  };
+  perks?: {
+    flightUntil?: number;
+  };
 }
 
 interface ChatMessage {
@@ -231,8 +241,10 @@ export default function App() {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [shopLogs, setShopLogs] = useState<any[]>([]);
+  const [myPurchases, setMyPurchases] = useState<any[]>([]);
   const [shopOpen, setShopOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [showMyItems, setShowMyItems] = useState(false);
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -515,6 +527,15 @@ export default function App() {
 
     return () => unsubscribeLogs();
   }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribePurchases = onSnapshot(collection(db, 'users', user.uid, 'purchases'), (snapshot) => {
+      setMyPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'purchases'));
+
+    return () => unsubscribePurchases();
+  }, [user]);
 
   // Update my profile when user object changes
   useEffect(() => {
@@ -820,7 +841,6 @@ export default function App() {
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
     
-    // Aktuellste Daten holen um sicherzugehen
     if ((myProfile.coins || 0) < item.price) {
       alert("❌ Du hast nicht genug Coins für diesen Kauf!");
       return;
@@ -830,11 +850,43 @@ export default function App() {
 
     try {
       const newCoins = (myProfile.coins || 0) - item.price;
+      const updates: any = { coins: newCoins };
+      let specialMessage = "";
       
-      // Batch update wäre besser, aber hier reicht setDoc mit merge
-      await setDoc(doc(db, 'user_profiles', user.uid), { 
-        coins: newCoins 
-      }, { merge: true });
+      // LOGIK JE NACH KATEGORIE
+      if (item.category === 'Ränge') {
+        const newRole = item.name.replace(' Rang', '').trim();
+        updates.role = newRole;
+        specialMessage = `Du hast nun den Rang: ${newRole}`;
+      } 
+      else if (item.category === 'Items') {
+        if (item.name.toLowerCase().includes('key')) {
+          const count = parseInt(item.name.match(/\d+/)?.[0] || "1");
+          updates[`inventory.keys`] = (myProfile.inventory?.keys || 0) + count;
+          specialMessage = `${count}x Keys wurden deinem Inventar hinzugefügt!`;
+        } else {
+          specialMessage = `${item.name} wurde erfolgreich gekauft!`;
+        }
+      }
+      else if (item.category === 'Vorteile') {
+        if (item.name.toLowerCase().includes('flug')) {
+          // 1 Stunde Flugrecht (3600000 ms)
+          const duration = 60 * 60 * 1000;
+          const currentFlight = myProfile.perks?.flightUntil || Date.now();
+          updates[`perks.flightUntil`] = Math.max(currentFlight, Date.now()) + duration;
+          specialMessage = `Flug-Recht für 1 Stunde aktiviert!`;
+        }
+      }
+      else if (item.category === 'Boxen') {
+        // Sofortiges Öffnen-System
+        const winXp = Math.floor(Math.random() * 1000) + 500;
+        const winCoins = Math.floor(Math.random() * 2000);
+        updates.xp = (myProfile.xp || 0) + winXp;
+        updates.coins = newCoins + winCoins;
+        specialMessage = `BOX GEÖFFNET! Du hast ${winXp} XP und ${winCoins} Coins gewonnen!`;
+      }
+
+      await setDoc(doc(db, 'user_profiles', user.uid), updates, { merge: true });
 
       // In Firestore History loggen
       await addDoc(collection(db, 'shop_logs'), {
@@ -846,17 +898,27 @@ export default function App() {
         createdAt: serverTimestamp()
       });
 
-      notifyDiscord("🛍️ ERFOLGREICHER KAUF", `**${myProfile.displayName}** hat **${item.name}** für ${item.price} Coins erworben!`, 65280);
+      // Permanent in User-Konto speichern (für die Sammlung)
+      await addDoc(collection(db, 'users', user.uid, 'purchases'), {
+        itemId: item.id,
+        itemName: item.name,
+        category: item.category,
+        boughtAt: serverTimestamp()
+      });
+
+      notifyDiscord("🛍️ ERFOLGREICHER KAUF", `**${myProfile.displayName}** hat **${item.name}** gekauft!\n${specialMessage}`, 65280);
       
       await addDoc(collection(db, 'chat_messages'), {
-        text: `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! HGW!`,
+        text: item.category === 'Ränge' 
+          ? `👑 **${myProfile.displayName}** ist nun offiziell **${updates.role}**! Herzlichen Glückwunsch!`
+          : `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! ${specialMessage}`,
         userId: 'system',
         displayName: 'SHOP',
         role: 'System',
         createdAt: serverTimestamp()
       });
       
-      alert(`🎉 Glückwunsch! Du hast ${item.name} gekauft.\nDein neues Guthaben: ${newCoins} Coins`);
+      alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${updates.coins.toLocaleString()} Coins`);
     } catch (err) {
       console.error("Purchase failed", err);
       handleFirestoreError(err, OperationType.WRITE, `shop_purchase/${item.id}`);
@@ -869,9 +931,11 @@ export default function App() {
     const items = [
       { name: 'VIP Rang', description: 'Dauerhafter VIP Status mit goldenem Namen!', price: 10000, category: 'Ränge' },
       { name: 'MVP Rang', description: 'Der ultimative Rang für Legenden!', price: 25000, category: 'Ränge' },
-      { name: '10x Vote-Keys', description: 'Öffne Cases am Spawn!', price: 500, category: 'Items' },
+      { name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items' },
+      { name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items' },
       { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
-      { name: 'Legendäre Box', description: 'Enthält zufällige krasse Items!', price: 5000, category: 'Boxen' },
+      { name: 'Normale Box', description: 'Enthält bis zu 500 Coins!', price: 500, category: 'Boxen' },
+      { name: 'Legendäre Box', description: 'Enthält massig XP und bis zu 2000 Coins!', price: 5000, category: 'Boxen' },
     ];
 
     for (const item of items) {
@@ -881,7 +945,7 @@ export default function App() {
         createdAt: serverTimestamp()
       });
     }
-    alert("Standard-Items wurden hinzugefügt!");
+    alert("Krass verbesserte Standard-Items wurden hinzugefügt!");
   };
 
   const deleteShopItem = async (itemId: string) => {
@@ -2522,16 +2586,23 @@ export default function App() {
                 <p className="text-neutral-500 text-xs">Kaufe Ränge, Items und mehr mit Coins</p>
               </div>
               <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => { setShowMyItems(!showMyItems); setShowLogs(false); }}
+                  className={`p-2 rounded-lg transition-all shadow-lg active:scale-95 ${showMyItems ? 'bg-mc-blue text-white' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}
+                  title="Meine Käufe"
+                >
+                  <Package size={20} />
+                </button>
                 {isAdmin && (
                   <>
                     <button 
-                      onClick={() => setShowLogs(!showLogs)}
+                      onClick={() => { setShowLogs(!showLogs); setShowMyItems(false); }}
                       className={`p-2 rounded-lg transition-all shadow-lg active:scale-95 ${showLogs ? 'bg-mc-red text-white' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}
                       title="Verkauf-Logs"
                     >
                       <History size={20} />
                     </button>
-                    {!showLogs && (
+                    {!showLogs && !showMyItems && (
                       <button 
                         onClick={(e) => { e.stopPropagation(); addShopItem(); }}
                         className="p-2 bg-mc-gold text-black rounded-lg hover:bg-mc-gold/80 transition-all shadow-lg active:scale-95"
@@ -2548,22 +2619,69 @@ export default function App() {
               </div>
             </div>
             
-            <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
-                <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
+            <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
+                  <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
+                </div>
+                <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
+                  <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
+                  <Coins size={14} className="text-mc-gold" />
+                </div>
               </div>
-              <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
-                <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
-                <Coins size={14} className="text-mc-gold" />
+              
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-900 rounded-lg border border-neutral-800">
+                  <Key size={10} className="text-mc-gold" />
+                  <span className="text-[10px] text-white font-bold">{myProfile?.inventory?.keys || 0}</span>
+                  <span className="text-[8px] text-neutral-500 uppercase font-black">Keys</span>
+                </div>
+                {myProfile?.perks?.flightUntil && myProfile.perks.flightUntil > Date.now() && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-mc-blue/10 rounded-lg border border-mc-blue/20 animate-pulse">
+                    <Rocket size={10} className="text-mc-blue" />
+                    <span className="text-[8px] text-mc-blue uppercase font-black italic">Flug Aktiv</span>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
-              {showLogs && isAdmin ? (
+              {showMyItems ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-                    <h4 className="text-xs font-black uppercase tracking-widest text-neutral-400">Verkaufs-Protokoll</h4>
+                    <h4 className="text-xs font-black uppercase tracking-widest text-mc-blue">Meine Sammlung</h4>
+                    <Package size={14} className="text-mc-blue" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3">
+                    {myPurchases.map((p) => (
+                      <div key={p.id} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-mc-blue/20 flex items-center justify-center border border-mc-blue/20">
+                             <Check size={16} className="text-mc-blue" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-white group-hover:text-mc-blue transition-colors">{p.itemName}</div>
+                            <div className="text-[9px] text-neutral-500 uppercase tracking-tighter">{p.category}</div>
+                          </div>
+                        </div>
+                        <div className="text-[8px] text-neutral-600 font-mono">
+                          {p.boughtAt?.toDate().toLocaleDateString('de-DE')}
+                        </div>
+                      </div>
+                    ))}
+                    {myPurchases.length === 0 && (
+                      <div className="text-center py-20 opacity-20">
+                        <ShoppingBag size={48} className="mx-auto mb-4" />
+                        <p className="text-xs font-bold uppercase tracking-widest">Du hast noch nichts gekauft</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : showLogs && isAdmin ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-mc-red">Verkaufs-Protokoll</h4>
                     <Activity size={14} className="text-mc-red animate-pulse" />
                   </div>
                   <div className="space-y-2">
