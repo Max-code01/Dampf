@@ -2115,7 +2115,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Floating Action Group */}
-      <div className="fixed bottom-8 right-8 z-[60] flex flex-col sm:flex-row gap-3">
+      <div className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3">
         {/* News Button */}
         <button 
           onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
@@ -2298,9 +2298,19 @@ export default function App() {
           >
             <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold">Community Chat</h3>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <MessageCircle className="text-mc-red" />
+                  Community Chat
+                </h3>
                 <p className="text-neutral-500 text-xs">Schreibe mit anderen Spielern</p>
               </div>
+              <button 
+                onClick={() => setChatOpen(false)}
+                className="p-2 hover:bg-neutral-800 rounded-lg transition-colors"
+                title="Schließen"
+              >
+                <X size={24} />
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
