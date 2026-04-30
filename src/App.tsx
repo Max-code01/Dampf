@@ -861,8 +861,12 @@ export default function App() {
       } 
       else if (item.category === 'Items') {
         if (item.name.toLowerCase().includes('key')) {
-          const count = parseInt(item.name.match(/\d+/)?.[0] || "1");
-          updates[`inventory.keys`] = (myProfile.inventory?.keys || 0) + count;
+          const countStr = item.name.match(/\d+/)?.[0] || "1";
+          const count = parseInt(countStr);
+          updates.inventory = {
+            ...(myProfile.inventory || {}),
+            keys: (myProfile.inventory?.keys || 0) + count
+          };
           specialMessage = `${count}x Keys wurden deinem Inventar hinzugefügt!`;
         } else {
           specialMessage = `${item.name} wurde erfolgreich gekauft!`;
@@ -870,15 +874,17 @@ export default function App() {
       }
       else if (item.category === 'Vorteile') {
         if (item.name.toLowerCase().includes('flug')) {
-          // 1 Stunde Flugrecht (3600000 ms)
           const duration = 60 * 60 * 1000;
           const currentFlight = myProfile.perks?.flightUntil || Date.now();
-          updates[`perks.flightUntil`] = Math.max(currentFlight, Date.now()) + duration;
-          specialMessage = `Flug-Recht für 1 Stunde aktiviert!`;
+          const newFlightUntil = Math.max(currentFlight, Date.now()) + duration;
+          updates.perks = {
+            ...(myProfile.perks || {}),
+            flightUntil: newFlightUntil
+          };
+          specialMessage = `Flug-Recht für 1 Stunde aktiviert! (Gültig bis ${new Date(newFlightUntil).toLocaleTimeString()})`;
         }
       }
       else if (item.category === 'Boxen') {
-        // Sofortiges Öffnen-System
         const winXp = Math.floor(Math.random() * 1000) + 500;
         const winCoins = Math.floor(Math.random() * 2000);
         updates.xp = (myProfile.xp || 0) + winXp;
@@ -898,7 +904,7 @@ export default function App() {
         createdAt: serverTimestamp()
       });
 
-      // Permanent in User-Konto speichern (für die Sammlung)
+      // Permanent in User-Konto speichern
       await addDoc(collection(db, 'users', user.uid, 'purchases'), {
         itemId: item.id,
         itemName: item.name,
@@ -918,19 +924,52 @@ export default function App() {
         createdAt: serverTimestamp()
       });
       
-      alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${updates.coins.toLocaleString()} Coins`);
+      alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${(updates.coins || newCoins).toLocaleString()} Coins`);
     } catch (err) {
       console.error("Purchase failed", err);
       handleFirestoreError(err, OperationType.WRITE, `shop_purchase/${item.id}`);
     }
   };
 
+  const claimDailyReward = async () => {
+    if (!user || !myProfile) return;
+    
+    const lastClaim = myProfile.lastDailyReward || 0;
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    
+    if (now - lastClaim < oneDay) {
+      const waitTime = oneDay - (now - lastClaim);
+      const hours = Math.floor(waitTime / (1000 * 60 * 60));
+      const mins = Math.floor((waitTime % (1000 * 60 * 60)) / (1000 * 60));
+      alert(`⏳ Geduld! Du kannst deinen nächsten Bonus erst in ${hours}h ${mins}m abholen.`);
+      return;
+    }
+    
+    let reward = 500;
+    if (myProfile.role === 'VIP') reward = 1500;
+    if (myProfile.role === 'MVP') reward = 5000;
+    if (myProfile.role === 'Admin' || myProfile.role === 'Inhaber') reward = 10000;
+    
+    try {
+      await setDoc(doc(db, 'user_profiles', user.uid), {
+        coins: (myProfile.coins || 0) + reward,
+        lastDailyReward: now
+      }, { merge: true });
+      
+      alert(`🎁 TÄGLICHER BONUS!\n\nAls ${myProfile.role || 'Spieler'} hast du ${reward} Coins erhalten!`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'daily_reward');
+    }
+  };
+
   // Hilfsfunktion für Admins um Standard-Items zu spawnen
   const seedShop = async () => {
     if (!isAdmin) return;
+    
     const items = [
-      { name: 'VIP Rang', description: 'Dauerhafter VIP Status mit goldenem Namen!', price: 10000, category: 'Ränge' },
-      { name: 'MVP Rang', description: 'Der ultimative Rang für Legenden!', price: 25000, category: 'Ränge' },
+      { name: 'VIP Rang', description: 'Dauerhafter VIP Status mit 1.500 Coins Daily Bonus!', price: 10000, category: 'Ränge' },
+      { name: 'MVP Rang', description: 'Der ultimative Rang mit 5.000 Coins Daily Bonus!', price: 25000, category: 'Ränge' },
       { name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items' },
       { name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items' },
       { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
@@ -938,14 +977,25 @@ export default function App() {
       { name: 'Legendäre Box', description: 'Enthält massig XP und bis zu 2000 Coins!', price: 5000, category: 'Boxen' },
     ];
 
-    for (const item of items) {
-      await addDoc(collection(db, 'shop'), {
-        ...item,
-        isActive: true,
-        createdAt: serverTimestamp()
-      });
+    try {
+      // Existierende Items prüfen um Duplikate zu vermeiden
+      const existingNames = shopItems.map(i => i.name.toLowerCase());
+      
+      let addedCount = 0;
+      for (const item of items) {
+        if (!existingNames.includes(item.name.toLowerCase())) {
+          await addDoc(collection(db, 'shop'), {
+            ...item,
+            isActive: true,
+            createdAt: serverTimestamp()
+          });
+          addedCount++;
+        }
+      }
+      alert(`${addedCount} neue Standard-Items wurden hinzugefügt! (Duplikate wurden übersprungen)`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'shop_seed');
     }
-    alert("Krass verbesserte Standard-Items wurden hinzugefügt!");
   };
 
   const deleteShopItem = async (itemId: string) => {
@@ -2625,9 +2675,17 @@ export default function App() {
                   <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
                   <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
                 </div>
-                <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
-                  <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
-                  <Coins size={14} className="text-mc-gold" />
+                <div className="flex items-center gap-2">
+                   <button 
+                    onClick={claimDailyReward}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-mc-gold text-black rounded-lg font-bold text-[10px] uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all shadow-lg"
+                  >
+                    🎁 Daily Bonus
+                  </button>
+                  <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
+                    <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
+                    <Coins size={14} className="text-mc-gold" />
+                  </div>
                 </div>
               </div>
               
@@ -2705,83 +2763,104 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                ['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
-                const items = shopItems.filter(i => i.category === cat);
-                if (items.length === 0 && !isAdmin) return null;
-                
-                return (
-                  <div key={cat} className="space-y-5">
-                    <div className="flex items-center gap-3">
-                      <div className="p-1.5 bg-mc-gold/10 rounded-lg border border-mc-gold/20">
-                        {cat === 'Ränge' && <Award size={16} className="text-mc-gold" />}
-                        {cat === 'Items' && <Sword size={16} className="text-mc-gold" />}
-                        {cat === 'Vorteile' && <Zap size={16} className="text-mc-gold" />}
-                        {cat === 'Boxen' && <Box size={16} className="text-mc-gold" />}
+                <div className="space-y-8">
+                  {/* Rank Status Info */}
+                  {myProfile?.role && myProfile.role !== 'Spieler' && (
+                    <div className="p-4 bg-mc-gold/10 border border-mc-gold/20 rounded-2xl flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-mc-gold/20 flex items-center justify-center shadow-[0_0_20px_rgba(255,170,0,0.2)]">
+                        <Award size={24} className="text-mc-gold" />
                       </div>
-                      <h4 className="text-xs uppercase font-black text-white tracking-[0.25em]">{cat}</h4>
-                      <div className="h-px flex-1 bg-gradient-to-r from-neutral-800 to-transparent" />
+                      <div>
+                        <div className="text-[10px] uppercase font-black tracking-widest text-mc-gold">Aktivierter Rang</div>
+                        <div className="text-xl font-black text-white">{myProfile.role}</div>
+                        <div className="text-[9px] text-neutral-400 mt-1 italic">Vorteil: Erhöhter Daily-Bonus aktiviert!</div>
+                      </div>
                     </div>
+                  )}
 
-                    <div className="grid grid-cols-1 gap-4">
-                      {items.map((item) => (
-                        <motion.div 
-                          key={item.id} 
-                          whileHover={{ y: -4, scale: 1.01 }}
-                          className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''}`}
-                        >
-                          <div className="flex justify-between items-start mb-4 relative z-10">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center gap-2">
-                                <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors">
-                                  {item.name}
-                                </h5>
-                                {item.price >= 10000 && (
-                                  <span className="bg-mc-gold/20 text-mc-gold text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border border-mc-gold/20">PREMIUM</span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-neutral-400 leading-snug max-w-[260px] font-medium italic opacity-80">
-                                {item.description}
-                              </p>
-                            </div>
-                            
-                            <div className="flex flex-col items-end gap-3 translate-x-2 group-hover:translate-x-0 transition-transform">
-                              <div className="flex items-center gap-1 group/admin">
-                                {isAdmin && (
-                                  <>
-                                    <button 
-                                      onClick={() => editShopItem(item)}
-                                      className="text-blue-500/30 hover:text-blue-400 transition-all p-1.5 bg-blue-500/5 rounded-lg border border-blue-500/0 hover:border-blue-500/20"
-                                      title="Bearbeiten"
-                                    >
-                                      <Edit2 size={12} />
-                                    </button>
-                                    <button 
-                                      onClick={() => deleteShopItem(item.id)}
-                                      className="text-red-500/30 hover:text-red-500 transition-all p-1.5 bg-red-500/5 rounded-lg border border-red-500/0 hover:border-red-500/20"
-                                      title="Löschen"
-                                    >
-                                      <Trash2 size={12} />
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                              
-                              <div className="relative group/btn">
-                                <button 
-                                  onClick={() => buyItem(item)}
-                                  disabled={!myProfile || myProfile.coins < item.price}
-                                  className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${(!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
-                                >
-                                  {item.price.toLocaleString()} <Coins size={12} />
-                                </button>
-                                {myProfile && myProfile.coins < item.price && (
-                                  <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
-                                    Nicht genug Coins!
-                                  </div>
-                                )}
-                              </div>
-                            </div>
+                  {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
+                    const items = shopItems.filter(i => i.category === cat);
+                    if (items.length === 0 && !isAdmin) return null;
+                    
+                    return (
+                      <div key={cat} className="space-y-5">
+                        <div className="flex items-center gap-3">
+                          <div className="p-1.5 bg-mc-gold/10 rounded-lg border border-mc-gold/20">
+                            {cat === 'Ränge' && <Award size={16} className="text-mc-gold" />}
+                            {cat === 'Items' && <Sword size={16} className="text-mc-gold" />}
+                            {cat === 'Vorteile' && <Zap size={16} className="text-mc-gold" />}
+                            {cat === 'Boxen' && <Box size={16} className="text-mc-gold" />}
                           </div>
+                          <h4 className="text-xs uppercase font-black text-white tracking-[0.25em]">{cat}</h4>
+                          <div className="h-px flex-1 bg-gradient-to-r from-neutral-800 to-transparent" />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                          {items.map((item) => {
+                            const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
+                            
+                            return (
+                              <motion.div 
+                                key={item.id} 
+                                whileHover={{ y: -4, scale: 1.01 }}
+                                className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''} ${isOwnRank ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                              >
+                                <div className="flex justify-between items-start mb-4 relative z-10">
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors">
+                                        {item.name}
+                                      </h5>
+                                      {item.price >= 10000 && (
+                                        <span className="bg-mc-gold/20 text-mc-gold text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border border-mc-gold/20">PREMIUM</span>
+                                      )}
+                                      {isOwnRank && (
+                                        <span className="bg-mc-gold text-black text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,170,0,0.5)]">DEIN RANG</span>
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] text-neutral-400 leading-snug max-w-[260px] font-medium italic opacity-80">
+                                      {item.description}
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="flex flex-col items-end gap-3 translate-x-2 group-hover:translate-x-0 transition-transform">
+                                    <div className="flex items-center gap-1 group/admin">
+                                      {isAdmin && (
+                                        <>
+                                          <button 
+                                            onClick={() => editShopItem(item)}
+                                            className="text-blue-500/30 hover:text-blue-400 transition-all p-1.5 bg-blue-500/5 rounded-lg border border-blue-500/0 hover:border-blue-500/20"
+                                            title="Bearbeiten"
+                                          >
+                                            <Edit2 size={12} />
+                                          </button>
+                                          <button 
+                                            onClick={() => deleteShopItem(item.id)}
+                                            className="text-red-500/30 hover:text-red-500 transition-all p-1.5 bg-red-500/5 rounded-lg border border-red-500/0 hover:border-red-500/20"
+                                            title="Löschen"
+                                          >
+                                            <Trash2 size={12} />
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                    
+                                    <div className="relative group/btn">
+                                      <button 
+                                        onClick={() => buyItem(item)}
+                                        disabled={isOwnRank || !myProfile || myProfile.coins < item.price}
+                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwnRank ? 'bg-neutral-800 text-neutral-500 border-neutral-900' : (!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
+                                      >
+                                        {isOwnRank ? 'AKTIVIERT' : item.price.toLocaleString()} {!isOwnRank && <Coins size={12} />}
+                                      </button>
+                                      {myProfile && myProfile.coins < item.price && !isOwnRank && (
+                                        <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
+                                          Nicht genug Coins!
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
                           
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/30">
                              <div className="flex items-center gap-1.5">
@@ -2800,8 +2879,9 @@ export default function App() {
                           <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 transition-all duration-700 opacity-20 pointer-events-none ${item.price >= 10000 ? 'bg-mc-gold' : 'bg-mc-blue'}`} />
                           <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-mc-gold/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         </motion.div>
-                      ))}
-                      {items.length === 0 && isAdmin && (
+                      );
+                    })}
+                    {items.length === 0 && isAdmin && (
                         <button 
                           onClick={seedShop}
                           className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold hover:opacity-100 hover:border-mc-gold/50 transition-all flex flex-col items-center gap-2 group"
@@ -2813,9 +2893,11 @@ export default function App() {
                     </div>
                   </div>
                 );
-              }))}
-              
-              {shopItems.length === 0 && !isAdmin && (
+              })}
+            </div>
+          )}
+          
+          {shopItems.length === 0 && !isAdmin && (
                 <div className="text-center py-24 opacity-30 flex flex-col items-center">
                   <div className="relative mb-6">
                     <ShoppingBag size={64} className="opacity-10 animate-pulse text-mc-gold" />
