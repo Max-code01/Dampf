@@ -52,7 +52,8 @@ import {
   Edit2,
   History,
   Check,
-  Package
+  Package,
+  Image as ImageIcon
 } from 'lucide-react';
 import { 
   collection, 
@@ -4272,6 +4273,54 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+
+          {/* Image Showcase Section for SEO & User View */}
+          <section id="showcase" className="mb-24">
+            <div className="flex items-center gap-3 mb-8">
+              <ImageIcon className="text-mc-gold" size={28} />
+              <h2 className="text-3xl font-bold">Realm Einblicke</h2>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { 
+                  url: "https://images.unsplash.com/photo-1627398242454-45a1465c2479?auto=format&fit=crop&q=80&w=800", 
+                  title: "Epische Landschaften", 
+                  desc: "Entdecke unendliche Welten auf unseren Survival-Realms." 
+                },
+                { 
+                  url: "https://images.unsplash.com/photo-1587573089734-09cb99c0a0b9?auto=format&fit=crop&q=80&w=800", 
+                  title: "Massive Bauwerke", 
+                  desc: "Werde Teil unserer Bau-Community und erschaffe Großes." 
+                },
+                { 
+                  url: "https://images.unsplash.com/photo-1621330396173-e41b1cafd17f?auto=format&fit=crop&q=80&w=800", 
+                  title: "Actionreiches PvP", 
+                  desc: "Spannende Kämpfe in unseren eigens entwickelten Arenen." 
+                }
+              ].map((img, idx) => (
+                <motion.div 
+                  key={idx}
+                  whileHover={{ y: -5 }}
+                  className="mc-card p-0 overflow-hidden group border-neutral-800/50"
+                >
+                  <div className="h-48 overflow-hidden relative">
+                    <img 
+                      src={img.url} 
+                      alt={img.title} 
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
+                  </div>
+                  <div className="p-6">
+                    <h4 className="text-white font-bold mb-2">{img.title}</h4>
+                    <p className="text-neutral-400 text-sm">{img.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </section>
 
           {/* Community Players List */}
           <div className="mb-12">
