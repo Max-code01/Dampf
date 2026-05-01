@@ -40,6 +40,8 @@ import {
   Sword,
   Newspaper,
   Vote,
+  Pickaxe,
+  Gem,
   X,
   Rocket,
   Plus,
@@ -208,6 +210,37 @@ interface ClanQuest {
 }
 
 // App component - Main entry point
+// Mining Tool Component for Custom Cursor
+const PickaxeTool = ({ active }: { active: boolean }) => {
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      setPos({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener('mousemove', handleMove);
+    return () => window.removeEventListener('mousemove', handleMove);
+  }, []);
+
+  return (
+    <motion.div
+      style={{ left: pos.x, top: pos.y, position: 'fixed', pointerEvents: 'none', zIndex: 9999 }}
+      animate={{ 
+        rotate: active ? -90 : -20,
+        x: active ? -20 : 0,
+        y: active ? -20 : 0
+      }}
+      transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+      className="opacity-100 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]"
+    >
+      <div className="relative">
+         <Pickaxe size={48} className="text-slate-200" />
+         <div className="absolute inset-0 blur-xl bg-mc-gold/20 -z-10 animate-pulse" />
+      </div>
+    </motion.div>
+  );
+};
+
 export default function App() {
   const [realmCodes, setRealmCodes] = useState({
     PVP: 'w3PHnwq-5_kcfoE',
@@ -247,8 +280,14 @@ export default function App() {
   const [shopOpen, setShopOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
+  const [showMiningModal, setShowMiningModal] = useState(false);
 
-  // Box Opening State
+  // Mining Game State
+  const [miningGrid, setMiningGrid] = useState<{ id: number, type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond', health: number }[]>([]);
+  const [miningParticles, setMiningParticles] = useState<{ id: number; x: number; y: number; color: string; vx: number; vy: number }[]>([]);
+  const [pickaxeSwing, setPickaxeSwing] = useState(false);
+  const [miningLevel, setMiningLevel] = useState(1);
+  const [miningStats, setMiningStats] = useState({ totalBroken: 0, diamondsFound: 0 });
   const [openingBox, setOpeningBox] = useState<{ isOpen: boolean; item: ShopItem | null; clicks: number; rarity: 'Standard' | 'Selten' | 'EPIK' | 'LEGENDÄR' }>({
     isOpen: false,
     item: null,
@@ -1053,7 +1092,136 @@ export default function App() {
     }
   };
 
-  // Hilfsfunktion für Admins um Standard-Items zu spawnen
+  useEffect(() => {
+    if (showMiningModal && miningGrid.length === 0) {
+      generateMiningGrid();
+    }
+  }, [showMiningModal]);
+
+  const generateMiningGrid = () => {
+    const newGrid = [];
+    for (let i = 0; i < 36; i++) {
+      const roll = Math.random();
+      let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' = 'Stone';
+      let health = 1;
+
+      if (roll > 0.98) { type = 'Diamond'; health = 3; }
+      else if (roll > 0.90) { type = 'Gold'; health = 2; }
+      else if (roll > 0.75) { type = 'Iron'; health = 2; }
+      else if (roll > 0.50) { type = 'Coal'; health = 1; }
+
+      newGrid.push({ id: i, type, health });
+    }
+    setMiningGrid(newGrid);
+  };
+
+  const mineBlock = async (id: number, e: React.MouseEvent) => {
+    const blockIndex = miningGrid.findIndex(b => b.id === id);
+    if (blockIndex === -1) return;
+
+    const block = miningGrid[blockIndex];
+    if (block.health <= 0) return;
+
+    // Trigger Pickaxe Animation
+    setPickaxeSwing(true);
+    setTimeout(() => setPickaxeSwing(false), 150);
+
+    // Spawn Impact Particles
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    const colors = {
+      'Stone': '#737373',
+      'Coal': '#1a1a1a',
+      'Iron': '#e2e8f0',
+      'Gold': '#fbbf24',
+      'Diamond': '#60a5fa'
+    };
+
+    const newParticles = Array.from({ length: 12 }).map(() => ({
+      id: Math.random(),
+      x: centerX,
+      y: centerY,
+      color: colors[block.type],
+      vx: (Math.random() - 0.5) * 15,
+      vy: (Math.random() - 0.5) * 15 - 5
+    }));
+    setMiningParticles(prev => [...prev, ...newParticles].slice(-50));
+
+    const newGrid = [...miningGrid];
+    
+    if (block.health > 1) {
+      newGrid[blockIndex].health -= 1;
+      setMiningGrid(newGrid);
+      return;
+    }
+
+    // Block destroyed - give rewards
+    let xp = 1;
+    let coins = 0;
+
+    switch (block.type) {
+      case 'Coal': xp = 5; coins = 2; break;
+      case 'Iron': xp = 15; coins = 8; break;
+      case 'Gold': xp = 40; coins = 25; break;
+      case 'Diamond': xp = 150; coins = 100; break;
+      default: xp = 2; coins = 1; break;
+    }
+
+    // Visual feedback before removal
+    newGrid[blockIndex] = { ...block, health: 0 }; 
+    setMiningGrid(newGrid);
+    setMiningStats(prev => ({
+      totalBroken: prev.totalBroken + 1,
+      diamondsFound: block.type === 'Diamond' ? prev.diamondsFound + 1 : prev.diamondsFound
+    }));
+
+    if (user) {
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        xp: increment(xp),
+        coins: increment(coins)
+      });
+    }
+
+    // Respawn after cooldown
+    setTimeout(() => {
+      setMiningGrid(current => {
+        const updated = [...current];
+        const roll = Math.random();
+        let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' = 'Stone';
+        let health = 1;
+
+        if (roll > 0.99) { type = 'Diamond'; health = 3; }
+        else if (roll > 0.92) { type = 'Gold'; health = 2; }
+        else if (roll > 0.80) { type = 'Iron'; health = 2; }
+        else if (roll > 0.60) { type = 'Coal'; health = 1; }
+
+        const idx = updated.findIndex(b => b.id === id);
+        if (idx !== -1) updated[idx] = { id, type, health };
+        return updated;
+      });
+    }, 4000);
+  };
+
+  // Particle physics loop
+  useEffect(() => {
+    if (!showMiningModal || miningParticles.length === 0) return;
+
+    const interval = setInterval(() => {
+      setMiningParticles(prev => 
+        prev.map(p => ({
+          ...p,
+          x: p.x + p.vx,
+          y: p.y + p.vy,
+          vy: p.vy + 0.8, // Gravity
+          vx: p.vx * 0.98  // Air friction
+        })).filter(p => p.y < window.innerHeight && p.x > 0 && p.x < window.innerWidth)
+      );
+    }, 20);
+
+    return () => clearInterval(interval);
+  }, [showMiningModal, miningParticles.length]);
   const seedShop = async () => {
     if (!isAdmin) return;
     
@@ -2271,7 +2439,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Root Stealth Indicators - Extremely subtle and only for Block5 */}
-      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal) && (
+      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal) && (
         <>
           {myProfile?.isInvisible && (
             <div className="fixed top-0 right-0 w-1 h-1 bg-purple-500/20 z-[9999] pointer-events-none" />
@@ -2288,7 +2456,186 @@ export default function App() {
         </>
       )}
 
-      {/* Box Opening Modal */}
+      {/* Mining Modal */}
+      <AnimatePresence>
+        {showMiningModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-0 sm:p-6 bg-black/95 backdrop-blur-3xl overflow-hidden cursor-none"
+          >
+            {/* Mining Background Glow */}
+            <div className="absolute inset-0 z-0">
+               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-mc-gold/5 blur-[150px] animate-pulse" />
+               <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black to-transparent" />
+            </div>
+
+            {/* Particle Layer */}
+            {miningParticles.map(p => (
+              <div 
+                key={p.id}
+                className="absolute w-2 h-2 rounded-sm z-[200] pointer-events-none shadow-sm"
+                style={{ 
+                  left: p.x, 
+                  top: p.y, 
+                  backgroundColor: p.color,
+                  boxShadow: `0 0 10px ${p.color}`
+                }}
+              />
+            ))}
+
+            {/* Pickaxe Tool Visual (Follows Cursor) */}
+            <PickaxeTool active={pickaxeSwing} />
+
+            <motion.div
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              className="max-w-5xl w-full h-full sm:h-auto bg-neutral-900/40 border border-white/5 rounded-none sm:rounded-[3rem] overflow-hidden flex flex-col sm:max-h-[85vh] relative z-10 shadow-[0_0_100px_rgba(0,0,0,1)]"
+            >
+              {/* Header */}
+              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/40 backdrop-blur-md">
+                <div className="flex items-center gap-6">
+                  <div className="p-4 bg-mc-gold rounded-2xl text-black shadow-[0_10px_30px_rgba(255,170,0,0.3)]">
+                    <Pickaxe size={36} />
+                  </div>
+                  <div>
+                    <h3 className="text-3xl font-black text-white italic tracking-tighter leading-none mb-1">DEEP MINES</h3>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] bg-mc-gold/10 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((myProfile?.xp || 0) / 5000) + 1}</span>
+                      <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Community Rohstoff-Abbau</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="hidden md:flex gap-10">
+                   <div className="text-right">
+                      <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1">Total Abgebaut</p>
+                      <p className="text-xl font-black text-white italic">{miningStats.totalBroken}</p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Diamanten</p>
+                      <p className="text-xl font-black text-mc-gold italic">{miningStats.diamondsFound}</p>
+                   </div>
+                </div>
+
+                <button 
+                  onClick={() => setShowMiningModal(false)}
+                  className="p-4 hover:bg-white/5 rounded-2xl transition-all text-neutral-500 hover:text-white group"
+                >
+                  <X size={28} className="group-hover:rotate-90 transition-transform" />
+                </button>
+              </div>
+
+              {/* Grid Area */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-20 custom-scrollbar relative">
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 sm:gap-6 max-w-3xl mx-auto py-10">
+                  {miningGrid.map((block) => (
+                    <div key={block.id} className="relative aspect-square">
+                      {/* Floating Reward Animation */}
+                      <AnimatePresence>
+                        {block.health === 0 && (
+                          <motion.div
+                            initial={{ y: 0, opacity: 1, scale: 1 }}
+                            animate={{ y: -100, opacity: 0, scale: 2 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-x-0 -top-10 z-[250] flex flex-col items-center justify-center pointer-events-none"
+                          >
+                            <span className="text-mc-gold font-black text-xl drop-shadow-[0_2px_10px_rgba(255,170,0,0.5)] italic">
+                              +{block.type === 'Diamond' ? 150 : block.type === 'Gold' ? 40 : block.type === 'Iron' ? 15 : 5}
+                            </span>
+                            <span className="text-white/40 font-black text-[10px] uppercase tracking-widest">XP gained</span>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <motion.div
+                        whileHover={{ scale: block.health > 0 ? 1.08 : 1, zIndex: 10 }}
+                        whileTap={{ 
+                          scale: block.health > 0 ? 0.85 : 1,
+                          rotate: block.health > 0 ? (Math.random() * 8 - 4) : 0
+                        }}
+                        onClick={(e) => block.health > 0 && mineBlock(block.id, e)}
+                        className={`w-full h-full rounded-xl sm:rounded-2xl transition-all duration-300 relative group/block shadow-[0_20px_40px_rgba(0,0,0,0.4)] ${
+                          block.health === 0 ? 'opacity-5 scale-90 blur-sm grayscale' : 'opacity-100 hover:shadow-2xl'
+                        }`}
+                      >
+                        {/* 3D Sides Emulation */}
+                        <div className="absolute inset-0 translate-y-2 translate-x-1 bg-black/40 rounded-2xl z-0" />
+                        
+                        {/* Main Block Face */}
+                        <div className={`absolute inset-0 rounded-2xl border-2 border-white/5 overflow-hidden z-10 ${
+                           block.type === 'Diamond' ? 'bg-[#3b82f6]' :
+                           block.type === 'Gold' ? 'bg-mc-gold' :
+                           block.type === 'Iron' ? 'bg-slate-200' :
+                           block.type === 'Coal' ? 'bg-[#121212]' : 
+                           'bg-[#525252]'
+                        }`}>
+                          {/* Inner Bezel */}
+                          <div className="absolute inset-0 border-t-8 border-l-8 border-white/10" />
+                          <div className="absolute inset-0 border-b-8 border-r-8 border-black/40" />
+
+                          {/* Base Stone Texture */}
+                          <div className="absolute inset-0 bg-[#3a3a3a] opacity-80 mix-blend-multiply" />
+
+                          {/* Ore Deposits */}
+                          {block.type !== 'Stone' && (
+                             <div className="absolute inset-0 p-2 grid grid-cols-4 grid-rows-4 gap-1.5 h-full w-full">
+                               {[...Array(16)].map((_, i) => (
+                                 Math.random() > 0.6 && (
+                                   <div key={i} className={`rounded-sm shadow-sm ${
+                                      block.type === 'Diamond' ? 'bg-blue-300 shadow-[0_0_8px_rgba(147,197,253,1)]' :
+                                      block.type === 'Gold' ? 'bg-mc-gold shadow-[0_0_8px_rgba(255,170,0,1)]' :
+                                      block.type === 'Iron' ? 'bg-slate-100' :
+                                      'bg-black'
+                                   }`} />
+                                 )
+                               ))}
+                             </div>
+                          )}
+
+                          {/* Stone Grime */}
+                          <div className="absolute inset-0 pointer-events-none opacity-20 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
+
+                          {/* Cracks Logic */}
+                          {block.health < (block.type === 'Diamond' ? 3 : block.type === 'Stone' ? 1 : 2) && block.health > 0 && (
+                            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+                              <svg className="w-full h-full text-black/80 p-2" viewBox="0 0 100 100">
+                                <path d="M0,0 L20,30 L0,70 M40,20 L60,40 L100,0 M20,100 L50,80 L80,100 M70,50 L50,20" fill="none" stroke="currentColor" strokeWidth="6" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Bottom Info */}
+              <div className="p-8 border-t border-white/5 bg-black/60 backdrop-blur-xl flex flex-wrap items-center justify-center gap-10">
+                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
+                  <Gem size={20} className="text-blue-400" />
+                  <span className="text-xs font-black text-blue-400 uppercase tracking-widest italic">DIAMOND: 150 XP</span>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
+                  <div className="w-4 h-4 bg-mc-gold rounded-sm shadow-[0_0_10px_rgba(255,170,0,0.5)]" />
+                  <span className="text-xs font-black text-mc-gold uppercase tracking-widest italic">GOLD: 40 XP</span>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
+                  <div className="w-4 h-4 bg-slate-200 rounded-sm" />
+                  <span className="text-xs font-black text-slate-200 uppercase tracking-widest italic">IRON: 15 XP</span>
+                </div>
+                <div className="hidden sm:flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
+                  <div className="w-4 h-4 bg-[#121212] border border-white/10 rounded-sm" />
+                  <span className="text-xs font-black text-neutral-400 uppercase tracking-widest italic">COAL: 5 XP</span>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {openingBox.isOpen && (
           <motion.div
@@ -2424,7 +2771,7 @@ export default function App() {
 
       {/* Global Broadcast Banner */}
       <AnimatePresence>
-        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) && (
+        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) && (
           <motion.div 
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -2441,7 +2788,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Navigation */}
-      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
+      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
@@ -2662,13 +3009,22 @@ export default function App() {
 
       {/* Floating Action Group - Hide when any overlay is open */}
       <AnimatePresence>
-        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) && (
+        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) && (
           <motion.div 
             initial={{ opacity: 0, scale: 0.8, y: 50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
             className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3"
           >
+            {/* Mining Game Button */}
+            <button 
+              onClick={() => { setShowMiningModal(true); setShopOpen(false); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${showMiningModal ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
+              title="Mining Minispiel"
+            >
+              <Pickaxe size={24} />
+            </button>
+
             {/* Shop Button */}
             <button 
               onClick={() => { setShopOpen(!shopOpen); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
@@ -3320,7 +3676,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
           <motion.div
