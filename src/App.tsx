@@ -64,7 +64,9 @@ import {
   limit,
   addDoc,
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  increment,
+  updateDoc
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -245,6 +247,14 @@ export default function App() {
   const [shopOpen, setShopOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
+
+  // Box Opening State
+  const [openingBox, setOpeningBox] = useState<{ isOpen: boolean; item: ShopItem | null; clicks: number; rarity: 'Standard' | 'Selten' | 'EPIK' | 'LEGENDÄR' }>({
+    isOpen: false,
+    item: null,
+    clicks: 0,
+    rarity: 'Standard'
+  });
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
@@ -838,6 +848,70 @@ export default function App() {
     }
   };
 
+  const handleBoxClick = async () => {
+    if (!openingBox.item || openingBox.clicks >= 3) return;
+
+    const nextClick = openingBox.clicks + 1;
+    let nextRarity = openingBox.rarity;
+
+    // Chance auf Rarity-Upgrade pro Click
+    const roll = Math.random();
+    if (roll > 0.7) {
+      if (nextRarity === 'Standard') nextRarity = 'Selten';
+      else if (nextRarity === 'Selten') nextRarity = 'EPIK';
+      else if (nextRarity === 'EPIK') nextRarity = 'LEGENDÄR';
+    }
+
+    setOpeningBox(prev => ({
+      ...prev,
+      clicks: nextClick,
+      rarity: nextRarity
+    }));
+
+    if (nextClick === 3) {
+      // Finalen Gewinn berechnen basierend auf Rarity
+      const multipliers = {
+        'Standard': 1,
+        'Selten': 2,
+        'EPIK': 5,
+        'LEGENDÄR': 15
+      };
+      
+      const mult = multipliers[nextRarity];
+      const winXp = (Math.floor(Math.random() * 500) + 200) * mult;
+      const winCoins = (Math.floor(Math.random() * 300) + 50) * mult;
+
+      setTimeout(async () => {
+        try {
+          if (user) {
+            await updateDoc(doc(db, 'user_profiles', user.uid), {
+              xp: increment(winXp),
+              coins: increment(winCoins)
+            });
+            
+            // Log den Box-Gewinn
+            await addDoc(collection(db, 'shop_logs'), {
+              userId: user.uid,
+              userName: myProfile?.displayName || 'Anonym',
+              itemId: 'box_reward',
+              itemName: `Gewinn aus ${openingBox.item?.name} (${nextRarity})`,
+              rarity: nextRarity,
+              winXp,
+              winCoins,
+              createdAt: serverTimestamp()
+            });
+
+            alert(`🎉 BOX GEÖFFNET!\nRarität: ${nextRarity}\n\nGewonnen:\n+ ${winXp} XP\n+ ${winCoins} Coins`);
+          }
+        } catch (e) {
+          console.error("Box error:", e);
+        } finally {
+          setOpeningBox({ isOpen: false, item: null, clicks: 0, rarity: 'Standard' });
+        }
+      }, 1000);
+    }
+  };
+
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
     
@@ -856,17 +930,26 @@ export default function App() {
       // LOGIK JE NACH KATEGORIE
       if (item.category === 'Ränge') {
         const newRole = item.name.replace(' Rang', '').trim();
-        updates.role = newRole;
-        specialMessage = `Du hast nun den Rang: ${newRole}`;
+        // ADMIN SCHUTZ: Überschreibe Admin/Inhaber nicht durch normale Ränge
+        if (myProfile.role === 'Admin' || myProfile.role === 'Inhaber') {
+          specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
+          // Wir könnten hier ein Feld 'purchasedRanks' führen, aber primärer Rang bleibt Admin
+          const currentRanks = myProfile.inventory?.purchasedRanks || [];
+          if (!currentRanks.includes(newRole)) {
+            updates['inventory.purchasedRanks'] = [...currentRanks, newRole];
+          }
+        } else {
+          updates.role = newRole;
+          specialMessage = `Du hast nun den Rang: ${newRole}`;
+        }
       } 
       else if (item.category === 'Items') {
         if (item.name.toLowerCase().includes('key')) {
           const countStr = item.name.match(/\d+/)?.[0] || "1";
           const count = parseInt(countStr);
-          updates.inventory = {
-            ...(myProfile.inventory || {}),
-            keys: (myProfile.inventory?.keys || 0) + count
-          };
+          // Dot-Notation für sicherere Updates in Firestore
+          const currentKeys = myProfile.inventory?.keys || 0;
+          updates['inventory.keys'] = currentKeys + count;
           specialMessage = `${count}x Keys wurden deinem Inventar hinzugefügt!`;
         } else {
           specialMessage = `${item.name} wurde erfolgreich gekauft!`;
@@ -877,22 +960,29 @@ export default function App() {
           const duration = 60 * 60 * 1000;
           const currentFlight = myProfile.perks?.flightUntil || Date.now();
           const newFlightUntil = Math.max(currentFlight, Date.now()) + duration;
-          updates.perks = {
-            ...(myProfile.perks || {}),
-            flightUntil: newFlightUntil
-          };
+          updates['perks.flightUntil'] = newFlightUntil;
           specialMessage = `Flug-Recht für 1 Stunde aktiviert! (Gültig bis ${new Date(newFlightUntil).toLocaleTimeString()})`;
         }
       }
       else if (item.category === 'Boxen') {
-        const winXp = Math.floor(Math.random() * 1000) + 500;
-        const winCoins = Math.floor(Math.random() * 2000);
-        updates.xp = (myProfile.xp || 0) + winXp;
-        updates.coins = newCoins + winCoins;
-        specialMessage = `BOX GEÖFFNET! Du hast ${winXp} XP und ${winCoins} Coins gewonnen!`;
+        // Zuerst Coins abziehen
+        await updateDoc(doc(db, 'user_profiles', user.uid), {
+          coins: newCoins
+        });
+
+        // Dann interaktives Box-Opening starten
+        setOpeningBox({
+          isOpen: true,
+          item: item,
+          clicks: 0,
+          rarity: 'Standard'
+        });
+        setShopOpen(false); 
+        return; 
       }
 
-      await setDoc(doc(db, 'user_profiles', user.uid), updates, { merge: true });
+      // Wir nutzen updateDoc für präzise Feld-Updates (Dots)
+      await updateDoc(doc(db, 'user_profiles', user.uid), updates);
 
       // In Firestore History loggen
       await addDoc(collection(db, 'shop_logs'), {
@@ -2181,7 +2271,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Root Stealth Indicators - Extremely subtle and only for Block5 */}
-      {isSuperAdmin && (
+      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId) && (
         <>
           {myProfile?.isInvisible && (
             <div className="fixed top-0 right-0 w-1 h-1 bg-purple-500/20 z-[9999] pointer-events-none" />
@@ -2198,9 +2288,91 @@ export default function App() {
         </>
       )}
 
+      {/* Box Opening Modal */}
+      <AnimatePresence>
+        {openingBox.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl"
+          >
+            <div className="max-w-md w-full relative">
+              <motion.div
+                initial={{ scale: 0.5, y: 100 }}
+                animate={{ scale: 1, y: 0 }}
+                className="text-center space-y-8"
+              >
+                <div className="space-y-2">
+                  <h2 className="text-3xl font-black text-white italic tracking-tighter">CASE OPENING</h2>
+                  <p className="text-mc-gold font-bold uppercase tracking-[0.3em] text-[10px] animate-pulse">
+                    Klicke 3 Mal zum Öffnen! ({openingBox.clicks}/3)
+                  </p>
+                </div>
+
+                <div className="relative group perspective-1000">
+                  <motion.div
+                    animate={{ 
+                      rotateY: openingBox.clicks * 360,
+                      scale: 1 + (openingBox.clicks * 0.1),
+                      boxShadow: openingBox.rarity === 'LEGENDÄR' ? '0 0 100px rgba(255,170,0,0.5)' : 
+                                 openingBox.rarity === 'EPIK' ? '0 0 80px rgba(168,85,247,0.5)' :
+                                 openingBox.rarity === 'Selten' ? '0 0 60px rgba(59,130,246,0.5)' : '0 0 40px rgba(255,255,255,0.1)'
+                    }}
+                    onClick={handleBoxClick}
+                    className={`w-48 h-48 mx-auto rounded-3xl flex items-center justify-center cursor-pointer transition-all duration-500 ${
+                      openingBox.rarity === 'LEGENDÄR' ? 'bg-mc-gold' : 
+                      openingBox.rarity === 'EPIK' ? 'bg-purple-600' :
+                      openingBox.rarity === 'Selten' ? 'bg-blue-600' : 'bg-neutral-800'
+                    } border-b-8 border-black/30 active:scale-90 relative overflow-hidden`}
+                  >
+                    <Box size={80} className="text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
+                    
+                    {/* Glow Effects */}
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-50" />
+                    <div className="absolute inset-0 animate-pulse bg-white/5" />
+                  </motion.div>
+
+                  {/* Rarity Label Overlay */}
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={openingBox.rarity}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      className="mt-8"
+                    >
+                      <span className={`px-6 py-2 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl border-2 ${
+                        openingBox.rarity === 'LEGENDÄR' ? 'bg-mc-gold text-black border-yellow-400' :
+                        openingBox.rarity === 'EPIK' ? 'bg-purple-600 text-white border-purple-400' :
+                        openingBox.rarity === 'Selten' ? 'bg-blue-600 text-white border-blue-400' :
+                        'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}>
+                        {openingBox.rarity}
+                      </span>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+
+                <div className="flex gap-1 justify-center">
+                  {[1, 2, 3].map(i => (
+                    <div 
+                      key={i} 
+                      className={`h-1.5 rounded-full transition-all duration-500 ${
+                        openingBox.clicks >= i ? 'w-8 bg-mc-gold' : 'w-2 bg-neutral-800'
+                      }`} 
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Global Broadcast Banner */}
       <AnimatePresence>
-        {broadcastMessage && (
+        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) && (
           <motion.div 
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -2217,7 +2389,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Navigation */}
-      <nav className="relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0">
+      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
@@ -2436,44 +2608,53 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Group */}
-      <div className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3">
-        {/* Shop Button */}
-        <button 
-          onClick={() => { setShopOpen(!shopOpen); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${shopOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
-          title="Globaler Shop"
-        >
-          <ShoppingBag size={24} />
-        </button>
+      {/* Floating Action Group - Hide when any overlay is open */}
+      <AnimatePresence>
+        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8, y: 50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 50 }}
+            className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3"
+          >
+            {/* Shop Button */}
+            <button 
+              onClick={() => { setShopOpen(!shopOpen); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${shopOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
+              title="Globaler Shop"
+            >
+              <ShoppingBag size={24} />
+            </button>
 
-        {/* News Button */}
-        <button 
-          onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${newsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
-          title="News-Feed"
-        >
-          <Newspaper size={24} />
-        </button>
+            {/* News Button */}
+            <button 
+              onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${newsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
+              title="News-Feed"
+            >
+              <Newspaper size={24} />
+            </button>
 
-        {/* Polls Button */}
-        <button 
-          onClick={() => { setPollsOpen(!pollsOpen); setNewsOpen(false); setChatOpen(false); }}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${pollsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
-          title="Umfragen"
-        >
-          <Vote size={24} />
-        </button>
+            {/* Polls Button */}
+            <button 
+              onClick={() => { setPollsOpen(!pollsOpen); setNewsOpen(false); setChatOpen(false); }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${pollsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
+              title="Umfragen"
+            >
+              <Vote size={24} />
+            </button>
 
-        {/* Chat Button */}
-        <button 
-          onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); setShopOpen(false); }}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
-          title="Chat"
-        >
-          {chatOpen ? <X size={28} /> : <MessageCircle size={28} />}
-        </button>
-      </div>
+            {/* Chat Button */}
+            <button 
+              onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); setShopOpen(false); }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
+              title="Chat"
+            >
+              {chatOpen ? <X size={28} /> : <MessageCircle size={28} />}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* News Drawer */}
       <AnimatePresence>
@@ -3087,7 +3268,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24">
+      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
           <motion.div
