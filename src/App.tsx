@@ -53,7 +53,10 @@ import {
   History,
   Check,
   Package,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Play,
+  Flame,
+  Castle
 } from 'lucide-react';
 import { 
   collection, 
@@ -337,7 +340,7 @@ export default function App() {
 
   useEffect(() => {
     if (myProfile?.mining?.cps) {
-      setCoinsPerSecond(myProfile.mining.cps);
+      setCoinsPerSecond(myProfile?.mining?.cps || 0);
     }
   }, [myProfile?.mining?.cps]);
 
@@ -1035,7 +1038,7 @@ export default function App() {
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
     
-    if ((myProfile.coins || 0) < item.price) {
+    if ((myProfile?.coins || 0) < item.price) {
       alert("❌ Du hast nicht genug Coins für diesen Kauf!");
       return;
     }
@@ -1043,7 +1046,7 @@ export default function App() {
     if (!confirm(`MÖCHTEST DU KAUFEN?\n\nItem: ${item.name}\nPreis: ${item.price} Coins\nKategorie: ${item.category}`)) return;
 
     try {
-      const newCoins = (myProfile.coins || 0) - item.price;
+      const newCoins = (myProfile?.coins || 0) - item.price;
       const updates: any = { coins: newCoins };
       let specialMessage = "";
       
@@ -1051,10 +1054,10 @@ export default function App() {
       if (item.category === 'Ränge') {
         const newRole = item.name.replace(' Rang', '').trim();
         // ADMIN SCHUTZ: Überschreibe Admin/Inhaber nicht durch normale Ränge
-        if (myProfile.role === 'Admin' || myProfile.role === 'Inhaber') {
+        if (myProfile?.role === 'Admin' || myProfile?.role === 'Inhaber') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
           // Wir könnten hier ein Feld 'purchasedRanks' führen, aber primärer Rang bleibt Admin
-          const currentRanks = myProfile.inventory?.purchasedRanks || [];
+          const currentRanks = myProfile?.inventory?.purchasedRanks || [];
           if (!currentRanks.includes(newRole)) {
             updates['inventory.purchasedRanks'] = [...currentRanks, newRole];
           }
@@ -1075,7 +1078,7 @@ export default function App() {
           specialMessage = `${item.name} wurde ausgerüstet! Deine Mining-Power ist jetzt ${power}.`;
         } else if (luckMatch) {
           const luck = parseInt(luckMatch[1]);
-          updates['inventory.luck'] = (myProfile.inventory?.luck || 0) + luck;
+          updates['inventory.luck'] = (myProfile?.inventory?.luck || 0) + luck;
           specialMessage = `${item.name} wurde aktiviert! Dein Glück beim Mining ist gestiegen.`;
         } else if (xpBoost) {
           updates['inventory.xpMultiplier'] = 1.5;
@@ -1087,7 +1090,7 @@ export default function App() {
           const countStr = item.name.match(/\d+/)?.[0] || "1";
           const count = parseInt(countStr);
           // Dot-Notation für sicherere Updates in Firestore
-          const currentKeys = myProfile.inventory?.keys || 0;
+          const currentKeys = myProfile?.inventory?.keys || 0;
           updates['inventory.keys'] = currentKeys + count;
           specialMessage = `${count}x Keys wurden deinem Inventar hinzugefügt!`;
         } else {
@@ -1097,7 +1100,7 @@ export default function App() {
       else if (item.category === 'Vorteile') {
         if (item.name.toLowerCase().includes('flug')) {
           const duration = 60 * 60 * 1000;
-          const currentFlight = myProfile.perks?.flightUntil || Date.now();
+          const currentFlight = myProfile?.perks?.flightUntil || Date.now();
           const newFlightUntil = Math.max(currentFlight, Date.now()) + duration;
           updates['perks.flightUntil'] = newFlightUntil;
           specialMessage = `Flug-Recht für 1 Stunde aktiviert! (Gültig bis ${new Date(newFlightUntil).toLocaleTimeString()})`;
@@ -1182,7 +1185,7 @@ export default function App() {
     
     try {
       await setDoc(doc(db, 'user_profiles', user.uid), {
-        coins: (myProfile.coins || 0) + reward,
+        coins: (myProfile?.coins || 0) + reward,
         lastDailyReward: now
       }, { merge: true });
       
@@ -1209,11 +1212,11 @@ export default function App() {
   }, [user, coinsPerSecond, showMiningModal]);
 
   const spawnNextBlock = () => {
-    const luckBonus = (myProfile.inventory?.luck || 0) / 100;
+    const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
     const roll = Math.random() + luckBonus;
     let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest' = 'Stone';
     let maxHealth = 10;
-
+    
     if (roll > 0.998) { type = 'Chest'; maxHealth = 1; }
     else if (roll > 0.99) { type = 'Emerald'; maxHealth = 60; }
     else if (roll > 0.97) { type = 'Diamond'; maxHealth = 40; }
@@ -1223,7 +1226,7 @@ export default function App() {
     else if (roll > 0.45) { type = 'Coal'; maxHealth = 8; }
     else { type = 'Stone'; maxHealth = 5; }
 
-    const factor = 1 + Math.floor((myProfile.xp || 0) / 10000) * 0.2;
+    const factor = 1 + Math.floor((myProfile?.xp || 0) / 10000) * 0.2;
     const finalHealth = Math.ceil(maxHealth * factor);
     setMiningBlock({ type, health: finalHealth, maxHealth: finalHealth });
   };
@@ -1270,7 +1273,7 @@ export default function App() {
     setMiningShake(8);
     
     // Floating reward calculation for current hit
-    const hitDamage = (myProfile.inventory?.pickaxePower || 1);
+    const hitDamage = (myProfile?.inventory?.pickaxePower || 1);
     const floatingX = e.clientX + (Math.random() * 40 - 20);
     const floatingY = e.clientY - 20;
     
@@ -1298,8 +1301,8 @@ export default function App() {
       vy: (Math.random() - 0.5) * 20 - 10
     }));
     setMiningParticles(prev => [...prev, ...newParticles].slice(-60)); // Lower limit
-    const damage = (myProfile.inventory?.pickaxePower || 1);
-    const coinsPerClick = (myProfile.mining?.coinsPerClick || 1);
+    const damage = (myProfile?.inventory?.pickaxePower || 1);
+    const coinsPerClick = (myProfile?.mining?.coinsPerClick || 1);
     const newHealth = Math.max(0, miningBlock.health - damage);
 
     if (user) {
@@ -1336,7 +1339,7 @@ export default function App() {
       default: xp = 8; coins = 5; break;
     }
 
-    const userXpMult = myProfile.inventory?.xpMultiplier || 1;
+    const userXpMult = myProfile?.inventory?.xpMultiplier || 1;
     const finalXp = Math.floor(xp * miningMultiplier * userXpMult);
     const finalCoins = Math.floor(coins * miningMultiplier);
 
@@ -2646,7 +2649,7 @@ export default function App() {
             ))}
 
             {/* Pickaxe Tool Visual (Follows Cursor) */}
-            <PickaxeTool active={pickaxeSwing} pickaxeName={myProfile.inventory?.pickaxeName} />
+            <PickaxeTool active={pickaxeSwing} pickaxeName={myProfile?.inventory?.pickaxeName} />
 
             <motion.div
               initial={{ scale: 0.9, y: 50 }}
@@ -2703,9 +2706,9 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[10px] bg-mc-gold/20 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((myProfile?.xp || 0) / 5000) + 1}</span>
-                      <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Mult: {miningMultiplier}x {myProfile.inventory?.xpMultiplier && `(+50% Bonus)`}</p>
-                      {myProfile.inventory?.luck && (
-                        <span className="text-[10px] text-mc-gold animate-pulse">LUCK +{myProfile.inventory.luck}%</span>
+                      <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Mult: {miningMultiplier}x {myProfile?.inventory?.xpMultiplier && `(+50% Bonus)`}</p>
+                      {myProfile?.inventory?.luck && (
+                        <span className="text-[10px] text-mc-gold animate-pulse">LUCK +{myProfile?.inventory?.luck}%</span>
                       )}
                     </div>
                   </div>
@@ -2714,11 +2717,11 @@ export default function App() {
                 <div className="hidden md:flex gap-10">
                    <div className="text-right">
                       <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1">Tool ausgerüstet</p>
-                      <p className="text-sm font-black text-white italic capitalize">{myProfile.inventory?.pickaxeName || 'Holzspitzhacke'}</p>
+                      <p className="text-sm font-black text-white italic capitalize">{myProfile?.inventory?.pickaxeName || 'Holzspitzhacke'}</p>
                    </div>
                     <div className="text-right">
                        <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Deine Coins</p>
-                       <p className="text-xl font-black text-mc-gold italic">{myProfile.coins?.toLocaleString() || 0} 🪙</p>
+                       <p className="text-xl font-black text-mc-gold italic">{myProfile?.coins?.toLocaleString() || 0} 🪙</p>
                     </div>
                     <div className="text-right">
                        <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Diamanten</p>
@@ -2763,7 +2766,7 @@ export default function App() {
                 </AnimatePresence>
                 
                 {/* Left Column: The Clicker Area */}
-                <div className="w-full md:w-1/2 flex flex-col items-center justify-center p-6 border-r border-white/5 relative z-10 select-none">
+                <div className="w-full md:w-1/2 h-[350px] md:h-full flex flex-col items-center justify-center p-6 sm:border-r border-white/5 relative z-10 select-none">
                   <div className="mb-8 text-center space-y-1">
                      <h2 className="text-white font-black text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
                      <p className="text-mc-gold font-bold italic">CPS: {coinsPerSecond} Coins/s</p>
@@ -2864,22 +2867,24 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden min-h-[300px] md:min-h-0">
+                <div className="w-full md:w-1/2 flex-1 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden">
                   <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
                     <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar touch-pan-y">
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y">
                     {[
                       { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.' },
                       { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.' },
                       { id: 'miner_3', name: 'Mining-Team', price: 6000, cps: 55, icon: Users, desc: 'Ein ganzer Trupp Profis im Einsatz.' },
                       { id: 'click_1', name: 'Goldmünze', price: 500, cpc: 2, icon: Gem, desc: 'Zusätzliche Münzen pro Klick.' },
                       { id: 'click_2', name: 'Schatzbeutel', price: 3000, cpc: 8, icon: Package, desc: 'Viel mehr Münzen pro Klick.' },
+                      { id: 'click_3', name: 'Ender-Schatz', price: 15000, cpc: 25, icon: Castle, desc: 'Göttliche Ausbeute bei jedem Schlag.' },
                       { id: 'power_1', name: 'Scharfe Kante', price: 400, power: 1, icon: Zap, desc: '+1 Schaden pro Klick.' },
                       { id: 'power_2', name: 'Wuchtiger Schlag', price: 2500, power: 6, icon: Hammer, desc: '+6 Schaden pro Klick.' },
+                      { id: 'power_3', name: 'Nether-Effizienz', price: 8000, power: 20, icon: Flame, desc: '+20 Schaden pro Klick.' },
                     ].map((item) => {
                       const canAfford = (myProfile?.coins || 0) >= item.price;
                       return (
@@ -3734,12 +3739,12 @@ export default function App() {
                                     <div className="relative group/btn">
                                       <button 
                                         onClick={() => buyItem(item)}
-                                        disabled={isOwnRank || !myProfile || myProfile.coins < item.price}
-                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwnRank ? 'bg-neutral-800 text-neutral-500 border-neutral-900' : (!myProfile || myProfile.coins < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
+                                        disabled={isOwnRank || !myProfile || (myProfile?.coins || 0) < item.price}
+                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwnRank ? 'bg-neutral-800 text-neutral-500 border-neutral-900' : (!myProfile || (myProfile?.coins || 0) < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
                                       >
                                         {isOwnRank ? 'AKTIVIERT' : item.price.toLocaleString()} {!isOwnRank && <Coins size={12} />}
                                       </button>
-                                      {myProfile && myProfile.coins < item.price && !isOwnRank && (
+                                      {myProfile && (myProfile?.coins || 0) < item.price && !isOwnRank && (
                                         <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
                                           Nicht genug Coins!
                                         </div>
@@ -3801,7 +3806,7 @@ export default function App() {
                 <button 
                   onClick={async () => {
                     if (!user || !myProfile) return;
-                    await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile.coins || 0) + 10000 }, { merge: true });
+                    await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 10000 }, { merge: true });
                     alert("💸 10.000 Coins gutgeschrieben (Admin-Cheat)!");
                   }}
                   className="px-3 py-1 bg-neutral-800 hover:bg-mc-gold hover:text-black transition-all rounded text-[9px] font-bold uppercase tracking-tighter"
@@ -4273,54 +4278,6 @@ export default function App() {
               </div>
             </motion.div>
           </div>
-
-          {/* Image Showcase Section for SEO & User View */}
-          <section id="showcase" className="mb-24">
-            <div className="flex items-center gap-3 mb-8">
-              <ImageIcon className="text-mc-gold" size={28} />
-              <h2 className="text-3xl font-bold">Realm Einblicke</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[
-                { 
-                  url: "https://images.unsplash.com/photo-1627398242454-45a1465c2479?auto=format&fit=crop&q=80&w=800", 
-                  title: "Epische Landschaften", 
-                  desc: "Entdecke unendliche Welten auf unseren Survival-Realms." 
-                },
-                { 
-                  url: "https://images.unsplash.com/photo-1587573089734-09cb99c0a0b9?auto=format&fit=crop&q=80&w=800", 
-                  title: "Massive Bauwerke", 
-                  desc: "Werde Teil unserer Bau-Community und erschaffe Großes." 
-                },
-                { 
-                  url: "https://images.unsplash.com/photo-1621330396173-e41b1cafd17f?auto=format&fit=crop&q=80&w=800", 
-                  title: "Actionreiches PvP", 
-                  desc: "Spannende Kämpfe in unseren eigens entwickelten Arenen." 
-                }
-              ].map((img, idx) => (
-                <motion.div 
-                  key={idx}
-                  whileHover={{ y: -5 }}
-                  className="mc-card p-0 overflow-hidden group border-neutral-800/50"
-                >
-                  <div className="h-48 overflow-hidden relative">
-                    <img 
-                      src={img.url} 
-                      alt={img.title} 
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
-                  </div>
-                  <div className="p-6">
-                    <h4 className="text-white font-bold mb-2">{img.title}</h4>
-                    <p className="text-neutral-400 text-sm">{img.desc}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </section>
 
           {/* Community Players List */}
           <div className="mb-12">
