@@ -2271,7 +2271,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Root Stealth Indicators - Extremely subtle and only for Block5 */}
-      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId) && (
+      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal) && (
         <>
           {myProfile?.isInvisible && (
             <div className="fixed top-0 right-0 w-1 h-1 bg-purple-500/20 z-[9999] pointer-events-none" />
@@ -2314,23 +2314,75 @@ export default function App() {
                   <motion.div
                     animate={{ 
                       rotateY: openingBox.clicks * 360,
-                      scale: 1 + (openingBox.clicks * 0.1),
-                      boxShadow: openingBox.rarity === 'LEGENDÄR' ? '0 0 100px rgba(255,170,0,0.5)' : 
-                                 openingBox.rarity === 'EPIK' ? '0 0 80px rgba(168,85,247,0.5)' :
-                                 openingBox.rarity === 'Selten' ? '0 0 60px rgba(59,130,246,0.5)' : '0 0 40px rgba(255,255,255,0.1)'
+                      scale: 1 + (openingBox.clicks * 0.05),
+                      filter: openingBox.clicks > 0 ? `brightness(${1 + (openingBox.clicks * 0.2)})` : 'none',
+                      boxShadow: openingBox.rarity === 'LEGENDÄR' ? '0 0 120px rgba(255,170,0,0.6)' : 
+                                 openingBox.rarity === 'EPIK' ? '0 0 100px rgba(168,85,247,0.6)' :
+                                 openingBox.rarity === 'Selten' ? '0 0 80px rgba(59,130,246,0.6)' : '0 0 50px rgba(255,255,255,0.2)'
                     }}
                     onClick={handleBoxClick}
-                    className={`w-48 h-48 mx-auto rounded-3xl flex items-center justify-center cursor-pointer transition-all duration-500 ${
-                      openingBox.rarity === 'LEGENDÄR' ? 'bg-mc-gold' : 
-                      openingBox.rarity === 'EPIK' ? 'bg-purple-600' :
-                      openingBox.rarity === 'Selten' ? 'bg-blue-600' : 'bg-neutral-800'
-                    } border-b-8 border-black/30 active:scale-90 relative overflow-hidden`}
+                    className="w-56 h-56 mx-auto cursor-pointer relative group/chest select-none active:scale-95 transition-transform"
                   >
-                    <Box size={80} className="text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
-                    
-                    {/* Glow Effects */}
-                    <div className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-50" />
-                    <div className="absolute inset-0 animate-pulse bg-white/5" />
+                    {/* Minecraft-Style Chest Visual */}
+                    <div className="absolute inset-0 flex flex-col">
+                      {/* Chest Lid */}
+                      <motion.div 
+                        animate={{ 
+                          rotateX: openingBox.clicks === 1 ? -15 : openingBox.clicks === 2 ? -35 : openingBox.clicks === 3 ? -90 : 0 
+                        }}
+                        style={{ originY: 'bottom' }}
+                        className={`h-2/5 w-full rounded-t-xl border-4 border-black/40 relative z-20 transition-colors duration-500 ${
+                          openingBox.rarity === 'LEGENDÄR' ? 'bg-gradient-to-b from-mc-gold to-[#cc8800]' : 
+                          openingBox.rarity === 'EPIK' ? 'bg-gradient-to-b from-purple-500 to-purple-800' :
+                          openingBox.rarity === 'Selten' ? 'bg-gradient-to-b from-blue-500 to-blue-800' : 
+                          'bg-gradient-to-b from-[#8d6e63] to-[#5d4037]'
+                        }`}
+                      >
+                        {/* Highlights on Lid */}
+                        <div className="absolute inset-1 border border-white/20 rounded-t-lg" />
+                        <div className="absolute top-2 left-2 w-2 h-2 bg-white/20 rounded-full" />
+                      </motion.div>
+
+                      {/* Chest Body */}
+                      <div className={`h-3/5 w-full rounded-b-xl border-4 border-t-0 border-black/40 relative z-10 transition-colors duration-500 ${
+                          openingBox.rarity === 'LEGENDÄR' ? 'bg-gradient-to-b from-[#cc8800] to-[#996600]' : 
+                          openingBox.rarity === 'EPIK' ? 'bg-gradient-to-b from-purple-800 to-purple-950' :
+                          openingBox.rarity === 'Selten' ? 'bg-gradient-to-b from-blue-800 to-blue-950' : 
+                          'bg-gradient-to-b from-[#5d4037] to-[#3e2723]'
+                        }`}
+                      >
+                         {/* The Lock */}
+                         <motion.div 
+                          animate={{ 
+                            y: openingBox.clicks > 0 ? -5 : 0,
+                            scale: openingBox.clicks > 0 ? 1.2 : 1
+                          }}
+                          className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-10 bg-[#e0e0e0] border-2 border-neutral-400 rounded-sm shadow-xl flex items-center justify-center z-30"
+                         >
+                           <div className="w-1 h-3 bg-neutral-600 rounded-full" />
+                         </motion.div>
+                         
+                         {/* Inner Glow when clicking */}
+                         {openingBox.clicks > 0 && (
+                            <div className={`absolute inset-0 opacity-40 animate-pulse ${
+                              openingBox.rarity === 'LEGENDÄR' ? 'bg-yellow-400' : 
+                              openingBox.rarity === 'EPIK' ? 'bg-purple-400' :
+                              openingBox.rarity === 'Selten' ? 'bg-blue-400' : 'bg-white'
+                            }`} />
+                         )}
+                      </div>
+                    </div>
+
+                    {/* Particle Effects (simplified with glows) */}
+                    {openingBox.clicks >= 2 && (
+                       <div className="absolute -inset-10 pointer-events-none">
+                         <div className={`absolute inset-0 blur-3xl opacity-30 animate-ping ${
+                            openingBox.rarity === 'LEGENDÄR' ? 'bg-mc-gold' : 
+                            openingBox.rarity === 'EPIK' ? 'bg-purple-500' :
+                            'bg-blue-500'
+                         }`} />
+                       </div>
+                    )}
                   </motion.div>
 
                   {/* Rarity Label Overlay */}
@@ -2372,7 +2424,7 @@ export default function App() {
 
       {/* Global Broadcast Banner */}
       <AnimatePresence>
-        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) && (
+        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) && (
           <motion.div 
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -2389,7 +2441,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Navigation */}
-      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
+      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
@@ -2610,7 +2662,7 @@ export default function App() {
 
       {/* Floating Action Group - Hide when any overlay is open */}
       <AnimatePresence>
-        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) && (
+        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) && (
           <motion.div 
             initial={{ opacity: 0, scale: 0.8, y: 50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -3268,7 +3320,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || editingProfileId || openingBox.isOpen) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
           <motion.div
@@ -4461,7 +4513,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowProfileModal(false)}
+              onClick={() => { setShowProfileModal(false); setEditingProfileId(null); }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div 
@@ -4674,6 +4726,7 @@ export default function App() {
                         onClick={() => {
                           deleteProfile(editingProfileId);
                           setShowProfileModal(false);
+                          setEditingProfileId(null);
                         }}
                         className="px-4 py-4 rounded-xl font-bold bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 transition-colors flex items-center justify-center"
                         title="Benutzer permanent löschen"
@@ -4683,7 +4736,7 @@ export default function App() {
                     )}
                     <button 
                       type="button" 
-                      onClick={() => setShowProfileModal(false)}
+                      onClick={() => { setShowProfileModal(false); setEditingProfileId(null); }}
                       className="flex-1 px-6 py-4 rounded-xl font-bold bg-neutral-800 hover:bg-neutral-700 transition-colors"
                     >
                       Abbrechen
