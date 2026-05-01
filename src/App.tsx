@@ -3995,7 +3995,7 @@ export default function App() {
               <span className="text-mc-red">Minecraft Realm.</span>
             </h1>
             <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
-              Echtzeit-Synchronisation mit deiner Firestore Datenbank. Schau dir an, wer gerade online ist.
+              Willkommen auf dem Hub des besten Minecraft Realms. Entdecke neue Welten, nimm an Events teil und werde Teil unserer wachsenden Community.
             </p>
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
@@ -4916,8 +4916,8 @@ export default function App() {
               <div className="flex gap-4">
                 <div className="w-1 bg-mc-gold h-auto rounded-full" />
                 <div>
-                  <h4 className="font-bold mb-1">Echtzeit-Synchronisation</h4>
-                  <p className="text-neutral-400 text-sm">Die Online-Anzeige synchronisiert sich automatisch mit unserer Firestore-Cloud. So weißt du immer, ob deine Freunde online sind.</p>
+                  <h4 className="font-bold mb-1">Community Hub</h4>
+                  <p className="text-neutral-400 text-sm">Verwalte deinen Account, checke deine Statistiken und bleibe mit anderen Spielern über unser Dashboard in Kontakt.</p>
                 </div>
               </div>
               <div className="flex gap-4">
