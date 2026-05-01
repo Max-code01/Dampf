@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://dampfk.netlify.app/sitemap.xml
+Sitemap: https://dampf.mypi.co/sitemap.xml

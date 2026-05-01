@@ -3985,8 +3985,8 @@ export default function App() {
               <span>Community Dashboard V2.1 - Echte Daten</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
-              Dein Realm. <br />
-              <span className="text-mc-red">Deine Regeln.</span>
+              Bester <br />
+              <span className="text-mc-red">Minecraft Realm.</span>
             </h1>
             <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
               Echtzeit-Synchronisation mit deiner Firestore Datenbank. Schau dir an, wer gerade online ist.
@@ -4971,7 +4971,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex items-center gap-3 opacity-30">
             <Gamepad2 size={24} />
-            <span className="font-bold tracking-tight">MC COMMUNITY HUB &copy; 2026</span>
+            <span className="font-bold tracking-tight">BESTER MINECRAFT REALMS &copy; 2026</span>
           </div>
           <div className="flex gap-8 text-sm text-neutral-500">
             <a href="#" className="hover:text-white transition-colors">Discord</a>
