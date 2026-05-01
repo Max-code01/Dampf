@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gamepad2, 
@@ -41,6 +41,7 @@ import {
   Newspaper,
   Vote,
   Pickaxe,
+  Hammer,
   Gem,
   X,
   Rocket,
@@ -119,6 +120,15 @@ interface UserProfile {
   inventory?: {
     keys?: number;
     cases?: number;
+    pickaxePower?: number;
+    pickaxeName?: string;
+    luck?: number;
+    xpMultiplier?: number;
+  };
+  mining?: {
+    cps?: number;
+    level?: number;
+    coinsPerClick?: number;
   };
   perks?: {
     flightUntil?: number;
@@ -162,7 +172,7 @@ interface ShopItem {
   name: string;
   description: string;
   price: number;
-  category: 'Ränge' | 'Items' | 'Vorteile' | 'Boxen';
+  category: 'Ränge' | 'Items' | 'Vorteile' | 'Boxen' | 'Ausrüstung';
   icon?: string;
   stock?: number;
   isActive: boolean;
@@ -211,7 +221,7 @@ interface ClanQuest {
 
 // App component - Main entry point
 // Mining Tool Component for Custom Cursor
-const PickaxeTool = ({ active }: { active: boolean }) => {
+const PickaxeTool = ({ active, pickaxeName }: { active: boolean, pickaxeName?: string }) => {
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -222,22 +232,60 @@ const PickaxeTool = ({ active }: { active: boolean }) => {
     return () => window.removeEventListener('mousemove', handleMove);
   }, []);
 
+  const pickColor = 
+    pickaxeName?.toLowerCase().includes('netherit') ? '#7c3aed' :
+    pickaxeName?.toLowerCase().includes('diamant') ? '#3b82f6' :
+    pickaxeName?.toLowerCase().includes('eisen') ? '#cbd5e1' :
+    pickaxeName?.toLowerCase().includes('gold') ? '#facc15' :
+    '#78350f'; // Holz
+
   return (
-    <motion.div
-      style={{ left: pos.x, top: pos.y, position: 'fixed', pointerEvents: 'none', zIndex: 9999 }}
-      animate={{ 
-        rotate: active ? -90 : -20,
-        x: active ? -20 : 0,
-        y: active ? -20 : 0
-      }}
-      transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-      className="opacity-100 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]"
-    >
-      <div className="relative">
-         <Pickaxe size={48} className="text-slate-200" />
-         <div className="absolute inset-0 blur-xl bg-mc-gold/20 -z-10 animate-pulse" />
-      </div>
-    </motion.div>
+    <>
+      <div 
+        className="fixed inset-0 pointer-events-none z-[190]"
+        style={{ 
+          background: `radial-gradient(circle 400px at ${pos.x}px ${pos.y}px, rgba(255,255,255,0.12), transparent)` 
+        }}
+      />
+      <motion.div
+        style={{ left: pos.x, top: pos.y, position: 'fixed', pointerEvents: 'none', zIndex: 9999 }}
+        animate={{ 
+          rotate: active ? [0, -90, 0] : -20,
+          scale: active ? 1.4 : 1,
+          x: active ? -40 : 0,
+          y: active ? -20 : 0
+        }}
+        transition={{ 
+          rotate: { duration: 0.15 },
+          scale: { type: 'spring', stiffness: 400 }
+        }}
+        className="opacity-100 drop-shadow-[0_25px_50px_rgba(0,0,0,1)]"
+      >
+        <div className="relative group">
+          <Pickaxe size={64} style={{ color: pickColor }} className="drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]" />
+          
+          {/* Magic Glow */}
+          {(pickaxeName?.includes('Netherit') || pickaxeName?.includes('Diamant')) && (
+            <motion.div 
+              animate={{ opacity: [0.3, 0.7, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="absolute inset-0 z-10"
+            >
+              <Pickaxe size={64} style={{ color: 'white' }} className="blur-md opacity-50" />
+            </motion.div>
+          )}
+
+          {/* Impact Spark */}
+          {active && (
+            <motion.div 
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: [0, 2, 0], opacity: [0, 1, 0] }}
+              className="absolute -top-4 -right-4 w-12 h-12 bg-white/40 rounded-full blur-xl"
+            />
+          )}
+        </div>
+      </motion.div>
+    </>
   );
 };
 
@@ -282,12 +330,25 @@ export default function App() {
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
 
+  const [miningShake, setMiningShake] = useState(0);
+  const [hitFeedback, setHitFeedback] = useState(false);
+  const [coinsPerSecond, setCoinsPerSecond] = useState(0);
+
+  useEffect(() => {
+    if (myProfile?.mining?.cps) {
+      setCoinsPerSecond(myProfile.mining.cps);
+    }
+  }, [myProfile?.mining?.cps]);
+
   // Mining Game State
-  const [miningGrid, setMiningGrid] = useState<{ id: number, type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond', health: number }[]>([]);
+  const [miningBlock, setMiningBlock] = useState<{ type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest', health: number, maxHealth: number }>({ type: 'Stone', health: 10, maxHealth: 10 });
   const [miningParticles, setMiningParticles] = useState<{ id: number; x: number; y: number; color: string; vx: number; vy: number }[]>([]);
   const [pickaxeSwing, setPickaxeSwing] = useState(false);
   const [miningLevel, setMiningLevel] = useState(1);
   const [miningStats, setMiningStats] = useState({ totalBroken: 0, diamondsFound: 0 });
+  const [miningCombo, setMiningCombo] = useState(0);
+  const [miningMultiplier, setMiningMultiplier] = useState(1);
+  const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [openingBox, setOpeningBox] = useState<{ isOpen: boolean; item: ShopItem | null; clicks: number; rarity: 'Standard' | 'Selten' | 'EPIK' | 'LEGENDÄR' }>({
     isOpen: false,
     item: null,
@@ -339,43 +400,62 @@ export default function App() {
 
   // Fetch IP and Location Info
   useEffect(() => {
+    let isMounted = true;
     const trackVisitor = async () => {
       try {
-        const res = await fetch('https://ipapi.co/json/');
+        // Use an alternative service if ipapi fails or just handle it silently
+        const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('IP API non-ok response');
         const data = await res.json();
-        setVisitorInfo(data);
         
-        // Notify Discord about new visit
-        notifyDiscord(
-          "🌐 Neuer Besucher detektiert",
-          `**IP:** ${data.ip}\n**Ort:** ${data.city}, ${data.region} (${data.country_name})\n**Provider:** ${data.org}\n**Anbieter:** ${data.asn}`,
-          3447003 // Blue
-        );
+        if (isMounted) {
+          setVisitorInfo(data);
+          
+          // Notify Discord about new visit
+          notifyDiscord(
+            "🌐 Neuer Besucher detektiert",
+            `**IP:** ${data.ip}\n**Ort:** ${data.city}, ${data.region} (${data.country_name})\n**Provider:** ${data.org}\n**Anbieter:** ${data.asn}`,
+            3447003 // Blue
+          );
+        }
       } catch (e) {
-        console.error("IP tracking failed", e);
+        // Silently fail to avoid console clutter for the user
+        // We can still log a minimal debug info if needed, but not as an "Error"
+        if (isMounted) {
+          setVisitorInfo({ ip: 'Verborgen', city: 'Internet', region: 'Cloud', country_name: 'Unbekannt', org: 'Anonymous' });
+        }
       }
     };
     trackVisitor();
+    return () => { isMounted = false; };
   }, []);
 
   // Fetch Discord Status
   useEffect(() => {
+    let isMounted = true;
     const fetchDiscord = async () => {
+      if (!DISCORD_GUILD_ID) return;
       try {
-        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`);
+        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('Discord API error');
         const data = await res.json();
-        setDiscordData({
-          online_count: data.presence_count,
-          members: data.members || []
-        });
+        if (isMounted) {
+          setDiscordData({
+            online_count: data.presence_count || 0,
+            members: data.members || []
+          });
+        }
       } catch (e) {
-        console.error("Discord Widget not enabled or ID wrong", e);
+        // Silent fail for Discord widget
       }
     };
 
     fetchDiscord();
-    const interval = setInterval(fetchDiscord, 30000); // Alle 30 Sek aktualisieren
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchDiscord, 60000); // 1 Minute Intervall ist sicherer
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [DISCORD_GUILD_ID]);
 
   // Sync User Profile and Tracking
@@ -982,6 +1062,25 @@ export default function App() {
           specialMessage = `Du hast nun den Rang: ${newRole}`;
         }
       } 
+      else if (item.category === 'Ausrüstung') {
+        const powerMatch = item.description.match(/Power: (\d+)/);
+        const luckMatch = item.description.match(/Luck: \+(\d+)/);
+        const xpBoost = item.name.toLowerCase().includes('erfahrungs-boost');
+
+        if (powerMatch) {
+          const power = parseInt(powerMatch[1]);
+          updates['inventory.pickaxePower'] = power;
+          updates['inventory.pickaxeName'] = item.name;
+          specialMessage = `${item.name} wurde ausgerüstet! Deine Mining-Power ist jetzt ${power}.`;
+        } else if (luckMatch) {
+          const luck = parseInt(luckMatch[1]);
+          updates['inventory.luck'] = (myProfile.inventory?.luck || 0) + luck;
+          specialMessage = `${item.name} wurde aktiviert! Dein Glück beim Mining ist gestiegen.`;
+        } else if (xpBoost) {
+          updates['inventory.xpMultiplier'] = 1.5;
+          specialMessage = `${item.name} wurde aktiviert! Du erhältst dauerhaft 50% mehr XP beim Mining.`;
+        }
+      }
       else if (item.category === 'Items') {
         if (item.name.toLowerCase().includes('key')) {
           const countStr = item.name.match(/\d+/)?.[0] || "1";
@@ -1092,116 +1191,170 @@ export default function App() {
     }
   };
 
+  // Auto-Mining Logic (CPS)
   useEffect(() => {
-    if (showMiningModal && miningGrid.length === 0) {
-      generateMiningGrid();
+    if (!user || coinsPerSecond <= 0) return;
+
+    const interval = setInterval(async () => {
+      // Auto-mining logic without floating rewards to save space
+      const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        coins: increment(coinsPerSecond),
+        xp: increment(xpReward)
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [user, coinsPerSecond, showMiningModal]);
+
+  const spawnNextBlock = () => {
+    const luckBonus = (myProfile.inventory?.luck || 0) / 100;
+    const roll = Math.random() + luckBonus;
+    let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest' = 'Stone';
+    let maxHealth = 10;
+
+    if (roll > 0.998) { type = 'Chest'; maxHealth = 1; }
+    else if (roll > 0.99) { type = 'Emerald'; maxHealth = 60; }
+    else if (roll > 0.97) { type = 'Diamond'; maxHealth = 40; }
+    else if (roll > 0.95) { type = 'TNT'; maxHealth = 1; }
+    else if (roll > 0.88) { type = 'Gold'; maxHealth = 25; }
+    else if (roll > 0.72) { type = 'Iron'; maxHealth = 15; }
+    else if (roll > 0.45) { type = 'Coal'; maxHealth = 8; }
+    else { type = 'Stone'; maxHealth = 5; }
+
+    const factor = 1 + Math.floor((myProfile.xp || 0) / 10000) * 0.2;
+    const finalHealth = Math.ceil(maxHealth * factor);
+    setMiningBlock({ type, health: finalHealth, maxHealth: finalHealth });
+  };
+
+  useEffect(() => {
+    if (showMiningModal && miningBlock.health <= 0) {
+      spawnNextBlock();
     }
   }, [showMiningModal]);
 
-  const generateMiningGrid = () => {
-    const newGrid = [];
-    for (let i = 0; i < 36; i++) {
-      const roll = Math.random();
-      let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' = 'Stone';
-      let health = 1;
+  const [floatingRewards, setFloatingRewards] = useState<{ id: number, text: string, x: number, y: number, color: string }[]>([]);
 
-      if (roll > 0.98) { type = 'Diamond'; health = 3; }
-      else if (roll > 0.90) { type = 'Gold'; health = 2; }
-      else if (roll > 0.75) { type = 'Iron'; health = 2; }
-      else if (roll > 0.50) { type = 'Coal'; health = 1; }
-
-      newGrid.push({ id: i, type, health });
+  // Cleanup old floating rewards
+  useEffect(() => {
+    if (floatingRewards.length > 0) {
+      const timer = setTimeout(() => {
+        setFloatingRewards(prev => prev.slice(1));
+      }, 1000);
+      return () => clearTimeout(timer);
     }
-    setMiningGrid(newGrid);
-  };
+  }, [floatingRewards]);
 
-  const mineBlock = async (id: number, e: React.MouseEvent) => {
-    const blockIndex = miningGrid.findIndex(b => b.id === id);
-    if (blockIndex === -1) return;
+  const mineBlock = async (e: React.MouseEvent) => {
+    if (miningBlock.health <= 0) return;
 
-    const block = miningGrid[blockIndex];
-    if (block.health <= 0) return;
+    // Combo Logic
+    if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+    
+    setMiningCombo(prev => {
+      const next = prev + 1;
+      const newMult = Math.min(10, 1 + Math.floor(next / 10) * 0.5);
+      setMiningMultiplier(newMult);
+      return next;
+    });
+
+    comboTimeoutRef.current = setTimeout(() => {
+      setMiningCombo(0);
+      setMiningMultiplier(1);
+    }, 1500);
 
     // Trigger Pickaxe Animation
     setPickaxeSwing(true);
-    setTimeout(() => setPickaxeSwing(false), 150);
+    setHitFeedback(true);
+    setMiningShake(8);
+    
+    // Floating reward calculation for current hit
+    const hitDamage = (myProfile.inventory?.pickaxePower || 1);
+    const floatingX = e.clientX + (Math.random() * 40 - 20);
+    const floatingY = e.clientY - 20;
+    
+    setTimeout(() => {
+      setPickaxeSwing(false);
+      setHitFeedback(false);
+      setMiningShake(0);
+    }, 100);
 
     // Spawn Impact Particles
-    const rect = e.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
+    const centerX = e.clientX;
+    const centerY = e.clientY;
     
-    const colors = {
-      'Stone': '#737373',
-      'Coal': '#1a1a1a',
-      'Iron': '#e2e8f0',
-      'Gold': '#fbbf24',
-      'Diamond': '#60a5fa'
+    const colors: Record<string, string> = {
+      'Stone': '#737373', 'Coal': '#333333', 'Iron': '#cbd5e1', 'Gold': '#fbbf24', 'Diamond': '#60a5fa', 'Emerald': '#10b981', 'TNT': '#ef4444', 'Chest': '#b45309'
     };
 
-    const newParticles = Array.from({ length: 12 }).map(() => ({
+    const particleCount = miningBlock.type === 'TNT' ? 40 : 8; // Reduced for performance
+    const newParticles = Array.from({ length: particleCount }).map(() => ({
       id: Math.random(),
       x: centerX,
       y: centerY,
-      color: colors[block.type],
-      vx: (Math.random() - 0.5) * 15,
-      vy: (Math.random() - 0.5) * 15 - 5
+      color: colors[miningBlock.type] || '#ffffff',
+      vx: (Math.random() - 0.5) * 20,
+      vy: (Math.random() - 0.5) * 20 - 10
     }));
-    setMiningParticles(prev => [...prev, ...newParticles].slice(-50));
+    setMiningParticles(prev => [...prev, ...newParticles].slice(-60)); // Lower limit
+    const damage = (myProfile.inventory?.pickaxePower || 1);
+    const coinsPerClick = (myProfile.mining?.coinsPerClick || 1);
+    const newHealth = Math.max(0, miningBlock.health - damage);
 
-    const newGrid = [...miningGrid];
-    
-    if (block.health > 1) {
-      newGrid[blockIndex].health -= 1;
-      setMiningGrid(newGrid);
+    if (user) {
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        coins: increment(coinsPerClick)
+      });
+    }
+
+    if (newHealth > 0) {
+      setMiningBlock(prev => ({ ...prev, health: newHealth }));
       return;
     }
 
-    // Block destroyed - give rewards
+    // Block destroyed
+    setMiningBlock(prev => ({ ...prev, health: 0 }));
+    setMiningShake(45);
+
     let xp = 1;
     let coins = 0;
 
-    switch (block.type) {
-      case 'Coal': xp = 5; coins = 2; break;
-      case 'Iron': xp = 15; coins = 8; break;
-      case 'Gold': xp = 40; coins = 25; break;
-      case 'Diamond': xp = 150; coins = 100; break;
-      default: xp = 2; coins = 1; break;
+    switch (miningBlock.type) {
+      case 'Coal': xp = 15; coins = 8; break;
+      case 'Iron': xp = 35; coins = 25; break;
+      case 'Gold': xp = 80; coins = 60; break;
+      case 'Diamond': xp = 350; coins = 250; break;
+      case 'Emerald': xp = 800; coins = 600; break;
+      case 'TNT': xp = 200; coins = 100; setMiningShake(85); break;
+      case 'Chest': {
+        const bonusCoins = Math.floor(Math.random() * 3000) + 1500;
+        xp = 750; coins = bonusCoins;
+        if (user) await updateDoc(doc(db, 'user_profiles', user.uid), { 'inventory.keys': increment(1) });
+        break;
+      }
+      default: xp = 8; coins = 5; break;
     }
 
-    // Visual feedback before removal
-    newGrid[blockIndex] = { ...block, health: 0 }; 
-    setMiningGrid(newGrid);
+    const userXpMult = myProfile.inventory?.xpMultiplier || 1;
+    const finalXp = Math.floor(xp * miningMultiplier * userXpMult);
+    const finalCoins = Math.floor(coins * miningMultiplier);
+
     setMiningStats(prev => ({
       totalBroken: prev.totalBroken + 1,
-      diamondsFound: block.type === 'Diamond' ? prev.diamondsFound + 1 : prev.diamondsFound
+      diamondsFound: miningBlock.type === 'Diamond' ? prev.diamondsFound + 1 : prev.diamondsFound
     }));
 
     if (user) {
       await updateDoc(doc(db, 'user_profiles', user.uid), {
-        xp: increment(xp),
-        coins: increment(coins)
+        xp: increment(finalXp),
+        coins: increment(finalCoins)
       });
     }
 
-    // Respawn after cooldown
+    // Visual pause before respawn
     setTimeout(() => {
-      setMiningGrid(current => {
-        const updated = [...current];
-        const roll = Math.random();
-        let type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' = 'Stone';
-        let health = 1;
-
-        if (roll > 0.99) { type = 'Diamond'; health = 3; }
-        else if (roll > 0.92) { type = 'Gold'; health = 2; }
-        else if (roll > 0.80) { type = 'Iron'; health = 2; }
-        else if (roll > 0.60) { type = 'Coal'; health = 1; }
-
-        const idx = updated.findIndex(b => b.id === id);
-        if (idx !== -1) updated[idx] = { id, type, health };
-        return updated;
-      });
-    }, 4000);
+      spawnNextBlock();
+    }, 200);
   };
 
   // Particle physics loop
@@ -1214,8 +1367,8 @@ export default function App() {
           ...p,
           x: p.x + p.vx,
           y: p.y + p.vy,
-          vy: p.vy + 0.8, // Gravity
-          vx: p.vx * 0.98  // Air friction
+          vy: p.vy + 1.2, // Stronger Gravity
+          vx: p.vx * 0.95  // More friction
         })).filter(p => p.y < window.innerHeight && p.x > 0 && p.x < window.innerWidth)
       );
     }, 20);
@@ -1226,13 +1379,19 @@ export default function App() {
     if (!isAdmin) return;
     
     const items = [
-      { name: 'VIP Rang', description: 'Dauerhafter VIP Status mit 1.500 Coins Daily Bonus!', price: 10000, category: 'Ränge' },
+      { name: 'VIP Rang', description: 'Goldener Name & exklusive Features', price: 5000, category: 'Ränge' },
       { name: 'MVP Rang', description: 'Der ultimative Rang mit 5.000 Coins Daily Bonus!', price: 25000, category: 'Ränge' },
+      
+      { name: 'Holzspitzhacke', description: 'Standard-Equipment (Power: 1)', price: 100, category: 'Ausrüstung' },
+      { name: 'Eisenspitzhacke', description: 'Bessere Haltbarkeit & Speed (Power: 2)', price: 2500, category: 'Ausrüstung' },
+      { name: 'Diamantspitzhacke', description: 'Die schärfste Klinge (Power: 4)', price: 15000, category: 'Ausrüstung' },
+      { name: 'Netheritspitzhacke', description: 'Göttergleicher Speed (Power: 8)', price: 75000, category: 'Ausrüstung' },
+
+      { name: 'Götter-Amulett', description: 'Erhöht die Chance auf seltene Erze (Luck: +5)', price: 10000, category: 'Ausrüstung' },
+      { name: 'Erfahrungs-Boost', description: 'Du erhältst +50% mehr XP beim Mining', price: 15000, category: 'Ausrüstung' },
       { name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items' },
       { name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items' },
       { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
-      { name: 'Normale Box', description: 'Enthält bis zu 500 Coins!', price: 500, category: 'Boxen' },
-      { name: 'Legendäre Box', description: 'Enthält massig XP und bis zu 2000 Coins!', price: 5000, category: 'Boxen' },
     ];
 
     try {
@@ -2463,7 +2622,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[150] flex items-center justify-center p-0 sm:p-6 bg-black/95 backdrop-blur-3xl overflow-hidden cursor-none"
+            className="fixed inset-0 z-[150] flex items-center justify-center p-0 sm:p-6 bg-black/95 backdrop-blur-3xl overflow-hidden"
           >
             {/* Mining Background Glow */}
             <div className="absolute inset-0 z-0">
@@ -2486,38 +2645,84 @@ export default function App() {
             ))}
 
             {/* Pickaxe Tool Visual (Follows Cursor) */}
-            <PickaxeTool active={pickaxeSwing} />
+            <PickaxeTool active={pickaxeSwing} pickaxeName={myProfile.inventory?.pickaxeName} />
 
             <motion.div
               initial={{ scale: 0.9, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
+              animate={{ 
+                scale: 1, 
+                y: 0,
+                x: (Math.random() - 0.5) * miningShake,
+                rotate: (Math.random() - 0.5) * (miningShake / 2)
+              }}
               exit={{ scale: 0.9, y: 50 }}
               className="max-w-5xl w-full h-full sm:h-auto bg-neutral-900/40 border border-white/5 rounded-none sm:rounded-[3rem] overflow-hidden flex flex-col sm:max-h-[85vh] relative z-10 shadow-[0_0_100px_rgba(0,0,0,1)]"
             >
+              {/* Explosion Overlay */}
+              <AnimatePresence>
+                {miningShake > 10 && (
+                   <motion.div 
+                     initial={{ opacity: 0 }}
+                     animate={{ opacity: 1 }}
+                     exit={{ opacity: 0 }}
+                     className="absolute inset-0 z-[300] bg-white flex items-center justify-center font-black text-6xl text-black italic italic tracking-tighter"
+                   >
+                     KABOOM!
+                   </motion.div>
+                )}
+              </AnimatePresence>
               {/* Header */}
-              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/40 backdrop-blur-md">
+              <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/40 backdrop-blur-md relative overflow-hidden">
+                {/* Fever Bar Background */}
+                <motion.div 
+                  className="absolute bottom-0 left-0 h-1 bg-mc-gold shadow-[0_0_20px_rgba(255,170,0,1)]"
+                  initial={{ width: '0%' }}
+                  animate={{ width: `${(miningCombo % 5) * 20}%` }}
+                />
+                
                 <div className="flex items-center gap-6">
                   <div className="p-4 bg-mc-gold rounded-2xl text-black shadow-[0_10px_30px_rgba(255,170,0,0.3)]">
                     <Pickaxe size={36} />
                   </div>
                   <div>
-                    <h3 className="text-3xl font-black text-white italic tracking-tighter leading-none mb-1">DEEP MINES</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-3xl font-black text-white italic tracking-tighter leading-none mb-1">DEEP MINES</h3>
+                      <AnimatePresence>
+                        {miningCombo > 2 && (
+                          <motion.span 
+                            initial={{ scale: 0, rotate: -20 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            exit={{ scale: 0 }}
+                            className="bg-mc-red text-white text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-tighter"
+                          >
+                            {miningCombo} COMBO!
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[10px] bg-mc-gold/10 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((myProfile?.xp || 0) / 5000) + 1}</span>
-                      <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Community Rohstoff-Abbau</p>
+                      <span className="text-[10px] bg-mc-gold/20 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((myProfile?.xp || 0) / 5000) + 1}</span>
+                      <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Mult: {miningMultiplier}x {myProfile.inventory?.xpMultiplier && `(+50% Bonus)`}</p>
+                      {myProfile.inventory?.luck && (
+                        <span className="text-[10px] text-mc-gold animate-pulse">LUCK +{myProfile.inventory.luck}%</span>
+                      )}
                     </div>
                   </div>
                 </div>
                 
                 <div className="hidden md:flex gap-10">
                    <div className="text-right">
-                      <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1">Total Abgebaut</p>
-                      <p className="text-xl font-black text-white italic">{miningStats.totalBroken}</p>
+                      <p className="text-[10px] text-neutral-500 font-bold uppercase mb-1">Tool ausgerüstet</p>
+                      <p className="text-sm font-black text-white italic capitalize">{myProfile.inventory?.pickaxeName || 'Holzspitzhacke'}</p>
                    </div>
-                   <div className="text-right">
-                      <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Diamanten</p>
-                      <p className="text-xl font-black text-mc-gold italic">{miningStats.diamondsFound}</p>
-                   </div>
+                    <div className="text-right">
+                       <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Deine Coins</p>
+                       <p className="text-xl font-black text-mc-gold italic">{myProfile.coins?.toLocaleString() || 0} 🪙</p>
+                    </div>
+                    <div className="text-right">
+                       <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Diamanten</p>
+                       <p className="text-xl font-black text-mc-gold italic">{miningStats.diamondsFound}</p>
+                    </div>
                 </div>
 
                 <button 
@@ -2528,108 +2733,199 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Grid Area */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-20 custom-scrollbar relative">
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 sm:gap-6 max-w-3xl mx-auto py-10">
-                  {miningGrid.map((block) => (
-                    <div key={block.id} className="relative aspect-square">
-                      {/* Floating Reward Animation */}
-                      <AnimatePresence>
-                        {block.health === 0 && (
-                          <motion.div
-                            initial={{ y: 0, opacity: 1, scale: 1 }}
-                            animate={{ y: -100, opacity: 0, scale: 2 }}
-                            exit={{ opacity: 0 }}
-                            className="absolute inset-x-0 -top-10 z-[250] flex flex-col items-center justify-center pointer-events-none"
-                          >
-                            <span className="text-mc-gold font-black text-xl drop-shadow-[0_2px_10px_rgba(255,170,0,0.5)] italic">
-                              +{block.type === 'Diamond' ? 150 : block.type === 'Gold' ? 40 : block.type === 'Iron' ? 15 : 5}
-                            </span>
-                            <span className="text-white/40 font-black text-[10px] uppercase tracking-widest">XP gained</span>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+              {/* Deep Mines Body */}
+              <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[#1a1a1a] relative">
+                <div 
+                  className="absolute inset-0 z-0 pointer-events-none opacity-20"
+                  style={{ 
+                    backgroundImage: `url('https://www.transparenttextures.com/patterns/dark-matter.png')`,
+                    transform: `translate(${miningShake}px, ${miningShake}px)`
+                  }}
+                />
 
+                {/* Floating Reward Labels (One place only) */}
+                <AnimatePresence>
+                  {floatingRewards.map((reward) => (
+                    <motion.div
+                      key={reward.id}
+                      initial={{ opacity: 1, y: reward.y, scale: 0.5 }}
+                      animate={{ opacity: 0, y: reward.y - 150, scale: 2 }}
+                      exit={{ opacity: 0 }}
+                      style={{ left: reward.x, position: 'fixed', zIndex: 1000 }}
+                      className="pointer-events-none"
+                    >
+                      <span className="font-black text-2xl drop-shadow-mc-thick italic" style={{ color: reward.color }}>
+                        {reward.text}
+                      </span>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                
+                {/* Left Column: The Clicker Area */}
+                <div className="w-full md:w-1/2 flex flex-col items-center justify-center p-6 border-r border-white/5 relative z-10 select-none">
+                  <div className="mb-8 text-center space-y-1">
+                     <h2 className="text-white font-black text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
+                     <p className="text-mc-gold font-bold italic">CPS: {coinsPerSecond} Coins/s</p>
+                  </div>
+
+                  {/* Center Game Area */}
+                  <div className="flex-1 flex flex-col items-center justify-center relative w-full">
+                    <div className="absolute inset-0 pointer-events-none z-0">
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[600px] w-full opacity-5 blur-[80px] bg-mc-gold rounded-full" />
+                    </div>
+
+                    <AnimatePresence mode="wait">
                       <motion.div
-                        whileHover={{ scale: block.health > 0 ? 1.08 : 1, zIndex: 10 }}
-                        whileTap={{ 
-                          scale: block.health > 0 ? 0.85 : 1,
-                          rotate: block.health > 0 ? (Math.random() * 8 - 4) : 0
-                        }}
-                        onClick={(e) => block.health > 0 && mineBlock(block.id, e)}
-                        className={`w-full h-full rounded-xl sm:rounded-2xl transition-all duration-300 relative group/block shadow-[0_20px_40px_rgba(0,0,0,0.4)] ${
-                          block.health === 0 ? 'opacity-5 scale-90 blur-sm grayscale' : 'opacity-100 hover:shadow-2xl'
-                        }`}
+                        key={miningBlock.type}
+                        initial={{ scale: 0.3, rotate: -30, opacity: 0, y: 50 }}
+                        animate={{ scale: 1, rotate: 0, opacity: 1, y: 0 }}
+                        exit={{ scale: 1.1, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 15, stiffness: 100 }}
+                        className="relative z-50 w-64 h-64 sm:w-72 sm:h-72 group"
                       >
-                        {/* 3D Sides Emulation */}
-                        <div className="absolute inset-0 translate-y-2 translate-x-1 bg-black/40 rounded-2xl z-0" />
-                        
-                        {/* Main Block Face */}
-                        <div className={`absolute inset-0 rounded-2xl border-2 border-white/5 overflow-hidden z-10 ${
-                           block.type === 'Diamond' ? 'bg-[#3b82f6]' :
-                           block.type === 'Gold' ? 'bg-mc-gold' :
-                           block.type === 'Iron' ? 'bg-slate-200' :
-                           block.type === 'Coal' ? 'bg-[#121212]' : 
-                           'bg-[#525252]'
-                        }`}>
-                          {/* Inner Bezel */}
-                          <div className="absolute inset-0 border-t-8 border-l-8 border-white/10" />
-                          <div className="absolute inset-0 border-b-8 border-r-8 border-black/40" />
+                        {/* Health Bar */}
+                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-64 text-center space-y-3">
+                          <p className="text-white font-black text-xl uppercase tracking-[0.4em] drop-shadow-mc-thick">
+                            {miningBlock.type}
+                          </p>
+                          <div className="h-4 w-full bg-black/80 rounded-full p-1 border border-white/10 relative overflow-hidden">
+                            <motion.div 
+                              initial={{ width: '100%' }}
+                              animate={{ width: `${(miningBlock.health / miningBlock.maxHealth) * 100}%` }}
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                miningBlock.type === 'Diamond' ? 'bg-blue-500' :
+                                miningBlock.type === 'Emerald' ? 'bg-emerald-500' :
+                                miningBlock.type === 'Gold' ? 'bg-mc-gold' :
+                                miningBlock.type === 'TNT' ? 'bg-red-600 animate-pulse' :
+                                'bg-neutral-500'
+                              }`}
+                            />
+                          </div>
+                        </div>
 
-                          {/* Base Stone Texture */}
-                          <div className="absolute inset-0 bg-[#3a3a3a] opacity-80 mix-blend-multiply" />
+                        <div className="w-full h-full perspective-1000">
+                          <motion.div
+                            animate={{ scale: hitFeedback ? [1, 0.95, 1.05, 1] : 1 }}
+                            onClick={mineBlock}
+                            className="w-full h-full relative cursor-mine group-hover:brightness-110 active:brightness-125 transition-all"
+                          >
+                            <div className={`absolute inset-0 rounded-2xl border-4 border-white/10 shadow-2xl overflow-hidden z-10 ${
+                               miningBlock.type === 'Diamond' ? 'bg-[#3b82f6]' :
+                               miningBlock.type === 'Gold' ? 'bg-mc-gold' :
+                               miningBlock.type === 'Iron' ? 'bg-[#94a3b8]' :
+                               miningBlock.type === 'Coal' ? 'bg-[#262626]' : 
+                               miningBlock.type === 'Emerald' ? 'bg-[#10b981]' :
+                               miningBlock.type === 'TNT' ? 'bg-red-600' :
+                               miningBlock.type === 'Chest' ? 'bg-[#92400e]' :
+                               'bg-neutral-600'
+                            }`}>
+                              <div className="absolute inset-0 border-t-8 border-l-8 border-white/10" />
+                              <div className="absolute inset-0 border-b-8 border-r-8 border-black/30" />
 
-                          {/* Ore Deposits */}
-                          {block.type !== 'Stone' && (
-                             <div className="absolute inset-0 p-2 grid grid-cols-4 grid-rows-4 gap-1.5 h-full w-full">
-                               {[...Array(16)].map((_, i) => (
-                                 Math.random() > 0.6 && (
-                                   <div key={i} className={`rounded-sm shadow-sm ${
-                                      block.type === 'Diamond' ? 'bg-blue-300 shadow-[0_0_8px_rgba(147,197,253,1)]' :
-                                      block.type === 'Gold' ? 'bg-mc-gold shadow-[0_0_8px_rgba(255,170,0,1)]' :
-                                      block.type === 'Iron' ? 'bg-slate-100' :
-                                      'bg-black'
-                                   }`} />
-                                 )
-                               ))}
-                             </div>
-                          )}
+                              {miningBlock.type !== 'Stone' && miningBlock.type !== 'TNT' && miningBlock.type !== 'Chest' && (
+                                <div className="absolute inset-0 p-8 grid grid-cols-4 grid-rows-4 gap-4">
+                                  {[...Array(16)].map((_, i) => (
+                                    (i % 3 === 0) && (
+                                      <div key={i} className={`rounded-xl ${
+                                        miningBlock.type === 'Diamond' ? 'bg-blue-300' :
+                                        miningBlock.type === 'Gold' ? 'bg-mc-amber' :
+                                        miningBlock.type === 'Emerald' ? 'bg-emerald-300' :
+                                        miningBlock.type === 'Iron' ? 'bg-slate-100' : 'bg-black'
+                                      }`} />
+                                    )
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {miningBlock.type === 'Chest' && <div className="absolute inset-0 flex items-center justify-center"><Package size={80} className="text-mc-gold drop-shadow-mc" /></div>}
+                              {miningBlock.type === 'TNT' && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-600">
+                                  <span className="text-white font-black text-5xl tracking-tighter drop-shadow-mc-thick">TNT</span>
+                                </div>
+                              )}
 
-                          {/* Stone Grime */}
-                          <div className="absolute inset-0 pointer-events-none opacity-20 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
-
-                          {/* Cracks Logic */}
-                          {block.health < (block.type === 'Diamond' ? 3 : block.type === 'Stone' ? 1 : 2) && block.health > 0 && (
-                            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
-                              <svg className="w-full h-full text-black/80 p-2" viewBox="0 0 100 100">
-                                <path d="M0,0 L20,30 L0,70 M40,20 L60,40 L100,0 M20,100 L50,80 L80,100 M70,50 L50,20" fill="none" stroke="currentColor" strokeWidth="6" />
-                              </svg>
+                              <div className="absolute inset-0 z-20 p-8 opacity-40">
+                                <svg className="w-full h-full text-black" viewBox="0 0 100 100">
+                                  <motion.path 
+                                    animate={{ pathLength: 1 - miningBlock.health / miningBlock.maxHealth }}
+                                    d="M0,0 L20,30 L0,70 M40,20 L60,40 L100,0 M20,100 L50,80 L80,100" 
+                                    fill="none" stroke="currentColor" strokeWidth={10} 
+                                  />
+                                </svg>
+                              </div>
                             </div>
-                          )}
+                            <div className="absolute inset-0 translate-y-4 translate-x-2 bg-black/40 rounded-2xl -z-10" />
+                          </motion.div>
                         </div>
                       </motion.div>
-                    </div>
-                  ))}
+                    </AnimatePresence>
+                  </div>
                 </div>
-              </div>
 
-              {/* Bottom Info */}
-              <div className="p-8 border-t border-white/5 bg-black/60 backdrop-blur-xl flex flex-wrap items-center justify-center gap-10">
-                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
-                  <Gem size={20} className="text-blue-400" />
-                  <span className="text-xs font-black text-blue-400 uppercase tracking-widest italic">DIAMOND: 150 XP</span>
-                </div>
-                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
-                  <div className="w-4 h-4 bg-mc-gold rounded-sm shadow-[0_0_10px_rgba(255,170,0,0.5)]" />
-                  <span className="text-xs font-black text-mc-gold uppercase tracking-widest italic">GOLD: 40 XP</span>
-                </div>
-                <div className="flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
-                  <div className="w-4 h-4 bg-slate-200 rounded-sm" />
-                  <span className="text-xs font-black text-slate-200 uppercase tracking-widest italic">IRON: 15 XP</span>
-                </div>
-                <div className="hidden sm:flex items-center gap-3 bg-white/5 py-2 px-6 rounded-full border border-white/5">
-                  <div className="w-4 h-4 bg-[#121212] border border-white/10 rounded-sm" />
-                  <span className="text-xs font-black text-neutral-400 uppercase tracking-widest italic">COAL: 5 XP</span>
+                {/* Right Column: The Shop */}
+                <div className="w-full md:w-1/2 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden min-h-[300px] md:min-h-0">
+                  <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
+                    <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
+                      <ShoppingBag size={24} /> UPGRADES & MINERS
+                    </h3>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar touch-pan-y">
+                    {[
+                      { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.' },
+                      { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.' },
+                      { id: 'miner_3', name: 'Mining-Team', price: 6000, cps: 55, icon: Users, desc: 'Ein ganzer Trupp Profis im Einsatz.' },
+                      { id: 'click_1', name: 'Goldmünze', price: 500, cpc: 2, icon: Gem, desc: 'Zusätzliche Münzen pro Klick.' },
+                      { id: 'click_2', name: 'Schatzbeutel', price: 3000, cpc: 8, icon: Package, desc: 'Viel mehr Münzen pro Klick.' },
+                      { id: 'power_1', name: 'Scharfe Kante', price: 400, power: 1, icon: Zap, desc: '+1 Schaden pro Klick.' },
+                      { id: 'power_2', name: 'Wuchtiger Schlag', price: 2500, power: 6, icon: Hammer, desc: '+6 Schaden pro Klick.' },
+                    ].map((item) => {
+                      const canAfford = (myProfile?.coins || 0) >= item.price;
+                      return (
+                        <motion.button
+                          key={item.id}
+                          whileHover={canAfford ? { scale: 1.02, x: 5, backgroundColor: 'rgba(255,255,255,0.05)' } : {}}
+                          whileTap={canAfford ? { scale: 0.98 } : {}}
+                          onClick={async () => {
+                             if (!canAfford || !user) return;
+                             const updates: any = { coins: increment(-item.price) };
+                             if ('cps' in item) {
+                               setCoinsPerSecond(prev => prev + (item.cps || 0));
+                               updates['mining.cps'] = increment(item.cps || 0);
+                             }
+                             if ('cpc' in item) {
+                               updates['mining.coinsPerClick'] = increment(item.cpc || 0);
+                             }
+                             if ('power' in item) {
+                               updates['inventory.pickaxePower'] = increment(item.power || 0);
+                             }
+                             await updateDoc(doc(db, 'user_profiles', user.uid), updates);
+                          }}
+                          className={`w-full p-4 rounded-2xl border flex items-center gap-4 text-left transition-all ${
+                            canAfford 
+                              ? 'bg-neutral-800/40 border-white/10 hover:border-mc-gold/50 cursor-pointer' 
+                              : 'bg-neutral-900 shadow-inner border-transparent opacity-40 cursor-not-allowed grayscale'
+                          }`}
+                        >
+                          <div className={`p-3 rounded-xl ${canAfford ? 'bg-mc-gold/20 text-mc-gold' : 'bg-neutral-700 text-neutral-500'}`}>
+                            <item.icon size={28} />
+                          </div>
+                          <div className="flex-1 overflow-hidden">
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="text-white font-black truncate text-sm">{item.name}</span>
+                              <span className={`font-black text-xs whitespace-nowrap ${canAfford ? 'text-mc-gold' : 'text-neutral-500'}`}>{item.price} 🪙</span>
+                            </div>
+                            <p className="text-neutral-500 text-[10px] truncate">{item.desc}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                               <span className="text-[10px] font-black text-mc-gold uppercase bg-mc-gold/10 px-2 py-0.5 rounded">
+                                 {'cps' in item ? `+${item.cps} CPS` : 'cpc' in item ? `+${item.cpc} CPC` : `+${item.power} KRAFT`}
+                               </span>
+                            </div>
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </motion.div>
