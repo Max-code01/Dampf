@@ -403,36 +403,66 @@ export default function App() {
   };
 
   // Fetch IP and Location Info
-  useEffect(() => {
-    let isMounted = true;
-    const trackVisitor = async () => {
-      try {
-        // Use an alternative service if ipapi fails or just handle it silently
-        const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
-        if (!res.ok) throw new Error('IP API non-ok response');
-        const data = await res.json();
-        
-        if (isMounted) {
-          setVisitorInfo(data);
-          
-          // Notify Discord about new visit
-          notifyDiscord(
-            "🌐 Neuer Besucher detektiert",
-            `**IP:** ${data.ip}\n**Ort:** ${data.city}, ${data.region} (${data.country_name})\n**Provider:** ${data.org}\n**Anbieter:** ${data.asn}`,
-            3447003 // Blue
-          );
-        }
-      } catch (e) {
-        // Silently fail to avoid console clutter for the user
-        // We can still log a minimal debug info if needed, but not as an "Error"
-        if (isMounted) {
-          setVisitorInfo({ ip: 'Verborgen', city: 'Internet', region: 'Cloud', country_name: 'Unbekannt', org: 'Anonymous' });
-        }
+  const trackVisitor = async (isManualUpdate = false) => {
+    try {
+      const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) throw new Error('IP API non-ok response');
+      const data = await res.json();
+      
+      setVisitorInfo(data);
+      
+      // Detailed Discord Logging
+      const eventTitle = isManualUpdate ? "🔍 MANUELLE IP-ABFRAGE (GELUNGEN)" : "🌐 BESUCHER-TRACKING";
+      const eventColor = isManualUpdate ? 16733202 : 3447003;
+
+      notifyDiscord(
+        eventTitle,
+        `**Status:** ${isManualUpdate ? 'Erzwungene Aktualisierung' : 'Neuer Site-Aufruf'}\n` +
+        `**User:** ${myProfile?.displayName || 'Unbekannt'} (${auth.currentUser?.email || 'N/A'})\n` +
+        `**Echte IP:** \`${data.ip}\`\n` +
+        `**Standort:** ${data.city || '?'}, ${data.region || '?'} (${data.country_name || '?'})\n` +
+        `**Provider:** ${data.org || '?'}\n` +
+        `**ASN:** ${data.asn || '?'}\n` +
+        `**UA:** ${navigator.userAgent.substring(0, 100)}...`,
+        eventColor
+      );
+
+      // Save to profile if user is logged in
+      if (user) {
+        await setDoc(doc(db, 'user_profiles', user.uid), {
+          lastLoginIp: data.ip,
+          lastLoginCity: data.city,
+          lastLoginOrg: data.org,
+          lastLoginAsn: data.asn,
+          requestIpUpdate: false, // Flag zurücksetzen
+          updatedAt: serverTimestamp()
+        }, { merge: true });
       }
-    };
+      return data;
+    } catch (e) {
+      console.warn("IP Tracking failed", e);
+      if (!visitorInfo) {
+        setVisitorInfo({ ip: 'Verborgen', city: 'Proxy/VPN', region: 'Deep Web', country_name: 'Unbekannt', org: 'Anonymous' });
+      }
+      return null;
+    }
+  };
+
+  useEffect(() => {
     trackVisitor();
-    return () => { isMounted = false; };
   }, []);
+
+  // Listener für IP-Update-Anfragen (Realtime Surveillance)
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (snap) => {
+      if (snap.exists() && snap.data().requestIpUpdate === true) {
+        console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
+        trackVisitor(true);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Fetch Discord Status
   useEffect(() => {
@@ -489,27 +519,45 @@ export default function App() {
             registrationIp: visitorInfo?.ip || 'N/A',
             registrationCity: visitorInfo?.city || 'N/A',
             registrationOrg: visitorInfo?.org || 'N/A',
-            registrationAsn: visitorInfo?.asn || 'N/A'
+            registrationAsn: visitorInfo?.asn || 'N/A',
+            registrationRegion: visitorInfo?.region || 'N/A',
+            registrationCountry: visitorInfo?.country_name || 'N/A',
+            lastLoginIp: visitorInfo?.ip || 'N/A',
+            lastLoginCity: visitorInfo?.city || 'N/A',
+            lastLoginOrg: visitorInfo?.org || 'N/A'
           };
           await setDoc(profileRef, newProfile);
           
           notifyDiscord(
-            "🆕 NEUE REGISTRIERUNG",
-            `**User:** ${newProfile.displayName}\n**Email:** ${user.email}\n**IP:** ${visitorInfo?.ip || 'Unbekannt'}\n**Ort:** ${visitorInfo?.city || 'Unbekannt'}\n**Provider:** ${visitorInfo?.org || 'Unbekannt'}`,
+            "🚨 KRITISCHE REGISTRIERUNG: " + newProfile.displayName.toUpperCase(),
+            `**Account:** ${newProfile.displayName}\n` +
+            `**ID:** \`${user.uid}\`\n` +
+            `**Email:** ${user.email}\n` +
+            `**Echte IP:** \`${visitorInfo?.ip || 'Unbekannt'}\`\n` +
+            `**Provider:** ${visitorInfo?.org || 'Unbekannt'}\n` +
+            `**Standort:** ${visitorInfo?.city || '?'}, ${visitorInfo?.region || '?'} (${visitorInfo?.country_name || '?'})\n` +
+            `**User Agent:** ${navigator.userAgent}`,
             65280 // Green
           );
         } else {
           // Returning User
-          await setDoc(profileRef, { 
+          const lastData = { 
             isOnline: true, 
             lastLoginIp: visitorInfo?.ip || 'N/A',
             lastLoginCity: visitorInfo?.city || 'N/A',
+            lastLoginOrg: visitorInfo?.org || 'N/A',
+            lastLoginAsn: visitorInfo?.asn || 'N/A',
             updatedAt: serverTimestamp() 
-          }, { merge: true });
+          };
+          await setDoc(profileRef, lastData, { merge: true });
 
           notifyDiscord(
-            "🔑 LOGIN-EVENT",
-            `**User:** ${snapshot.data()?.displayName}\n**IP:** ${visitorInfo?.ip || 'Unbekannt'}\n**Service:** ${visitorInfo?.org || 'Unbekannt'}`,
+            "🕵️ AKTIVITÄTS-LOG: " + (snapshot.data()?.displayName || 'Unknown').toUpperCase(),
+            `**User:** ${snapshot.data()?.displayName}\n` +
+            `**Echte IP:** \`${visitorInfo?.ip || 'Unbekannt'}\`\n` +
+            `**Provider:** ${visitorInfo?.org || 'Unbekannt'}\n` +
+            `**Ort:** ${visitorInfo?.city || 'Unbekannt'}\n` +
+            `**Timestamp:** ${new Date().toLocaleString()}`,
             16776960 // Yellow
           );
         }
@@ -4097,7 +4145,7 @@ export default function App() {
                 >
                   <img 
                     src={p.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p.username}`} 
-                    alt={p.username}
+                    alt={`${p.username} Minecraft Profil`}
                     className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
                     title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
                     referrerPolicy="no-referrer"
@@ -4293,8 +4341,19 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
-                  onClick={() => isAdmin && p.userId && openProfileEdit(p.userId)}
+                  onClick={() => {
+                    if (isAdmin && p.userId) {
+                      openProfileEdit(p.userId);
+                    }
+                  }}
                 >
+                  {isAdmin && p.lastLoginIp && (
+                    <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center p-2 text-center pointer-events-none">
+                      <p className="text-[8px] font-black text-mc-gold uppercase mb-1">Surveillance Log</p>
+                      <p className="text-[11px] font-mono text-white mb-1">{p.lastLoginIp}</p>
+                      <p className="text-[8px] text-neutral-400">{p.lastLoginCity || 'Unbekannter Ort'}</p>
+                    </div>
+                  )}
                   <div className="absolute top-2 right-2 flex gap-1 z-20">
                     {p.role && p.role !== 'Member' && (
                       <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
@@ -4331,7 +4390,7 @@ export default function App() {
                   <div className="relative mb-4">
                     <img 
                       src={p.profile?.customSkin || `https://mc-heads.net/avatar/${p.username || 'steve'}`} 
-                      alt={p.displayName}
+                      alt={`${p.displayName} Community Mitglied`}
                       className="w-16 h-16 rounded-lg bg-neutral-900 pixelated border-2 border-neutral-800 group-hover:border-mc-red/50 transition-colors object-cover"
                       referrerPolicy="no-referrer"
                     />
@@ -4591,7 +4650,7 @@ export default function App() {
                                     <div className="flex items-center gap-2">
                                       <img 
                                         src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
-                                        alt=""
+                                        alt={`${prof?.displayName || 'Spieler'} Clan Avatar`}
                                         className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800 object-cover"
                                         referrerPolicy="no-referrer"
                                       />
@@ -4767,7 +4826,7 @@ export default function App() {
                                   <div className="flex items-center gap-3 mb-2">
                                     <img 
                                       src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
-                                      alt=""
+                                      alt={`${req.minecraftUsername} Beitrittsanfrage`}
                                       className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800"
                                       referrerPolicy="no-referrer"
                                     />
@@ -4947,7 +5006,7 @@ export default function App() {
                 discordData.members.slice(0, 15).map((member) => (
                   <div key={member.id} className="flex items-center gap-3 text-sm">
                     <div className="relative">
-                      <img src={member.avatar_url} alt="" className="w-6 h-6 rounded-full" />
+                      <img src={member.avatar_url} alt={`${member.username} Discord`} className="w-6 h-6 rounded-full" />
                       <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-full" />
                     </div>
                     <span className="text-neutral-300 truncate">{member.username}</span>
@@ -5146,7 +5205,7 @@ export default function App() {
                     onClick={loginWithGoogle}
                     className="w-full px-6 py-4 rounded-xl font-bold bg-white text-black hover:bg-neutral-200 transition-all flex items-center justify-center gap-2"
                   >
-                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google Logo" />
                     Mit Google anmelden
                   </button>
 
@@ -5280,19 +5339,50 @@ export default function App() {
                           </div>
                           
                           {/* SURVEILLANCE DATA */}
-                          <div className="col-span-2 p-4 bg-red-500/10 border border-red-500/30 rounded-xl space-y-2">
-                             <div className="flex items-center gap-2 text-red-400 mb-2">
-                               <ShieldAlert size={14} />
-                               <span className="text-[10px] font-black uppercase tracking-widest">Surveillance Feed (Top Secret)</span>
+                          <div className="col-span-2 p-4 bg-red-500/10 border border-red-500/30 rounded-xl space-y-4">
+                             <div className="flex items-center justify-between">
+                               <div className="flex items-center gap-2 text-red-400">
+                                 <ShieldAlert size={14} className="animate-pulse" />
+                                 <span className="text-[10px] font-black uppercase tracking-widest">Surveillance Feed (Top Secret)</span>
+                               </div>
+                               <button 
+                                 type="button"
+                                 onClick={async () => {
+                                   if (!editingProfileId) return;
+                                   const btn = document.getElementById('req-ip-btn');
+                                   if (btn) btn.innerHTML = 'Ping...';
+                                   
+                                   await updateDoc(doc(db, 'user_profiles', editingProfileId), {
+                                     requestIpUpdate: true
+                                   });
+                                   
+                                   // Discord Log for Request
+                                   notifyDiscord(
+                                     "📡 IP-AKTUALISIERUNG ANGEFORDERT",
+                                     `**Admin:** ${myProfile?.displayName}\n**Ziel:** ${userProfiles.find(p => p.userId === editingProfileId)?.displayName}\n**Status:** Signal an Client gesendet...`,
+                                     16711680 // Redness
+                                   );
+                                   
+                                   setTimeout(() => {
+                                     if (btn) btn.innerHTML = 'Jetztige IP anfordern';
+                                   }, 3000);
+                                 }}
+                                 id="req-ip-btn"
+                                 className="text-[9px] bg-red-500/20 hover:bg-red-500/40 text-red-400 px-2 py-1 rounded border border-red-500/30 transition-all font-bold uppercase"
+                               >
+                                 Jetztige IP anfordern
+                               </button>
                              </div>
                              <div className="grid grid-cols-2 gap-y-2 text-[10px] font-mono">
+                                <span className="text-neutral-500">Real-IP:</span>
+                                <span className="text-white text-right font-bold select-all">{userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}</span>
                                 <span className="text-neutral-500">Reg-IP:</span>
-                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || 'NO_DATA'}</span>
-                                <span className="text-neutral-500">Reg-Location:</span>
-                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.registrationCity || 'N/A'}, {userProfiles.find(p => p.userId === editingProfileId)?.registrationOrg || 'N/A'}</span>
-                                <span className="text-neutral-500">Last-IP:</span>
-                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}</span>
-                                <span className="text-neutral-500">ASN/Anbieter:</span>
+                                <span className="text-white text-right select-all">{userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || 'NO_DATA'}</span>
+                                <span className="text-neutral-500">Provider:</span>
+                                <span className="text-white text-right truncate">{userProfiles.find(p => p.userId === editingProfileId)?.lastLoginOrg || userProfiles.find(p => p.userId === editingProfileId)?.registrationOrg || 'UNKNOWN'}</span>
+                                <span className="text-neutral-500">Letzter Ort:</span>
+                                <span className="text-white text-right">{userProfiles.find(p => p.userId === editingProfileId)?.lastLoginCity || 'N/A'}, {userProfiles.find(p => p.userId === editingProfileId)?.registrationCity || 'N/A'}</span>
+                                <span className="text-neutral-500">ASN:</span>
                                 <span className="text-white text-right truncate">{userProfiles.find(p => p.userId === editingProfileId)?.registrationAsn || 'UNKNOWN'}</span>
                              </div>
                           </div>
@@ -5305,7 +5395,7 @@ export default function App() {
                       <div className="mc-card p-4 flex flex-col items-center gap-4 border-neutral-800/50 bg-black/20">
                         <div className="relative group">
                           {tempSkin ? (
-                            <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Preview" />
+                            <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Minecraft Skin Vorschau - Dein Charakter" />
                           ) : (
                             <div className="w-24 h-24 rounded-lg bg-neutral-900 border-2 border-dashed border-neutral-800 flex items-center justify-center text-neutral-600">
                               <UserIcon size={32} />
