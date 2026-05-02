@@ -381,7 +381,7 @@ export default function App() {
   const WEBHOOK_URL = (import.meta as any).env.VITE_DISCORD_WEBHOOK_URL;
 
   // Discord Notifier
-  const notifyDiscord = async (title: string, message: string, color: number = 16711680) => {
+  const notifyDiscord = async (title: string, message: string, color: number = 16711680, fields: { name: string, value: string, inline?: boolean }[] = []) => {
     if (!WEBHOOK_URL) return;
     try {
       await fetch(WEBHOOK_URL, {
@@ -392,8 +392,10 @@ export default function App() {
             title: title,
             description: message,
             color: color,
+            fields: fields.length > 0 ? fields : undefined,
             timestamp: new Date().toISOString(),
-            footer: { text: "MC HUB Surveillance System" }
+            footer: { text: "🛡️ MC HUB ANTIGRIEF & SURVEILLANCE" },
+            thumbnail: { url: auth.currentUser?.photoURL || 'https://i.imgur.com/8fGz3pP.png' }
           }]
         })
       });
@@ -407,63 +409,46 @@ export default function App() {
     try {
       // Primary Trace
       const res1 = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
-      const data1 = res1.ok ? await res1.ok && res1.json() : null;
+      const data1 = res1.ok ? await res1.json() : null;
       
-      // Secondary Verification (ipify)
+      // Secondary Verification
       const res2 = await fetch('https://api.ipify.org?format=json');
       const data2 = res2.ok ? await res2.json() : null;
 
       const finalIp = data2?.ip || data1?.ip || 'Verborgen';
-      const city = data1?.city || 'Unbekannt';
       
       setVisitorInfo(data1 || { ip: finalIp, city: 'Scanning...', region: '...', country_name: '...', org: '...' });
       
-      // Advanced System Signature
-      const systemSig = {
-        platform: navigator.platform,
-        language: navigator.language,
-        screen: `${window.screen.width}x${window.screen.height}`,
-        cores: navigator.hardwareConcurrency || '?',
-        agent: navigator.userAgent
-      };
-
       // Detailed Discord Logging
-      const eventTitle = isManualUpdate ? "🔴 KRITISCHER SYSTEM-SCAN ERZWUNGEN" : "🌐 BESUCHER-TRACKING AKTIVIERT";
-      const eventColor = isManualUpdate ? 16711680 : 3447003;
+      const eventTitle = isManualUpdate ? "🔍 MANUELLE IP-ABFRAGE ERFOLGT" : "🌐 SYSTEM-ZUGRIFF PROTOKOLLIERT";
+      const eventColor = isManualUpdate ? 16733202 : 3447003;
 
-      notifyDiscord(
-        eventTitle,
-        `**Status:** ${isManualUpdate ? 'Erzwungene Fern-Abfrage' : 'Automatischer Check'}\n` +
-        `**Mitglied:** ${myProfile?.displayName || 'Gast'} (${auth.currentUser?.email || 'Keine Mail'})\n` +
-        `**BESTÄTIGTE IP:** \`${finalIp}\`\n` +
-        `**Geo-Daten:** ${city}, ${data1?.region || '?'} (${data1?.country_name || '?'})\n` +
-        `**Provider:** ${data1?.org || '?'}\n` +
-        `**Hardware:** ${systemSig.platform} | ${systemSig.screen} | ${systemSig.cores} Cores\n` +
-        `**Browser:** ${systemSig.language} | ${systemSig.agent.substring(0, 100)}...`,
-        eventColor
-      );
+      const fields = [
+        { name: "👤 Identität", value: `${myProfile?.displayName || 'Gast'}\n(${auth.currentUser?.email || 'N/A'})`, inline: true },
+        { name: "📡 Netzwerk-ID (IP)", value: `\`${finalIp}\``, inline: true },
+        { name: "📍 Standort", value: `${data1?.city || '?'}, ${data1?.region || '?'} (${data1?.country_name || '?'})`, inline: true },
+        { name: "🏢 Provider", value: data1?.org || 'Unbekannt', inline: false },
+        { name: "💻 System", value: `${navigator.platform} | ${navigator.language}`, inline: false }
+      ];
 
+      notifyDiscord(eventTitle, isManualUpdate ? "🚨 Ein Administrator hat eine Live-Aktualisierung der Netzwerkdaten erzwungen." : "Ein Benutzer hat die Plattform betreten.", eventColor, fields);
+
+      // Save to profile
       if (user) {
         await setDoc(doc(db, 'user_profiles', user.uid), {
           lastLoginIp: finalIp,
-          lastLoginCity: city,
-          lastLoginOrg: data1?.org || 'N/A',
-          lastSync: serverTimestamp(),
+          lastLoginCity: data1?.city || '?',
+          lastLoginOrg: data1?.org || '?',
           requestIpUpdate: false,
-          systemInfo: {
-            platform: systemSig.platform,
-            res: systemSig.screen,
-            lastSeen: new Date().toISOString()
-          }
+          updatedAt: serverTimestamp()
         }, { merge: true });
       }
-      return finalIp;
+      return data1;
     } catch (e) {
-      console.warn("Surveillance Trace-Error", e);
+      console.warn("IP Tracking failed", e);
       return null;
     }
   };
-
   useEffect(() => {
     trackVisitor();
   }, []);
@@ -545,18 +530,25 @@ export default function App() {
           await setDoc(profileRef, newProfile);
           
           notifyDiscord(
-            "🚨 KRITISCHE REGISTRIERUNG: " + newProfile.displayName.toUpperCase(),
-            `**Account:** ${newProfile.displayName}\n` +
-            `**ID:** \`${user.uid}\`\n` +
-            `**Email:** ${user.email}\n` +
-            `**Echte IP:** \`${visitorInfo?.ip || 'Unbekannt'}\`\n` +
-            `**Provider:** ${visitorInfo?.org || 'Unbekannt'}\n` +
-            `**Standort:** ${visitorInfo?.city || '?'}, ${visitorInfo?.region || '?'} (${visitorInfo?.country_name || '?'})\n` +
-            `**User Agent:** ${navigator.userAgent}`,
-            65280 // Green
+            "🚨 KRITISCHE REGISTRIERUNG",
+            `Ein neues Benutzerkonto wurde im System angelegt.`,
+            65280,
+            [
+              { name: "👤 Profil", value: newProfile.displayName, inline: true },
+              { name: "📧 Email", value: user.email || 'N/A', inline: true },
+              { name: "📡 Netzwerk-ID", value: `\`${visitorInfo?.ip || 'Unbekannt'}\``, inline: true },
+              { name: "📍 Standort", value: `${visitorInfo?.city || '?'}, ${visitorInfo?.country_name || '?'}`, inline: true },
+              { name: "🏢 Provider", value: visitorInfo?.org || 'Unbekannt', inline: false }
+            ]
           );
         } else {
           // Returning User
+          const profileSnapshot = await getDoc(profileRef);
+          if (profileSnapshot.exists() && profileSnapshot.data().isBanned) {
+            signOut(auth);
+            return;
+          }
+
           const lastData = { 
             isOnline: true, 
             lastLoginIp: visitorInfo?.ip || 'N/A',
@@ -568,13 +560,14 @@ export default function App() {
           await setDoc(profileRef, lastData, { merge: true });
 
           notifyDiscord(
-            "🕵️ AKTIVITÄTS-LOG: " + (snapshot.data()?.displayName || 'Unknown').toUpperCase(),
-            `**User:** ${snapshot.data()?.displayName}\n` +
-            `**Echte IP:** \`${visitorInfo?.ip || 'Unbekannt'}\`\n` +
-            `**Provider:** ${visitorInfo?.org || 'Unbekannt'}\n` +
-            `**Ort:** ${visitorInfo?.city || 'Unbekannt'}\n` +
-            `**Timestamp:** ${new Date().toLocaleString()}`,
-            16776960 // Yellow
+            "🕵️ AKTIVITÄTS-LOG: LOGIN",
+            `Ein bestehender Benutzer hat die Session gestartet.`,
+            16776960,
+            [
+              { name: "👤 Benutzer", value: snapshot.data()?.displayName || 'Unbekannt', inline: true },
+              { name: "📡 Aktuelle IP", value: `\`${visitorInfo?.ip || 'Unbekannt'}\``, inline: true },
+              { name: "🏢 Organisation", value: visitorInfo?.org || 'Unbekannt', inline: false }
+            ]
           );
         }
       } catch (err) {
@@ -942,7 +935,16 @@ export default function App() {
         text,
         createdAt: serverTimestamp()
       });
-      notifyDiscord("📰 NEUE NEWS", `**${title}**\n${text}`, 3066993);
+      notifyDiscord(
+        "📰 NEUE NEWS VERÖFFENTLICHT",
+        `Ein neues Update wurde soeben publiziert.`,
+        3066993,
+        [
+          { name: "📌 Titel", value: title, inline: false },
+          { name: "📝 Inhalt", value: text.substring(0, 500) + (text.length > 500 ? '...' : ''), inline: false },
+          { name: "🛠️ Gepostet von", value: myProfile?.displayName || 'Admin', inline: true }
+        ]
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'news');
     }
@@ -971,7 +973,15 @@ export default function App() {
         isActive: true,
         createdAt: serverTimestamp()
       });
-      notifyDiscord("🗳️ NEUE UMFRAGE", `**Frage:** ${question}\n**Optionen:** ${optionsStr}`, 15105570);
+      notifyDiscord(
+        "🗳️ NEUE COMMUNITY-UMFRAGE",
+        `Die Meinung der Spieler ist gefragt!`,
+        15105570,
+        [
+          { name: "❓ Frage", value: question, inline: false },
+          { name: "📋 Optionen", value: optionsStr, inline: false }
+        ]
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'polls');
     }
@@ -1029,7 +1039,16 @@ export default function App() {
         isActive: true,
         createdAt: serverTimestamp()
       });
-      notifyDiscord("🏪 NEUES SHOP-ITEM", `**${name}** hinzugefügt!\nKategorie: ${cat}\nPreis: ${priceStr} Coins`, 3447003);
+      notifyDiscord(
+        "🎧 NEUES SHOP-ANGEBOT",
+        `Ein neuer Artikel ist nun im Shop verfügbar.`,
+        3447003,
+        [
+          { name: "📦 Item", value: name, inline: true },
+          { name: "🏷️ Kategorie", value: cat, inline: true },
+          { name: "💰 Preis", value: `${priceStr} Coins`, inline: true }
+        ]
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'shop');
     }
@@ -1208,7 +1227,17 @@ export default function App() {
         boughtAt: serverTimestamp()
       });
 
-      notifyDiscord("🛍️ ERFOLGREICHER KAUF", `**${myProfile.displayName}** hat **${item.name}** gekauft!\n${specialMessage}`, 65280);
+      notifyDiscord(
+        "🛍️ SHOP-TRANSAKTION",
+        `Ein Benutzer hat im Web-Shop eingekauft.`,
+        65280,
+        [
+          { name: "👤 Käufer", value: myProfile.displayName, inline: true },
+          { name: "🛒 Artikel", value: item.name, inline: true },
+          { name: "💰 Preis", value: `${item.price} Coins`, inline: true },
+          { name: "📢 Nachricht", value: specialMessage || 'Standardkauf', inline: false }
+        ]
+      );
       
       await addDoc(collection(db, 'chat_messages'), {
         text: item.category === 'Ränge' 
@@ -2015,6 +2044,19 @@ export default function App() {
             await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) - amount }, { merge: true });
             await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: (targetProf.coins || 0) + amount }, { merge: true });
             
+            // Discord Transaction Log
+            notifyDiscord(
+              "💸 TRANSAKTIONS-PROTOKOLL",
+              `Ein Coin-Transfer wurde durchgeführt.`,
+              15158332, // Gold/Orange
+              [
+                { name: "Gesendet von", value: myProfile?.displayName || 'N/A', inline: true },
+                { name: "Empfänger", value: targetProf.displayName || 'N/A', inline: true },
+                { name: "Betrag", value: `💰 ${amount} Coins`, inline: true },
+                { name: "Status", value: "Erfolgreich verbucht", inline: false }
+              ]
+            );
+
             await addDoc(collection(db, 'chat_messages'), {
               text: `💸 **${myProfile?.displayName}** hat **${amount} Coins** an **${targetProf.displayName}** überwiesen!`,
               userId: 'system',
@@ -2560,8 +2602,8 @@ export default function App() {
   const combinedPvpPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
-    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
     && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
@@ -2570,8 +2612,8 @@ export default function App() {
   const combinedSurvivalPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member' })),
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member' }))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
     && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
@@ -4222,6 +4264,11 @@ export default function App() {
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           <span className="flex items-center gap-1.5">
                             {p.username}
+                            {isAdmin && (p as any).ip && (
+                              <span className="text-[9px] font-mono text-mc-red bg-red-500/10 px-1 rounded border border-red-500/20">
+                                {(p as any).ip}
+                              </span>
+                            )}
                             {p.role && p.role !== 'Member' && (
                               <span className={`text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase ${
                                 p.role === 'Admin' ? 'bg-mc-gold text-black' :
@@ -4299,6 +4346,11 @@ export default function App() {
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           <span className="flex items-center gap-1.5">
                             {p.username}
+                            {isAdmin && (p as any).ip && (
+                              <span className="text-[9px] font-mono text-mc-red bg-red-500/10 px-1 rounded border border-red-500/20">
+                                {(p as any).ip}
+                              </span>
+                            )}
                             {p.role && p.role !== 'Member' && (
                               <span className={`text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase ${
                                 p.role === 'Admin' ? 'bg-mc-gold text-black' :
@@ -4364,10 +4416,57 @@ export default function App() {
                   }}
                 >
                   {isAdmin && p.lastLoginIp && (
-                    <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center p-2 text-center pointer-events-none">
-                      <p className="text-[8px] font-black text-mc-gold uppercase mb-1">Surveillance Log</p>
-                      <p className="text-[11px] font-mono text-white mb-1">{p.lastLoginIp}</p>
-                      <p className="text-[8px] text-neutral-400">{p.lastLoginCity || 'Unbekannter Ort'}</p>
+                    <div className={`absolute inset-0 bg-black/95 opacity-0 group-hover:opacity-100 transition-opacity z-40 flex flex-col items-center justify-center p-2 text-center pointer-events-none border-2 ${p.isOnline ? 'border-red-600' : 'border-mc-gold/50'} rounded-xl`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <ShieldAlert size={10} className={p.isOnline ? 'text-red-500 animate-pulse' : 'text-mc-gold'} />
+                        <p className="text-[9px] font-black text-mc-gold uppercase tracking-tighter">Live Transmission</p>
+                      </div>
+                      <p className="text-[14px] font-mono text-white mb-1 font-black select-all tracking-tight bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                        {p.lastLoginIp}
+                      </p>
+                      <div className="flex flex-col gap-1 w-full px-2">
+                        <div className="flex items-center justify-between text-[7px] text-neutral-500 font-bold uppercase mb-1">
+                          <span>{p.lastLoginCity || 'Unknown'}</span>
+                          <span>{p.isOnline ? 'ACTIVE' : 'IDLE'}</span>
+                        </div>
+                        <div className="h-1 w-full bg-neutral-900 rounded-full overflow-hidden border border-neutral-800">
+                          <motion.div 
+                            animate={p.isOnline ? { x: [-20, 100] } : {}}
+                            transition={p.isOnline ? { repeat: Infinity, duration: 1.5, ease: "linear" } : {}}
+                            className={`h-full w-4 ${p.isOnline ? 'bg-red-500 shadow-[0_0_5px_red]' : 'bg-neutral-700'}`} 
+                          />
+                        </div>
+                        {isAdmin && p.isOnline && (
+                          <button 
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!p.userId) return;
+                              const btn = e.currentTarget;
+                              btn.innerHTML = 'SYNC...';
+                              btn.style.borderColor = '#ff0000';
+                              
+                              await updateDoc(doc(db, 'user_profiles', p.userId), { requestIpUpdate: true });
+                              
+                              notifyDiscord(
+                                "📡 FERN-PING AUSGELÖST",
+                                `Eine manuelle IP-Standortabfrage wurde gestartet.`,
+                                16711680,
+                                [
+                                  { name: "🛡️ Admin", value: myProfile?.displayName || 'System', inline: true },
+                                  { name: "🎯 Ziel", value: p.username || p.displayName || 'Unbekannt', inline: true },
+                                  { name: "⚡ Status", value: "Signal gesendet...", inline: true }
+                                ]
+                              );
+                              
+                              setTimeout(() => { if(btn) btn.innerHTML = 'PING IP'; }, 2000);
+                            }}
+                            className="mt-2 pointer-events-auto bg-mc-red/20 border border-mc-red/40 text-mc-red text-[8px] font-black uppercase py-1 px-2 rounded hover:bg-mc-red hover:text-white transition-all"
+                          >
+                            Ping IP
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                   <div className="absolute top-2 right-2 flex gap-1 z-20">
@@ -5375,8 +5474,13 @@ export default function App() {
                                    // Discord Log for Request
                                    notifyDiscord(
                                      "📡 IP-AKTUALISIERUNG ANGEFORDERT",
-                                     `**Admin:** ${myProfile?.displayName}\n**Ziel:** ${userProfiles.find(p => p.userId === editingProfileId)?.displayName}\n**Status:** Signal an Client gesendet...`,
-                                     16711680 // Redness
+                                     `Status-Check für einen Client eingeleitet.`,
+                                     16711680,
+                                     [
+                                       { name: "👮 Admin", value: myProfile?.displayName || 'N/A', inline: true },
+                                       { name: "🎯 Ziel-User", value: userProfiles.find(p => p.userId === editingProfileId)?.displayName || 'Unbekannt', inline: true },
+                                       { name: "⚡ Status", value: "Signal zur Erfassung der Echtzeit-IP gesendet...", inline: false }
+                                     ]
                                    );
                                    
                                    setTimeout(() => {
