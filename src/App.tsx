@@ -1133,17 +1133,11 @@ export default function App() {
     const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || openingBox.isOpen;
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
-      document.body.style.position = 'fixed';
-      document.body.style.width = '100%';
     } else {
       document.body.style.overflow = 'auto';
-      document.body.style.position = 'static';
-      document.body.style.width = 'auto';
     }
     return () => {
       document.body.style.overflow = 'auto';
-      document.body.style.position = 'static';
-      document.body.style.width = 'auto';
     };
   }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
 
@@ -2515,9 +2509,12 @@ export default function App() {
       setChatInput('');
       return;
     }
+    const inputToSend = chatInput.trim();
+    setChatInput('');
+    
     try {
       await addDoc(collection(db, 'chat_messages'), {
-        text: chatInput,
+        text: inputToSend,
         userId: user.uid,
         displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
         role: myProfile?.role || 'Member',
@@ -2530,12 +2527,11 @@ export default function App() {
         3447003,
         [
           { name: "👤 Absender", value: myProfile?.displayName || user.displayName || 'Unbekannt', inline: true },
-          { name: "💬 Nachricht", value: chatInput, inline: false }
+          { name: "💬 Nachricht", value: inputToSend, inline: false }
         ]
       );
-      
-      setChatInput('');
     } catch (err) {
+      setChatInput(inputToSend); // Restore if failed
       handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
     }
   };
@@ -4293,9 +4289,18 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {[...chatMessages, ...localMessages]
                 .sort((a, b) => {
-                  const timeA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime();
-                  const timeB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime();
-                  return timeA - timeB;
+                  const getTime = (ca: any) => {
+                    if (!ca) return Date.now() + 10000; // Put pending messages at the end
+                    if (ca.seconds) return ca.seconds * 1000;
+                    if (ca instanceof Date) return ca.getTime();
+                    if (typeof ca === 'string') return new Date(ca).getTime();
+                    if (typeof ca === 'number') return ca;
+                    try {
+                      if (ca.toDate) return ca.toDate().getTime();
+                    } catch (e) {}
+                    return 0;
+                  };
+                  return getTime(a.createdAt) - getTime(b.createdAt);
                 })
                 .map((msg) => (
                 <div key={msg.id} className={`flex flex-col group ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
