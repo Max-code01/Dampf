@@ -1128,6 +1128,25 @@ export default function App() {
     }
   };
 
+  // Logic: Lock body scroll when any modal is open
+  useEffect(() => {
+    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || openingBox.isOpen;
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+    } else {
+      document.body.style.overflow = 'auto';
+      document.body.style.position = 'static';
+      document.body.style.width = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+      document.body.style.position = 'static';
+      document.body.style.width = 'auto';
+    };
+  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
+
   // Shop Management
   const addShopItem = async () => {
     if (!isAdmin) return;
@@ -2941,7 +2960,7 @@ export default function App() {
                 rotate: (Math.random() - 0.5) * (miningShake / 2)
               }}
               exit={{ scale: 0.9, y: 50 }}
-              className="max-w-5xl w-full h-full sm:h-auto bg-neutral-900/40 border border-white/5 rounded-none sm:rounded-[3rem] overflow-hidden flex flex-col sm:max-h-[85vh] relative z-10 shadow-[0_0_100px_rgba(0,0,0,1)]"
+              className="max-w-5xl w-full h-full sm:h-[85vh] bg-neutral-900/40 border border-white/5 rounded-none sm:rounded-[3rem] overflow-hidden flex flex-col relative z-10 shadow-[0_0_100px_rgba(0,0,0,1)]"
             >
               {/* Explosion Overlay */}
               <AnimatePresence>
@@ -3148,14 +3167,14 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 flex-1 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden min-h-0">
+                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden h-full relative">
                   <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
                     <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y overscroll-contain min-h-0">
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y overscroll-contain relative scroll-smooth h-full">
                     {[
                       { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.', type: 'miner' },
                       { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.', type: 'miner' },
@@ -3225,7 +3244,7 @@ export default function App() {
                         </motion.button>
                       );
                     })}
-                    <div className="py-10 text-center">
+                    <div className="pb-40 pt-10 text-center">
                       <p className="text-[10px] text-neutral-600 font-bold uppercase tracking-[0.3em]">Ende der Liste</p>
                     </div>
                   </div>
