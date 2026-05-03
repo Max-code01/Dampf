@@ -396,6 +396,38 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
+  // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
+  const fetchEmergencyConfig = async () => {
+    try {
+      const res = await fetch('/api/emergency-config');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data) {
+        setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
+        setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
+        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
+      }
+    } catch (e) {
+      console.error('Failed to fetch emergency config', e);
+    }
+  };
+
+  const updateEmergencyConfig = async (update: any) => {
+    try {
+      await fetch('/api/emergency-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(update)
+      });
+    } catch (e) {
+      console.error('Failed to update emergency config', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmergencyConfig();
+  }, []);
+
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -489,8 +521,6 @@ export default function App() {
         { name: "🔗 Pfad-Vektor", value: `\`${window.location.pathname}${window.location.search}\``, inline: true },
         { name: "🕒 Lokalzeit", value: `\`${new Date().toLocaleTimeString()}\``, inline: true }
       ];
-
-      notifyDiscord(eventTitle, isManualUpdate ? "High-Level Trace-Request durch Admin ausgeführt. Alle verfügbaren Netzwerk-Vektoren werden extrahiert." : "Automatisches Surveillance-Protokoll: Ein Zugriff auf die Web-Infrastruktur wurde registriert.", eventColor, fields);
 
       // Persistent Storage: ONLY write if data changed or enough time passed
       if (user) {
@@ -735,10 +765,13 @@ export default function App() {
   // Firebase Listeners
   useEffect(() => {
     // Listen to players
-    const unsubscribePlayers = onSnapshot(collection(db, 'online_players'), (snapshot) => {
+    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(50)), (snapshot) => {
       const playerList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player));
       setPlayers(playerList);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'online_players'));
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'online_players');
+    });
 
     // Listen to pvp status
     const unsubscribePvp = onSnapshot(doc(db, 'server_status', 'pvp'), (snapshot) => {
@@ -747,7 +780,10 @@ export default function App() {
         setPvpStatus(data);
         if (data.maintenance) setIsMaintenanceMode(true);
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/pvp'));
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
+    });
 
     // Listen to survival status
     const unsubscribeSurvival = onSnapshot(doc(db, 'server_status', 'survival'), (snapshot) => {
@@ -1035,6 +1071,7 @@ export default function App() {
     if (!isSuperAdmin) return;
     const newState = !isMaintenanceMode;
     try {
+      // 1. Firebase (attempt)
       const batch = writeBatch(db);
       batch.set(doc(db, 'app_config', 'system'), { 
         maintenance: newState,
@@ -1043,8 +1080,14 @@ export default function App() {
       batch.set(doc(db, 'server_status', 'pvp'), { maintenance: newState }, { merge: true });
       batch.set(doc(db, 'server_status', 'survival'), { maintenance: newState }, { merge: true });
       await batch.commit();
+      
+      // 2. Emergency Server (Success even if Firebase fails later)
+      await updateEmergencyConfig({ maintenanceMode: newState });
     } catch (e) {
       console.error("Maintenance toggle failed", e);
+      // Fallback to server only
+      await updateEmergencyConfig({ maintenanceMode: newState });
+      setIsMaintenanceMode(newState);
     }
   };
 
@@ -2996,6 +3039,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+      {/* Emergency Fallback Banner */}
+      {isMaintenanceMode && (
+        <motion.div 
+          initial={{ y: -50 }}
+          animate={{ y: 0 }}
+          className="fixed top-0 left-0 right-0 bg-red-600/90 backdrop-blur-md text-white py-1 px-4 text-[9px] font-black uppercase tracking-[0.2em] text-center border-b border-red-500/50 z-[9991] flex items-center justify-center gap-3 overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_2s_infinite]"></div>
+          <ShieldAlert size={10} className="animate-pulse" />
+          <span>⚠️ EMERGENCY-BACKUP AKTIV: KRITISCHE DATEN WERDEN VOM LOKALEN SERVER GEHODELT (FIREBASE QUOTA LIMIT)</span>
+          <ShieldAlert size={10} className="animate-pulse" />
+        </motion.div>
+      )}
+
       {/* Background Video/Effect */}
       <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-mc-red/5 to-transparent animate-pulse" />
