@@ -2559,8 +2559,8 @@ export default function App() {
       id: tempId,
       text: inputToSend,
       userId: user.uid,
-      displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
-      role: myProfile?.role || 'Member',
+      displayName: (myProfile?.displayName || user.displayName || 'Unbekannt').substring(0, 64),
+      role: (myProfile?.role || 'Member').substring(0, 64),
       createdAt: null,
       tempId: tempId
     };
@@ -2581,8 +2581,8 @@ export default function App() {
         await addDoc(collection(db, 'chat_messages'), {
           text: inputToSend,
           userId: user.uid,
-          displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
-          role: myProfile?.role || 'Member',
+          displayName: (myProfile?.displayName || user.displayName || 'Unbekannt').substring(0, 64),
+          role: (myProfile?.role || 'Member').substring(0, 64),
           createdAt: serverTimestamp(),
           tempId: tempId
         });
