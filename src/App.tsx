@@ -743,8 +743,11 @@ export default function App() {
       const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
       if (confirmedTempIds.length > 0) {
         setTimeout(() => {
-          setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
-        }, 500);
+          setLocalMessages(prev => prev.filter(m => {
+            const shouldKeep = !confirmedTempIds.includes(m.tempId);
+            return shouldKeep;
+          }));
+        }, 300);
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
 
@@ -1147,19 +1150,19 @@ export default function App() {
 
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
-    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
+    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
       document.body.style.paddingRight = 'var(--scrollbar-width, 0px)';
     } else {
-      document.body.style.overflow = 'auto';
-      document.body.style.paddingRight = '0px';
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
     }
     return () => {
-      document.body.style.overflow = 'auto';
-      document.body.style.paddingRight = '0px';
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
     };
-  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
+  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
 
   // Shop Management
   const addShopItem = async () => {
@@ -4341,75 +4344,110 @@ export default function App() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {[...chatMessages, ...localMessages]
-                .sort((a, b) => {
-                  const getTime = (ca: any) => {
-                    if (!ca) return Date.now() + 10000; // Put pending messages at the end
-                    if (ca.seconds) return ca.seconds * 1000;
-                    if (ca instanceof Date) return ca.getTime();
-                    if (typeof ca === 'string') return new Date(ca).getTime();
-                    if (typeof ca === 'number') return ca;
-                    try {
-                      if (ca.toDate) return ca.toDate().getTime();
-                    } catch (e) {}
-                    return 0;
-                  };
-                  return getTime(a.createdAt) - getTime(b.createdAt);
-                })
-                .map((msg) => {
-                  if (msg.tempId) {
-                    const isAlreadyInFeed = chatMessages.some(m => m.tempId === msg.tempId && m.id !== msg.id);
-                    if (isAlreadyInFeed) return null;
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar scroll-smooth">
+              {(() => {
+                const combined = [...chatMessages];
+                // Add local messages that aren't confirmed yet
+                localMessages.forEach(lm => {
+                  if (!chatMessages.some(cm => cm.tempId === lm.tempId)) {
+                    combined.push(lm);
                   }
-                  
-                  return (
-                <div key={msg.id} className={`flex flex-col group ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                      msg.userId === 'system' ? 'text-mc-gold' : 'text-neutral-500'
-                    }`}>
-                      {msg.displayName}
-                    </span>
-                    {msg.role && msg.role !== 'Member' && (
-                      <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
-                        msg.role === 'Admin' || msg.role === 'Root' ? 'bg-mc-gold' : 
-                        msg.role === 'Mod' ? 'bg-mc-red' : 
-                        'bg-purple-500'
-                      }`}>
-                        {msg.role}
-                      </span>
-                    )}
-                    {msg.isLocal && (
-                      <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase bg-neutral-800 text-neutral-400 border border-neutral-700">
-                        Privat
-                      </span>
-                    )}
-                    {isAdmin && msg.userId !== 'system' && (
-                      <button 
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          deleteSingleMessage(msg.id);
-                        }}
-                        className="bg-red-600/40 hover:bg-red-600 text-white rounded-lg p-1 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100"
-                        title="NACHRICHT TERMINIEREN"
+                });
+
+                return combined
+                  .sort((a, b) => {
+                    const getTime = (ca: any) => {
+                      if (!ca) return Date.now() + 60000; // Local pending messages at the end
+                      if (ca.seconds) return ca.seconds * 1000;
+                      if (ca instanceof Date) return ca.getTime();
+                      if (typeof ca === 'string') return new Date(ca).getTime();
+                      if (typeof ca === 'number') return ca;
+                      try { if (ca.toDate) return ca.toDate().getTime(); } catch (e) {}
+                      return 0;
+                    };
+                    return getTime(a.createdAt) - getTime(b.createdAt);
+                  })
+                  .map((msg, idx, arr) => {
+                    const prevMsg = arr[idx - 1];
+                    const isSameSender = prevMsg && prevMsg.userId === msg.userId && !msg.isAction && !prevMsg.isAction;
+                    const isSystem = msg.userId === 'system';
+                    const isMe = msg.userId === user?.uid;
+
+                    return (
+                      <motion.div 
+                        layout
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        key={msg.id} 
+                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isSameSender ? '-mt-2' : ''}`}
                       >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-                  <div className={`px-4 py-2 rounded-2xl max-w-[85%] text-sm relative transition-all hover:ring-1 hover:ring-mc-red/30 whitespace-pre-wrap ${
-                    msg.isAction ? 'italic text-neutral-400 bg-transparent py-1 px-0 shadow-none' :
-                    msg.isLocal ? 'bg-neutral-900 border border-neutral-800 text-neutral-300 italic' :
-                    msg.userId === user?.uid ? 'bg-mc-red text-white shadow-lg shadow-mc-red/10' : 'bg-neutral-800 text-neutral-200'
-                  }`}>
-                    {msg.text.replace(/§[a-z0-9]/g, '')}
-                  </div>
-                </div>
-                  );
-                })}
-                <div ref={chatEndRef} />
+                        {!isSameSender && (
+                          <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : ''}`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                              isSystem ? 'text-mc-gold' : 'text-neutral-500'
+                            }`}>
+                              {msg.displayName}
+                            </span>
+                            {msg.role && msg.role !== 'Member' && (
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
+                                msg.role === 'Admin' || msg.role === 'Root' ? 'bg-mc-gold' : 
+                                msg.role === 'Mod' ? 'bg-mc-red' : 
+                                'bg-purple-500'
+                              }`}>
+                                {msg.role}
+                              </span>
+                            )}
+                            {msg.isLocal && !isSystem && (
+                              <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase bg-neutral-800 text-neutral-400 border border-neutral-700">
+                                Privat
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        
+                        <div className="flex items-end gap-2 group max-w-[85%]">
+                          {isMe && isAdmin && !isSystem && (
+                            <button 
+                              onClick={() => deleteSingleMessage(msg.id)}
+                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                          
+                          <div className={`relative px-4 py-2 rounded-2xl text-sm break-words transition-all ${
+                            msg.isAction ? 'italic text-neutral-400 bg-transparent py-1 px-0 shadow-none border-0' :
+                            msg.userId === 'system' ? 'bg-mc-gold/10 border border-mc-gold/20 text-mc-gold' :
+                            msg.id.startsWith('temp-') ? 'bg-neutral-800 text-neutral-400 opacity-60 border border-neutral-700 border-dashed' :
+                            isMe ? 'bg-mc-red text-white shadow-lg shadow-mc-red/15 rounded-tr-sm' : 
+                            'bg-neutral-800 text-neutral-100 rounded-tl-sm'
+                          }`}>
+                            {msg.text.replace(/§[a-z0-9]/g, '')}
+                            {msg.id.startsWith('temp-') && (
+                              <motion.div 
+                                animate={{ rotate: 360 }}
+                                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                                className="absolute -right-2 -top-2 bg-neutral-900 rounded-full p-0.5"
+                              >
+                                <div className="w-2 h-2 border-2 border-mc-red border-t-transparent rounded-full" />
+                              </motion.div>
+                            )}
+                          </div>
+
+                          {!isMe && isAdmin && (
+                            <button 
+                              onClick={() => deleteSingleMessage(msg.id)}
+                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })
+              })()}
+              <div ref={chatEndRef} className="h-4" />
               {chatMessages.length === 0 && localMessages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
                    <div className="p-4 bg-neutral-900 rounded-full">
