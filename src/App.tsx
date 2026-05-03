@@ -39,6 +39,8 @@ import {
   Key,
   Star,
   Target,
+  Settings,
+  Trophy,
   BarChart2,
   Sword,
   Newspaper,
@@ -59,7 +61,9 @@ import {
   Image as ImageIcon,
   Play,
   Flame,
-  Castle
+  Castle,
+  Shield,
+  RefreshCcw,
 } from 'lucide-react';
 import { 
   collection, 
@@ -379,6 +383,32 @@ export default function App() {
   const [visitorInfo, setVisitorInfo] = useState<any>(null);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [surveillanceExpanded, setSurveillanceExpanded] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallButton(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallButton(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   // Constants
   const DISCORD_GUILD_ID = '1451980583969230882'; 
@@ -3118,26 +3148,33 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 flex-1 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden">
+                <div className="w-full md:w-1/2 flex-1 md:h-full flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden min-h-0">
                   <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
                     <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y">
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y overscroll-contain min-h-0">
                     {[
-                      { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.' },
-                      { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.' },
-                      { id: 'miner_3', name: 'Mining-Team', price: 6000, cps: 55, icon: Users, desc: 'Ein ganzer Trupp Profis im Einsatz.' },
-                      { id: 'click_1', name: 'Goldmünze', price: 500, cpc: 2, icon: Gem, desc: 'Zusätzliche Münzen pro Klick.' },
-                      { id: 'click_2', name: 'Schatzbeutel', price: 3000, cpc: 8, icon: Package, desc: 'Viel mehr Münzen pro Klick.' },
-                      { id: 'click_3', name: 'Ender-Schatz', price: 15000, cpc: 25, icon: Castle, desc: 'Göttliche Ausbeute bei jedem Schlag.' },
-                      { id: 'power_1', name: 'Scharfe Kante', price: 400, power: 1, icon: Zap, desc: '+1 Schaden pro Klick.' },
-                      { id: 'power_2', name: 'Wuchtiger Schlag', price: 2500, power: 6, icon: Hammer, desc: '+6 Schaden pro Klick.' },
-                      { id: 'power_3', name: 'Nether-Effizienz', price: 8000, power: 20, icon: Flame, desc: '+20 Schaden pro Klick.' },
+                      { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.', type: 'miner' },
+                      { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.', type: 'miner' },
+                      { id: 'miner_3', name: 'Mining-Team', price: 6000, cps: 55, icon: Users, desc: 'Ein ganzer Trupp Profis im Einsatz.', type: 'miner' },
+                      { id: 'click_1', name: 'Goldmünze', price: 500, cpc: 2, icon: Gem, desc: 'Zusätzliche Münzen pro Klick.', type: 'click' },
+                      { id: 'click_2', name: 'Schatzbeutel', price: 3000, cpc: 8, icon: Package, desc: 'Viel mehr Münzen pro Klick.', type: 'click' },
+                      { id: 'click_3', name: 'Ender-Schatz', price: 15000, cpc: 25, icon: Castle, desc: 'Göttliche Ausbeute bei jedem Schlag.', type: 'click' },
+                      { id: 'power_1', name: 'Scharfe Kante', price: 400, power: 1, icon: Zap, desc: '+1 Schaden pro Klick.', type: 'power' },
+                      { id: 'power_2', name: 'Wuchtiger Schlag', price: 2500, power: 6, icon: Hammer, desc: '+6 Schaden pro Klick.', type: 'power' },
+                      { id: 'power_3', name: 'Nether-Effizienz', price: 8000, power: 20, icon: Flame, desc: '+20 Schaden pro Klick.', type: 'power' },
+                      { id: 'miner_4', name: 'Diamant-Bohrer', price: 25000, cps: 250, icon: Settings, desc: 'Industrielle Bohrleistung.', type: 'miner' },
+                      { id: 'miner_5', name: 'Laser-Extraktor', price: 100000, cps: 1200, icon: Target, desc: 'Schmilzt Gestein in Sekunden.', type: 'miner' },
+                      { id: 'click_4', name: 'Königlicher Segen', price: 50000, cpc: 100, icon: Trophy, desc: 'Jeder Klick ist ein Vermögen wert.', type: 'click' },
+                      { id: 'power_4', name: 'Weltenspalter', price: 40000, power: 85, icon: Swords, desc: 'Kein Block hält diesem Schlag stand.', type: 'power' },
                     ].map((item) => {
                       const canAfford = (myProfile?.coins || 0) >= item.price;
+                      const typeColor = item.type === 'miner' ? 'text-blue-400' : item.type === 'click' ? 'text-yellow-400' : 'text-mc-red';
+                      const typeBg = item.type === 'miner' ? 'bg-blue-400/10' : item.type === 'click' ? 'bg-yellow-400/10' : 'bg-mc-red/10';
+
                       return (
                         <motion.button
                           key={item.id}
@@ -3161,27 +3198,36 @@ export default function App() {
                           className={`w-full p-4 rounded-2xl border flex items-center gap-4 text-left transition-all ${
                             canAfford 
                               ? 'bg-neutral-800/40 border-white/10 hover:border-mc-gold/50 cursor-pointer' 
-                              : 'bg-neutral-900 shadow-inner border-transparent opacity-40 cursor-not-allowed grayscale'
+                              : 'bg-neutral-900 shadow-inner border-transparent relative opacity-60'
                           }`}
                         >
-                          <div className={`p-3 rounded-xl ${canAfford ? 'bg-mc-gold/20 text-mc-gold' : 'bg-neutral-700 text-neutral-500'}`}>
+                          {!canAfford && (
+                            <div className="absolute inset-0 z-20 flex items-center justify-end pr-8 pointer-events-none opacity-20">
+                              <Lock size={40} className="text-neutral-500" />
+                            </div>
+                          )}
+                          <div className={`p-3 rounded-xl flex-shrink-0 ${canAfford ? `${typeBg} ${typeColor} shadow-lg shadow-black/40` : 'bg-neutral-700 text-neutral-500'}`}>
                             <item.icon size={28} />
                           </div>
-                          <div className="flex-1 overflow-hidden">
+                          <div className="flex-1 overflow-hidden relative z-10">
                             <div className="flex justify-between items-center gap-2">
-                              <span className="text-white font-black truncate text-sm">{item.name}</span>
-                              <span className={`font-black text-xs whitespace-nowrap ${canAfford ? 'text-mc-gold' : 'text-neutral-500'}`}>{item.price} 🪙</span>
+                              <span className={`font-black truncate text-sm transition-colors ${canAfford ? 'text-white' : 'text-neutral-500'}`}>{item.name}</span>
+                              <span className={`font-black text-xs whitespace-nowrap ${canAfford ? 'text-mc-gold' : 'text-neutral-600'}`}>{item.price.toLocaleString()} 🪙</span>
                             </div>
-                            <p className="text-neutral-500 text-[10px] truncate">{item.desc}</p>
-                            <div className="mt-1 flex items-center gap-2">
-                               <span className="text-[10px] font-black text-mc-gold uppercase bg-mc-gold/10 px-2 py-0.5 rounded">
+                            <p className={`text-[10px] truncate ${canAfford ? 'text-neutral-400' : 'text-neutral-600'}`}>{item.desc}</p>
+                            <div className="mt-1.5 flex items-center gap-2">
+                               <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${canAfford ? `${typeBg} ${typeColor} border-${item.type === 'miner' ? 'blue' : item.type === 'click' ? 'yellow' : 'red'}-400/20` : 'bg-neutral-800 text-neutral-600 border-transparent'}`}>
                                  {'cps' in item ? `+${item.cps} CPS` : 'cpc' in item ? `+${item.cpc} CPC` : `+${item.power} KRAFT`}
                                </span>
+                               <span className="text-[8px] text-neutral-500 font-bold uppercase tracking-widest">{item.type}</span>
                             </div>
                           </div>
                         </motion.button>
                       );
                     })}
+                    <div className="py-10 text-center">
+                      <p className="text-[10px] text-neutral-600 font-bold uppercase tracking-[0.3em]">Ende der Liste</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3417,7 +3463,7 @@ export default function App() {
             exit={{ height: 0, opacity: 0 }}
             className="relative z-10 bg-neutral-900 border-b border-neutral-800 overflow-hidden"
           >
-            <div className="max-w-7xl mx-auto px-6 py-10 flex flex-col gap-8">
+            <div className="max-w-[1600px] mx-auto px-6 py-10 flex flex-col gap-8">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-mc-gold font-bold flex items-center gap-2">
@@ -3431,7 +3477,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                 {/* Root Control for Block5 */}
                 {isSuperAdmin && (
                   <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-6 space-y-4">
@@ -3555,6 +3601,124 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* BIG SURVEILLANCE TABLE */}
+              <div className="bg-black/20 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-md">
+                <div className="bg-neutral-900/80 px-8 py-5 border-b border-neutral-800 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <h5 className="text-[11px] uppercase font-black text-mc-red tracking-[0.2em] flex items-center gap-2">
+                      <Activity size={16} className="text-mc-red animate-pulse" /> Global Entity Intelligence & Identity Matrix
+                    </h5>
+                    <span className="text-[8px] text-neutral-500 font-mono tracking-widest mt-1">REAL-TIME SURVEILLANCE PROTOCOL ACTIVE | SATELLITE UPLINK: VERIFIED</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col items-end">
+                       <span className="text-[9px] text-neutral-500 font-mono uppercase">Nodes Tracked</span>
+                       <span className="text-sm font-black text-white font-mono">{userProfiles.length}</span>
+                    </div>
+                    <div className="w-[1px] h-8 bg-neutral-800" />
+                    <button 
+                      onClick={() => trackVisitor(true)}
+                      className="p-2 bg-mc-red text-white rounded-lg hover:bg-red-500 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest active:scale-95"
+                    >
+                      <RefreshCcw size={14} /> Force Update
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-left">
+                      <thead className="text-[9px] uppercase font-black text-neutral-400 border-b border-neutral-800 shadow-sm bg-neutral-900/50 sticky top-0 z-20">
+                        <tr>
+                          <th className="px-8 py-5 tracking-[0.1em]">Identity Vector</th>
+                          <th className="px-8 py-5 tracking-[0.1em]">Session Status</th>
+                          <th className="px-8 py-5 tracking-[0.1em]">Network Address (IP)</th>
+                          <th className="px-8 py-5 tracking-[0.1em]">Geolocation Intelligence</th>
+                          <th className="px-8 py-5 tracking-[0.1em]">Infrastructure/ISP</th>
+                          <th className="px-8 py-5 tracking-[0.1em]">Protocol</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-800/40 bg-black/10">
+                        {userProfiles.length === 0 ? (
+                           <tr>
+                             <td colSpan={6} className="px-8 py-20 text-center text-neutral-600 text-xs font-mono uppercase tracking-[0.3em]">No valid entities detected in perimeter</td>
+                           </tr>
+                        ) : [...userProfiles].sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0)).map((p) => (
+                           <tr key={p.userId} className="hover:bg-mc-red/[0.04] transition-all duration-300 group">
+                             <td className="px-8 py-5">
+                               <div className="flex items-center gap-4">
+                                 <div className="relative group/avatar">
+                                   <img 
+                                     src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
+                                     className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 object-cover shadow-lg group-hover/avatar:border-mc-red/50 transition-all" 
+                                     alt=""
+                                     referrerPolicy="no-referrer"
+                                   />
+                                   {p.isOnline && <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-black animate-pulse" />}
+                                 </div>
+                                 <div className="flex flex-col">
+                                   <div className="flex items-center gap-2">
+                                     <span className="font-black text-sm text-white tracking-tight">{p.displayName}</span>
+                                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${p.role === 'Admin' ? 'bg-mc-red/20 text-mc-red border border-mc-red/30' : 'bg-mc-gold/20 text-mc-gold border border-mc-gold/30'}`}>
+                                       {p.role}
+                                     </span>
+                                   </div>
+                                   <span className="text-[9px] text-neutral-500 font-mono uppercase mt-1">UID: {p.userId}</span>
+                                 </div>
+                               </div>
+                             </td>
+                             <td className="px-8 py-5">
+                               <div className="flex flex-col gap-1">
+                                 <div className="flex items-center gap-2">
+                                   <div className={`w-2 h-2 rounded-full ${p.isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-neutral-800'}`} />
+                                   <span className={`text-[10px] font-black uppercase tracking-widest ${p.isOnline ? 'text-green-400' : 'text-neutral-500'}`}>
+                                     {p.isOnline ? 'Connected' : 'Disconnected'}
+                                   </span>
+                                 </div>
+                                 <span className="text-[8px] text-neutral-600 font-mono">
+                                    Last Active: {p.updatedAt?.seconds ? new Date(p.updatedAt.seconds * 1000).toLocaleString() : 'Legacy Record'}
+                                 </span>
+                               </div>
+                             </td>
+                             <td className="px-8 py-5">
+                               <div className="flex flex-col gap-1">
+                                 <span className="font-mono text-mc-gold text-xs font-black tracking-widest selection:bg-mc-gold selection:text-black">
+                                   {p.lastLoginIp || '0.0.0.0'}
+                                 </span>
+                                 <span className="text-[8px] text-neutral-600 font-black uppercase">Trace-Vektor: Alpha-Primary</span>
+                               </div>
+                             </td>
+                             <td className="px-8 py-5">
+                               <div className="flex items-center gap-3">
+                                 <MapPin size={16} className="text-mc-red opacity-50 shrink-0" />
+                                 <div className="flex flex-col max-w-[200px]">
+                                   <span className="text-white text-[11px] font-black leading-tight uppercase tracking-tight truncate">
+                                     {p.lastLoginCity || 'Unknown'}, {p.lastLoginRegion || 'N/A'}
+                                   </span>
+                                   <span className="text-[9px] text-neutral-500 font-bold uppercase truncate">{p.lastLoginCountry || 'Neutral Territory'}</span>
+                                 </div>
+                               </div>
+                             </td>
+                             <td className="px-8 py-5 text-neutral-400">
+                               <div className="flex flex-col max-w-[250px]">
+                                 <span className="text-[10px] font-mono text-neutral-300 font-bold truncate leading-tight">{p.lastLoginOrg || 'Analyzing Provider...'}</span>
+                                 <span className="text-[8px] text-neutral-600 font-black uppercase mt-1">ASN: {p.lastLoginAsn || '---'}</span>
+                               </div>
+                             </td>
+                             <td className="px-8 py-5">
+                               <button 
+                                 onClick={() => openProfileEdit(p.userId)}
+                                 className="w-full py-3 bg-neutral-900 border border-neutral-800 hover:border-mc-red hover:bg-mc-red/10 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 active:scale-95 group/btn"
+                               >
+                                 <Shield size={14} className="group-hover/btn:text-mc-red transition-colors" />
+                                 Full Trace
+                               </button>
+                             </td>
+                           </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}
@@ -3569,6 +3733,17 @@ export default function App() {
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
             className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3"
           >
+            {/* Install App Button */}
+            {showInstallButton && (
+              <button 
+                onClick={handleInstallClick}
+                className="w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 bg-mc-green text-black border border-green-500/50"
+                title="App installieren"
+              >
+                <Rocket size={24} className="animate-bounce" />
+              </button>
+            )}
+
             {/* Mining Game Button */}
             <button 
               onClick={() => { setShowMiningModal(true); setShopOpen(false); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
@@ -3846,7 +4021,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth overscroll-contain min-h-0">
               {showMyItems ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
@@ -5507,16 +5682,16 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8">
+              <div className="p-10 overflow-y-auto">
                 <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
                   <UserIcon className="text-mc-red" />
                   {isAdmin && editingProfileId !== user?.uid ? `Profil von ${userProfiles.find(p => p.userId === editingProfileId)?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
                 </h3>
                 
-                <form onSubmit={saveProfile} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={saveProfile} className="space-y-10">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {/* Admin Stealth Status Indicators & Toggles */}
                     {isSuperAdmin && editingProfileId && (
                       <div className="md:col-span-2 flex flex-wrap gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
@@ -5547,6 +5722,8 @@ export default function App() {
                         </div>
                       </div>
                     )}
+                    
+                    {/* Left Column: Basic Info */}
                     <div className="space-y-6">
                       <div>
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Display Name</label>
@@ -5582,163 +5759,9 @@ export default function App() {
                           <option value="survival">Survival World</option>
                         </select>
                       </div>
-
-                      {isAdmin && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
-                            <select 
-                              name="role"
-                              defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
-                              className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
-                            >
-                              <option value="Member">Mitglied</option>
-                              <option value="VIP">VIP</option>
-                              <option value="Mod">Moderator</option>
-                              <option value="Admin">Admin</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Credits (Admin)</label>
-                            <input 
-                              name="coins"
-                              type="number"
-                              defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}
-                              className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
-                            />
-                          </div>
-                          
-                          {/* SURVEILLANCE DATA - TRIPLE-VECTOR ADMIN CONSOLE */}
-                          <div className="col-span-2 p-1 bg-black border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl shadow-red-500/10">
-                             <div className="bg-gradient-to-r from-red-600/20 to-transparent border-b border-white/5 px-5 py-4 flex items-center justify-between">
-                               <div className="flex items-center gap-4">
-                                 <div className="relative flex items-center justify-center">
-                                   <div className="absolute inset-0 bg-red-500 blur-[10px] animate-pulse opacity-40" />
-                                   <ShieldAlert size={18} className="text-red-500 relative drop-shadow-[0_0_8px_rgba(239,68,68,1)]" />
-                                 </div>
-                                 <div className="flex flex-col">
-                                   <span className="text-[11px] font-black uppercase tracking-[0.3em] text-red-500 leading-none">
-                                     Identity Surveillance Feed
-                                   </span>
-                                   <span className="text-[8px] font-mono text-neutral-500 uppercase tracking-[0.1em] mt-1.5 flex items-center gap-1.5">
-                                     <div className="w-1 h-1 rounded-full bg-red-500 animate-pulse" />
-                                     Direct Satellite Uplink Active
-                                   </span>
-                                 </div>
-                               </div>
-                               <button 
-                                 type="button"
-                                 onClick={() => setSurveillanceExpanded(!surveillanceExpanded)}
-                                 className={`text-[9px] px-4 py-2 rounded-full border transition-all font-black uppercase tracking-widest ${surveillanceExpanded ? 'bg-red-500 text-white border-red-400' : 'bg-neutral-900/50 text-neutral-400 border-neutral-800 hover:border-red-500/50'}`}
-                               >
-                                 {surveillanceExpanded ? 'CLOSE TRACE' : 'OPEN FULL TRACE'}
-                               </button>
-                             </div>
-                             
-                             <div className="p-6 bg-neutral-950/70">
-                                <div className="flex flex-col gap-5">
-                                  {!surveillanceExpanded ? (
-                                    <div className="flex items-center justify-between bg-red-500/5 border border-red-500/20 p-4 rounded-2xl">
-                                      <div className="flex items-center gap-3">
-                                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                        <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Active Signal Monitor</span>
-                                      </div>
-                                      <span className="text-[9px] font-mono text-neutral-500">
-                                        {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginIp || '---'}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <motion.div 
-                                      initial={{ height: 0, opacity: 0 }}
-                                      animate={{ height: 'auto', opacity: 1 }}
-                                      className="space-y-5 overflow-hidden"
-                                    >
-                                      {/* PRIMARY VECTOR */}
-                                      <div className="space-y-2">
-                                        <p className="text-[9px] font-black text-red-500/80 uppercase tracking-widest flex items-center gap-2">
-                                          <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                                          True Identification Vector
-                                        </p>
-                                        <div className="bg-neutral-900/40 border border-red-500/20 p-4 rounded-2xl group hover:border-red-500/60 transition-all cursor-copy relative overflow-hidden" onClick={() => {
-                                          const ip = userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp;
-                                          if (ip) navigator.clipboard.writeText(ip);
-                                        }}>
-                                          <div className="flex flex-col">
-                                            <span className="text-xl font-mono font-black text-white tracking-widest break-all">
-                                              {userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}
-                                            </span>
-                                            <p className="text-[8px] text-neutral-500 uppercase font-black mt-1">Verified via Ultra-Gateway Protocol</p>
-                                          </div>
-                                        </div>
-                                        <div className="bg-neutral-900/60 p-4 rounded-xl border border-blue-500/20 space-y-1">
-                                          <p className="text-[8px] font-black text-blue-500 uppercase tracking-widest">Genesis Record</p>
-                                          <span className="text-sm font-mono font-bold text-blue-400 tracking-widest block break-all">
-                                            {userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || '---'}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {/* TECHNICAL DETAILS */}
-                                      <div className="bg-neutral-900/50 p-5 rounded-2xl border border-white/5 space-y-4">
-                                        <div className="flex items-center gap-2">
-                                          <MapPin size={14} className="text-mc-gold" />
-                                          <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Geolocation Intelligence</span>
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                          <span className="text-lg font-black text-white leading-tight">
-                                            {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCity || '?'}, 
-                                            {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginRegion || '?'}
-                                          </span>
-                                          <span className="text-xs text-neutral-500 font-bold">
-                                            {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCountry || 'Unbekannt'}
-                                          </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3">
-                                          <div className="bg-black/40 p-3 rounded-xl border border-white/5">
-                                            <p className="text-[8px] font-bold text-neutral-600 uppercase mb-1">Postal/ZIP</p>
-                                            <p className="text-xs font-mono text-neutral-300">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginPostal || '---'}</p>
-                                          </div>
-                                          <div className="bg-black/40 p-3 rounded-xl border border-white/5">
-                                            <p className="text-[8px] font-bold text-neutral-600 uppercase mb-1">Timezone</p>
-                                            <p className="text-xs font-mono text-mc-gold truncate">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginTimezone || 'UTC'}</p>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      {/* INFRASTRUCTURE */}
-                                      <div className="bg-neutral-900/50 p-5 rounded-2xl border border-white/5 space-y-4">
-                                        <div className="flex items-center gap-2">
-                                          <Cpu size={14} className="text-red-500" />
-                                          <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Network Analytics</span>
-                                        </div>
-                                        <div className="bg-black/60 p-4 rounded-xl border border-white/5 space-y-1">
-                                          <span className="text-[8px] font-bold text-neutral-600 uppercase">Provider</span>
-                                          <span className="text-xs font-mono text-red-500 font-bold block break-all leading-normal">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginOrg || 'ANALYZING...'}</span>
-                                        </div>
-                                        <div className="bg-black/60 p-4 rounded-xl border border-white/5">
-                                          <span className="text-[8px] font-bold text-neutral-600 uppercase">ASN</span>
-                                          <span className="text-xs font-mono text-mc-gold">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginAsn || '---'}</span>
-                                        </div>
-                                      </div>
-                                    </motion.div>
-                                  )}
-                                </div>
-                                
-                                <div className="mt-8 flex items-center justify-between opacity-50 px-1 border-t border-white/5 pt-4">
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-[8px] font-mono text-red-500 font-black animate-pulse">TRACE_ACTIVE</span>
-                                    <div className="w-[1px] h-3 bg-neutral-800" />
-                                    <span className="text-[8px] font-mono text-neutral-500 uppercase tracking-widest">
-                                      REF_ID: TR-{(userProfiles.find(p => p.userId === editingProfileId) as any)?.userId?.substring(0, 8).toUpperCase()}
-                                    </span>
-                                  </div>
-                                </div>
-                             </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
+                    {/* Right Column: Skin & Avatar */}
                     <div className="flex flex-col gap-4">
                       <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest">Skin & Avatar</label>
                       <div className="mc-card p-4 flex flex-col items-center gap-4 border-neutral-800/50 bg-black/20">
@@ -5781,26 +5804,219 @@ export default function App() {
                               />
                             ))}
                           </div>
-                          <div className="mt-3 flex justify-center gap-2">
-                            {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff', '#000000'].map(c => (
-                              <button 
-                                key={c}
-                                type="button"
-                                onClick={() => setBrushColor(c)}
-                                style={{ backgroundColor: c }}
-                                className={`w-4 h-4 rounded-full border border-white/20 ${brushColor === c ? 'ring-2 ring-mc-red ring-offset-2 ring-offset-black' : ''}`}
-                              />
-                            ))}
-                            <input 
-                              type="color" 
-                              value={brushColor} 
-                              onChange={(e) => setBrushColor(e.target.value)}
-                              className="w-4 h-4 rounded-full bg-transparent border-none p-0 overflow-hidden cursor-pointer" 
-                            />
-                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Full Width Bottom: Admin Dashboard */}
+                    {isAdmin && (
+                      <div className="md:col-span-2 space-y-8 pt-10 border-t border-white/5 mt-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
+                              <select 
+                                name="role"
+                                defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
+                                className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
+                              >
+                                <option value="Member">Mitglied</option>
+                                <option value="VIP">VIP</option>
+                                <option value="Mod">Moderator</option>
+                                <option value="Admin">Admin</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Credits (Admin)</label>
+                              <input 
+                                name="coins"
+                                type="number"
+                                defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}
+                                className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
+                              />
+                            </div>
+                        </div>
+                          
+                        <div className="bg-black/60 border border-red-500/20 rounded-3xl overflow-hidden shadow-[inset_0_0_50px_rgba(239,68,68,0.05)]">
+                             <div className="bg-gradient-to-r from-red-600/15 via-red-600/5 to-transparent border-b border-white/5 px-8 py-6 flex items-center justify-between">
+                               <div className="flex items-center gap-6">
+                                 <div className="relative flex items-center justify-center">
+                                   <div className="absolute inset-0 bg-red-500 blur-[15px] animate-pulse opacity-30" />
+                                   <ShieldAlert size={24} className="text-red-500 relative drop-shadow-[0_0_12px_rgba(239,68,68,1)]" />
+                                 </div>
+                                 <div className="flex flex-col">
+                                   <span className="text-[14px] font-black uppercase tracking-[0.3em] text-red-500 leading-none">
+                                     Identity Surveillance Feed
+                                   </span>
+                                   <div className="text-[8px] font-mono text-neutral-500 uppercase tracking-[0.1em] mt-2 flex items-center gap-2">
+                                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]" />
+                                     Direct Satellite Uplink Active & Secure
+                                   </div>
+                                 </div>
+                               </div>
+                               
+                               <button 
+                                 type="button"
+                                 onClick={() => setSurveillanceExpanded(!surveillanceExpanded)}
+                                 className={`text-[9px] px-6 py-2.5 rounded-xl border transition-all font-black uppercase tracking-[0.1em] shadow-lg active:scale-95 ${surveillanceExpanded ? 'bg-red-500 text-white border-red-400' : 'bg-neutral-900/80 text-neutral-400 border-neutral-800 hover:border-red-500/50 hover:text-white'}`}
+                               >
+                                 {surveillanceExpanded ? 'TERMINATE TRACE' : 'ESTABLISH FULL TRACE'}
+                               </button>
+                             </div>
+                             
+                             <div className="p-8 bg-neutral-950/40">
+                                <div className="flex flex-col gap-8">
+                                  {!surveillanceExpanded ? (
+                                    <div className="flex items-center justify-between bg-red-500/5 border border-red-500/10 p-8 rounded-3xl group hover:border-red-500/30 transition-all">
+                                      <div className="flex items-center gap-6">
+                                        <Activity size={20} className="text-red-500 opacity-40 group-hover:opacity-100 transition-opacity" />
+                                        <div className="flex flex-col">
+                                          <span className="text-[10px] font-black text-red-500/60 uppercase tracking-[0.2em] mb-1">Active Signal Monitor</span>
+                                          <span className="text-xl font-mono text-white font-black tracking-widest break-all">
+                                            {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginIp || 'DETERMINING_IP...'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col items-end gap-1">
+                                        <span className="text-[10px] text-neutral-600 font-black uppercase tracking-widest">Status</span>
+                                        <span className="px-4 py-1 bg-green-500/10 text-green-500 text-[10px] font-black rounded-lg border border-green-500/20">READY</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <motion.div 
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      className="space-y-10 overflow-hidden"
+                                    >
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                          {/* PRIMARY VECTOR */}
+                                          <div className="space-y-6">
+                                           <div className="text-[10px] font-black text-red-500/80 uppercase tracking-[0.3em] flex items-center gap-3">
+                                              <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,1)]" />
+                                              Infrastructural Origins
+                                            </div>
+                                            <div className="bg-neutral-900/80 border border-red-500/20 p-8 rounded-[2rem] group hover:border-red-500/60 transition-all cursor-copy relative overflow-hidden" onClick={() => {
+                                              const ip = userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp;
+                                              if (ip) { navigator.clipboard.writeText(ip); }
+                                            }}>
+                                              <div className="absolute top-0 right-0 p-6 opacity-5">
+                                                <Activity size={100} className="text-red-500" />
+                                              </div>
+                                              <div className="flex flex-col relative z-10 text-left">
+                                                <p className="text-[9px] font-black text-neutral-500 uppercase mb-2 tracking-widest">Active session IP (Trace)</p>
+                                                <span className="text-3xl font-mono font-black text-white tracking-widest break-all group-hover:text-red-500 transition-colors">
+                                                  {userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}
+                                                </span>
+                                                <div className="flex items-center gap-3 mt-4">
+                                                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                                  <p className="text-[9px] text-neutral-600 uppercase font-black tracking-widest">Verified Integrity Protocol v4.2</p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            
+                                            <div className="bg-black/40 p-6 rounded-2xl border border-blue-500/20 flex items-center justify-between group hover:border-blue-500/50 transition-all">
+                                              <div>
+                                                <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Genesis Arrival IP</p>
+                                                <span className="text-lg font-mono font-bold text-blue-400 tracking-wider">
+                                                  {userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || '---'}
+                                                </span>
+                                              </div>
+                                              <div className="px-3 py-1 bg-blue-500/10 rounded-xl text-blue-500 text-[9px] font-black border border-blue-500/20 shadow-lg shadow-blue-500/5">SYSTEM_ROOT</div>
+                                            </div>
+                                          </div>
+
+                                          {/* GEOSPATIAL INTELLIGENCE */}
+                                          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[2rem] space-y-8 flex flex-col justify-between relative overflow-hidden group">
+                                            <div className="absolute -top-10 -right-10 opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-700">
+                                              <MapPin size={250} className="text-mc-gold" />
+                                            </div>
+                                            <div className="space-y-4">
+                                              <div className="flex items-center gap-3">
+                                                <MapPin size={20} className="text-mc-gold" />
+                                                <span className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.3em]">Satellite Analytics</span>
+                                              </div>
+                                              <div className="flex flex-col gap-2 relative z-10 text-left">
+                                                <span className="text-3xl font-black text-white leading-tight tracking-tight">
+                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCity || '?'}, 
+                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginRegion || '?'}
+                                                </span>
+                                                <div className="text-mc-gold font-black uppercase tracking-[0.2em] text-sm flex items-center gap-2">
+                                                  <div className="w-4 h-[1px] bg-mc-gold/40" />
+                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCountry || 'Neutral Territory'}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4 relative z-10">
+                                              <div className="bg-black/60 p-5 rounded-2xl border border-white/5 hover:border-mc-gold/30 transition-colors group/sub text-left">
+                                                <p className="text-[9px] font-black text-neutral-600 uppercase mb-2 tracking-widest">Registry ZIP</p>
+                                                <p className="text-base font-mono text-neutral-300 font-bold tracking-widest">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginPostal || '---'}</p>
+                                              </div>
+                                              <div className="bg-black/60 p-5 rounded-2xl border border-white/5 hover:border-mc-gold/30 transition-colors group/sub text-left">
+                                                <p className="text-[9px] font-black text-neutral-600 uppercase mb-2 tracking-widest">Zone / Offset</p>
+                                                <p className="text-base font-mono text-mc-gold font-black tracking-widest">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginTimezone || 'UTC'}</p>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* INFRASTRUCTURE & NETWORK - FULL WIDTH SUBGRID */}
+                                          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[2rem] space-y-6 group hover:border-red-500/30 transition-all">
+                                              <div className="flex items-center gap-4">
+                                                <Cpu size={20} className="text-red-500" />
+                                                <span className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.3em]">Carrier / ISP Node</span>
+                                              </div>
+                                              <div className="bg-black/60 p-6 rounded-[2rem] border border-white/5 group-hover:border-red-500/20 transition-all relative overflow-hidden">
+                                                <div className="relative z-10 text-left">
+                                                  <span className="text-xl font-mono text-red-500 font-black block leading-tight tracking-[0.02em]">
+                                                    {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginOrg || 'DETERMINING ISP...'}
+                                                  </span>
+                                                  <div className="flex items-center justify-between mt-4 border-t border-white/5 pt-4">
+                                                    <span className="text-[10px] font-mono text-neutral-500 font-bold uppercase tracking-widest">AS Number</span>
+                                                    <span className="text-xs font-mono bg-mc-gold/10 text-mc-gold px-3 py-1 rounded-lg border border-mc-gold/20 font-black">
+                                                      {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginAsn || 'AS_NONE'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            
+                                            <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-[2rem] space-y-6 group hover:border-green-500/30 transition-all">
+                                              <div className="flex items-center gap-4">
+                                                <Activity size={20} className="text-green-500" />
+                                                <span className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.3em]">Client Specs Sensor</span>
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-4 h-full">
+                                                <div className="bg-black/60 p-6 rounded-[2rem] border border-white/5 text-center flex flex-col justify-center gap-2 group-hover:bg-green-500/5 transition-all">
+                                                  <p className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">Cores</p>
+                                                  <span className="text-3xl font-mono text-white font-black leading-none">{navigator.hardwareConcurrency || '?'}</span>
+                                                </div>
+                                                <div className="bg-black/60 p-6 rounded-[2rem] border border-white/5 text-center flex flex-col justify-center gap-2 group-hover:bg-green-500/5 transition-all">
+                                                  <p className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">Memory</p>
+                                                  <span className="text-3xl font-mono text-white font-black leading-none">{(navigator as any).deviceMemory || '?'}<span className="text-xs text-neutral-500 uppercase tracking-normal">GB</span></span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between px-2 pt-8 border-t border-white/5">
+                                          <div className="flex items-center gap-4">
+                                            <div className="flex items-center gap-2 px-3 py-1 bg-red-500/10 rounded-lg border border-red-500/20">
+                                              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                              <span className="text-[9px] font-mono text-red-500 font-black tracking-widest uppercase">Trace_Active</span>
+                                            </div>
+                                            <span className="text-[10px] font-mono text-neutral-500 font-bold tracking-widest">
+                                              ENTITY_IDENT: TR-{(userProfiles.find(p => p.userId === editingProfileId) as any)?.userId?.substring(0, 10).toUpperCase()}
+                                            </span>
+                                          </div>
+                                          <span className="text-[9px] font-mono text-neutral-700 uppercase tracking-[0.2em] font-bold">Protocol v8.12.0 SECURED</span>
+                                        </div>
+                                    </motion.div>
+                                  )}
+                                </div>
+                             </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-4 bg-black/40 border border-neutral-800 rounded-xl">
