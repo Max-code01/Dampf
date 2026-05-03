@@ -1144,7 +1144,11 @@ export default function App() {
   // Logic: Scroll chat to bottom
   useEffect(() => {
     if (chatOpen) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const scroll = () => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scroll();
+      // Second attempt to ensure it works after image load or heavy render
+      const timeout = setTimeout(scroll, 100);
+      return () => clearTimeout(timeout);
     }
   }, [chatMessages, localMessages, chatOpen]);
 
@@ -2544,6 +2548,12 @@ export default function App() {
     const inputToSend = chatInput.trim();
     setChatInput('');
     
+    // Safety check for offline users
+    if (!navigator.onLine) {
+      sendSystemMsg('Du bist aktuell offline! Deine Nachricht wird gesendet, sobald die Verbindung steht.', 'SYSTEM');
+      // Note: Firestore actually handles offline queuing, but we want to show visual feedback better
+    }
+
     const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(7);
     const tempMsg: ChatMessage = {
       id: tempId,
@@ -2557,41 +2567,55 @@ export default function App() {
     
     setLocalMessages(prev => {
       // Prevent duplicates in local state
-      if (prev.some(m => m.text === inputToSend && (Date.now() - parseInt(m.id.split('-')[1]) < 2000))) {
+      if (prev.some(m => m.text === inputToSend && (Date.now() - parseInt(m.id.split('-')[1]) < 1000))) {
         return prev;
       }
       return [...prev, tempMsg];
     });
     
-    try {
-      await addDoc(collection(db, 'chat_messages'), {
-        text: inputToSend,
-        userId: user.uid,
-        displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
-        role: myProfile?.role || 'Member',
-        createdAt: serverTimestamp(),
-        tempId: tempId
-      });
-      
-      notifyDiscord(
-        "💬 CHAT-LIVESTREAM",
-        `Eine neue Nachricht wurde im globalen Chat gesendet.`,
-        3447003,
-        [
-          { name: "👤 Absender", value: myProfile?.displayName || user.displayName || 'Unbekannt', inline: true },
-          { name: "💬 Nachricht", value: inputToSend, inline: false }
-        ]
-      );
-      
-      // Cleanup fallback if onSnapshot misses it
-      setTimeout(() => {
-        setLocalMessages(prev => prev.filter(m => m.id !== tempId));
-      }, 15000);
-    } catch (err) {
+    let retries = 0;
+    const maxRetries = 3;
+
+    const executeSend = async () => {
+      try {
+        await addDoc(collection(db, 'chat_messages'), {
+          text: inputToSend,
+          userId: user.uid,
+          displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
+          role: myProfile?.role || 'Member',
+          createdAt: serverTimestamp(),
+          tempId: tempId
+        });
+        
+        notifyDiscord(
+          "💬 CHAT-LIVESTREAM",
+          `Eine neue Nachricht wurde im globalen Chat gesendet.`,
+          3447003,
+          [
+            { name: "👤 Absender", value: myProfile?.displayName || user.displayName || 'Unbekannt', inline: true },
+            { name: "💬 Nachricht", value: inputToSend, inline: false }
+          ]
+        );
+      } catch (err) {
+        if (retries < maxRetries && navigator.onLine) {
+          retries++;
+          const delay = Math.pow(2, retries) * 800; // Exponential backoff
+          setTimeout(executeSend, delay);
+        } else {
+          setLocalMessages(prev => prev.filter(m => m.id !== tempId));
+          setChatInput(inputToSend); // Restore input on final failure
+          sendSystemMsg('Nachricht konnte nicht zugestellt werden. Bitte erneut versuchen.', 'FEHLER');
+          handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
+        }
+      }
+    };
+
+    executeSend();
+    
+    // Long-term cleanup fallback
+    setTimeout(() => {
       setLocalMessages(prev => prev.filter(m => m.id !== tempId));
-      setChatInput(inputToSend); // Restore if failed
-      handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
-    }
+    }, 30000);
   };
 
   const kickPlayerFromClan = async (clanId: string, targetUserId: string) => {
@@ -4493,29 +4517,37 @@ export default function App() {
               </AnimatePresence>
 
               {user ? (
-                <form onSubmit={sendMessage} className="flex gap-2">
-                  <button 
-                    type="button"
-                    onClick={() => setShowCommandMenu(!showCommandMenu)}
-                    className={`p-3 rounded-xl transition-all border ${showCommandMenu ? 'bg-mc-red text-white border-mc-red' : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:border-neutral-700'}`}
-                    title="Schnelle Befehle"
-                  >
-                    <Command size={20} />
-                  </button>
-                  <input 
-                    type="text" 
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Sende eine Nachricht oder /Befehl..."
-                    className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:border-mc-red outline-none transition-colors"
-                  />
-                  <button 
-                    type="submit"
-                    className="p-3 bg-mc-red rounded-xl hover:bg-mc-red/90 transition-colors"
-                  >
-                    <ChevronRight size={20} />
-                  </button>
-                </form>
+                <div className="flex flex-col gap-2">
+                  {!navigator.onLine && (
+                    <div className="flex items-center gap-2 text-[10px] text-mc-red font-bold uppercase animate-pulse mb-1">
+                      <div className="w-1.5 h-1.5 bg-mc-red rounded-full" />
+                      Offline - Warte auf Verbindung...
+                    </div>
+                  )}
+                  <form onSubmit={sendMessage} className="flex gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => setShowCommandMenu(!showCommandMenu)}
+                      className={`p-3 rounded-xl transition-all border ${showCommandMenu ? 'bg-mc-red text-white border-mc-red' : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:border-neutral-700'}`}
+                      title="Schnelle Befehle"
+                    >
+                      <Command size={20} />
+                    </button>
+                    <input 
+                      type="text" 
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Sende eine Nachricht oder /Befehl..."
+                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-sm focus:border-mc-red outline-none transition-colors"
+                    />
+                    <button 
+                      type="submit"
+                      className="p-3 bg-mc-red rounded-xl hover:bg-mc-red/90 transition-colors"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </form>
+                </div>
               ) : (
                 <button 
                   onClick={() => setShowLoginModal(true)}
