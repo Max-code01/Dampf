@@ -742,7 +742,9 @@ export default function App() {
       // Clean up local messages that are now in the official feed
       const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
       if (confirmedTempIds.length > 0) {
-        setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
+        setTimeout(() => {
+          setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
+        }, 500);
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
 
@@ -1145,19 +1147,19 @@ export default function App() {
 
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
-    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
+    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
     if (isAnyModalOpen) {
-      document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
+      document.body.style.paddingRight = 'var(--scrollbar-width, 0px)';
     } else {
-      document.documentElement.style.overflow = '';
-      document.body.style.overflow = '';
+      document.body.style.overflow = 'auto';
+      document.body.style.paddingRight = '0px';
     }
     return () => {
-      document.documentElement.style.overflow = '';
-      document.body.style.overflow = '';
+      document.body.style.overflow = 'auto';
+      document.body.style.paddingRight = '0px';
     };
-  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
+  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
 
   // Shop Management
   const addShopItem = async () => {
@@ -2550,7 +2552,13 @@ export default function App() {
       tempId: tempId
     };
     
-    setLocalMessages(prev => [...prev, tempMsg]);
+    setLocalMessages(prev => {
+      // Prevent duplicates in local state
+      if (prev.some(m => m.text === inputToSend && (Date.now() - parseInt(m.id.split('-')[1]) < 2000))) {
+        return prev;
+      }
+      return [...prev, tempMsg];
+    });
     
     try {
       await addDoc(collection(db, 'chat_messages'), {
@@ -5761,9 +5769,9 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+              className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col z-10"
             >
-              <div className="p-10 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
                 <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
                   <UserIcon className="text-mc-red" />
                   {isAdmin && editingProfileId !== user?.uid ? `Profil von ${userProfiles.find(p => p.userId === editingProfileId)?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}

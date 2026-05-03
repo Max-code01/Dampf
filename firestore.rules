@@ -52,7 +52,9 @@ service cloud.firestore {
              data.text is string && data.text.size() <= 1000 &&
              (data.userId == request.auth.uid || data.userId == "system") &&
              data.displayName is string &&
-             (data.createdAt == request.time || data.createdAt is timestamp);
+             (data.createdAt == request.time || data.createdAt is timestamp) &&
+             (!('tempId' in data) || (data.tempId is string && data.tempId.size() <= 200)) &&
+             (!('role' in data) || (data.role is string && data.role.size() <= 32));
     }
 
     // Player Validation
