@@ -48,11 +48,11 @@ service cloud.firestore {
     // ChatMessage Validation
     function isValidChatMessage(data) {
       return data.keys().hasAll(['text', 'userId', 'displayName', 'createdAt']) &&
-             data.keys().size() <= 8 &&
+             data.keys().size() <= 10 &&
              data.text is string && data.text.size() <= 1000 &&
              (data.userId == request.auth.uid || data.userId == "system") &&
              data.displayName is string &&
-             data.createdAt == request.time;
+             (data.createdAt == request.time || data.createdAt is timestamp);
     }
 
     // Player Validation

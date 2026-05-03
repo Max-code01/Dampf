@@ -77,6 +77,10 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "tempId": {
+          "type": "string",
+          "description": "Temporary ID for optimistic updates"
         }
       },
       "required": ["text", "userId", "displayName", "createdAt"]

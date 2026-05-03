@@ -156,6 +156,7 @@ interface ChatMessage {
   isAction?: boolean;
   isLocal?: boolean;
   isStaffOnly?: boolean;
+  tempId?: string;
 }
 
 interface NewsItem {
@@ -331,6 +332,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
@@ -736,6 +738,12 @@ export default function App() {
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setChatMessages(msgs);
+      
+      // Clean up local messages that are now in the official feed
+      const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
+      if (confirmedTempIds.length > 0) {
+        setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
+      }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
 
     // Listen to clans
@@ -1128,16 +1136,26 @@ export default function App() {
     }
   };
 
+  // Logic: Scroll chat to bottom
+  useEffect(() => {
+    if (chatOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, localMessages, chatOpen]);
+
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
-    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || openingBox.isOpen;
+    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
     if (isAnyModalOpen) {
+      document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
     } else {
-      document.body.style.overflow = 'auto';
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
     }
     return () => {
-      document.body.style.overflow = 'auto';
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
     };
   }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
 
@@ -2236,7 +2254,8 @@ export default function App() {
               userId: 'system',
               displayName: 'BANK',
               role: 'System',
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              tempId: `sys-${Date.now()}-${Math.random()}`
             });
             break;
           }
@@ -2248,7 +2267,8 @@ export default function App() {
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
               createdAt: serverTimestamp(),
-              isAction: true
+              isAction: true,
+              tempId: `act-${Date.now()}-${Math.random()}`
             });
             break;
           }
@@ -2327,7 +2347,8 @@ export default function App() {
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
               createdAt: serverTimestamp(),
-              isAction: true
+              isAction: true,
+              tempId: `roll-${Date.now()}`
             });
             break;
           }
@@ -2339,7 +2360,8 @@ export default function App() {
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
               createdAt: serverTimestamp(),
-              isAction: true
+              isAction: true,
+              tempId: `flip-${Date.now()}`
             });
             break;
           }
@@ -2381,7 +2403,8 @@ export default function App() {
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              tempId: `shrug-${Date.now()}`
             });
             break;
           }
@@ -2391,7 +2414,8 @@ export default function App() {
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              tempId: `lenny-${Date.now()}`
             });
             break;
           }
@@ -2401,7 +2425,8 @@ export default function App() {
               userId: user.uid,
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
-              createdAt: serverTimestamp()
+              createdAt: serverTimestamp(),
+              tempId: `tableflip-${Date.now()}`
             });
             break;
           }
@@ -2413,7 +2438,8 @@ export default function App() {
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
               createdAt: serverTimestamp(),
-              isAction: true
+              isAction: true,
+              tempId: `hug-${Date.now()}`
             });
             break;
           }
@@ -2425,7 +2451,8 @@ export default function App() {
               displayName: myProfile?.displayName || 'Unbekannt',
               role: myProfile?.role || 'Member',
               createdAt: serverTimestamp(),
-              isAction: true
+              isAction: true,
+              tempId: `slap-${Date.now()}`
             });
             break;
           }
@@ -2512,13 +2539,27 @@ export default function App() {
     const inputToSend = chatInput.trim();
     setChatInput('');
     
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+    const tempMsg: ChatMessage = {
+      id: tempId,
+      text: inputToSend,
+      userId: user.uid,
+      displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
+      role: myProfile?.role || 'Member',
+      createdAt: null,
+      tempId: tempId
+    };
+    
+    setLocalMessages(prev => [...prev, tempMsg]);
+    
     try {
       await addDoc(collection(db, 'chat_messages'), {
         text: inputToSend,
         userId: user.uid,
         displayName: myProfile?.displayName || user.displayName || 'Unbekannt',
         role: myProfile?.role || 'Member',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        tempId: tempId
       });
       
       notifyDiscord(
@@ -2530,7 +2571,13 @@ export default function App() {
           { name: "💬 Nachricht", value: inputToSend, inline: false }
         ]
       );
+      
+      // Cleanup fallback if onSnapshot misses it
+      setTimeout(() => {
+        setLocalMessages(prev => prev.filter(m => m.id !== tempId));
+      }, 15000);
     } catch (err) {
+      setLocalMessages(prev => prev.filter(m => m.id !== tempId));
       setChatInput(inputToSend); // Restore if failed
       handleFirestoreError(err, OperationType.CREATE, 'chat_messages');
     }
@@ -4302,7 +4349,13 @@ export default function App() {
                   };
                   return getTime(a.createdAt) - getTime(b.createdAt);
                 })
-                .map((msg) => (
+                .map((msg) => {
+                  if (msg.tempId) {
+                    const isAlreadyInFeed = chatMessages.some(m => m.tempId === msg.tempId && m.id !== msg.id);
+                    if (isAlreadyInFeed) return null;
+                  }
+                  
+                  return (
                 <div key={msg.id} className={`flex flex-col group ${msg.userId === user?.uid ? 'items-end' : 'items-start'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`text-[10px] font-bold uppercase tracking-wider ${
@@ -4346,7 +4399,9 @@ export default function App() {
                     {msg.text.replace(/§[a-z0-9]/g, '')}
                   </div>
                 </div>
-              ))}
+                  );
+                })}
+                <div ref={chatEndRef} />
               {chatMessages.length === 0 && localMessages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
                    <div className="p-4 bg-neutral-900 rounded-full">
