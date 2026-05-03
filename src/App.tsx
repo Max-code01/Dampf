@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gamepad2, 
@@ -93,6 +93,7 @@ import {
   createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { db, auth, OperationType, handleFirestoreError } from './firebase-lib';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const REALM_CODES = {
   PVP: 'w3PHnwq-5_kcfoE',
@@ -603,6 +604,10 @@ export default function App() {
         console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
         trackVisitor(true);
       }
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      }
     });
     return () => unsubscribe();
   }, [user]);
@@ -798,7 +803,14 @@ export default function App() {
           setIsAdmin(true); 
         }
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, `user_profiles/${user.uid}`));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, `user_profiles/${user.uid}`);
+      }
+    });
+
 
     return () => unsubscribe();
   }, [user]);
@@ -926,22 +938,46 @@ export default function App() {
     const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
       const clanList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan));
       setClans(clanList);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'clans');
+      }
+    });
 
     // Listen to news
     const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
       setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'news'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'news');
+      }
+    });
 
     // Listen to polls
     const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
       setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'polls');
+      }
+    });
 
     // Listen to shop
     const unsubscribeShop = onSnapshot(query(collection(db, 'shop'), orderBy('price', 'asc')), (snapshot) => {
       setShopItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'shop');
+      }
+    });
 
     return () => {
       unsubscribePlayers();
@@ -963,7 +999,13 @@ export default function App() {
     if (!isAdmin || !user) return;
     const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
       setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop_logs'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'shop_logs');
+      }
+    });
 
     return () => unsubscribeLogs();
   }, [isAdmin, user]);
@@ -972,7 +1014,13 @@ export default function App() {
     if (!user) return;
     const unsubscribePurchases = onSnapshot(collection(db, 'users', user.uid, 'purchases'), (snapshot) => {
       setMyPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'purchases'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'purchases');
+      }
+    });
 
     return () => unsubscribePurchases();
   }, [user]);
@@ -2009,26 +2057,44 @@ export default function App() {
     const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
       const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
       setClanMembers(members);
-    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`);
+      }
+    });
 
     const unsubscribeRequests = onSnapshot(collection(db, 'clans', activeClanId, 'requests'), (snapshot) => {
       const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanJoinRequest));
       setClanRequests(requests);
     }, (err) => {
        // Only leaders/officers can see this, so silent fail is okay
+       if (err.message.toLowerCase().includes('quota')) {
+         fetchEmergencyConfig();
+       }
        setClanRequests([]);
     });
 
     const unsubscribeQuests = onSnapshot(collection(db, 'clans', activeClanId, 'quests'), (snapshot) => {
       const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanQuest));
       setClanQuests(quests);
-    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`);
+      }
+    });
 
     const unsubscribeChat = onSnapshot(query(collection(db, 'clans', activeClanId, 'chat'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setClanChatMessages(msgs);
     }, (err) => {
       // It's okay if this fails (e.g. user not a member), we just clear messages
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      }
       setClanChatMessages([]);
     });
 
@@ -3138,7 +3204,8 @@ export default function App() {
   const totalOnline = combinedOnline.length;
 
   return (
-    <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+    <ErrorBoundary>
+      <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
       {/* MAINTENANCE OVERLAY (Global Lock for non-admins) */}
       <AnimatePresence>
         {isMaintenanceMode && !isAdmin && (
@@ -6512,5 +6579,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </ErrorBoundary>
   );
 }
