@@ -396,8 +396,11 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
+  const [hasQuotaError, setHasQuotaError] = useState(false);
+
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
+    setHasQuotaError(true);
     try {
       const res = await fetch('/api/emergency-config');
       if (!res.ok) return;
@@ -405,12 +408,21 @@ export default function App() {
       if (data) {
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
         setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
+        if (data.broadcastMessage !== undefined) setBroadcastMessage(data.broadcastMessage);
         console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
       }
     } catch (e) {
       console.error('Failed to fetch emergency config', e);
     }
   };
+
+  // Poll emergency config every 30s if quota hit
+  useEffect(() => {
+    fetchEmergencyConfig();
+    if (!hasQuotaError) return;
+    const interval = setInterval(fetchEmergencyConfig, 30000);
+    return () => clearInterval(interval);
+  }, [hasQuotaError]);
 
   const updateEmergencyConfig = async (update: any) => {
     try {
@@ -423,10 +435,6 @@ export default function App() {
       console.error('Failed to update emergency config', e);
     }
   };
-
-  useEffect(() => {
-    fetchEmergencyConfig();
-  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -793,7 +801,10 @@ export default function App() {
         // If either server is in maintenance, global maintenance is active for the UI
         if (data.maintenance) setIsMaintenanceMode(true);
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/survival'));
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'server_status/survival');
+    });
 
     // Listen to maintenance/broadcast config
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
@@ -802,6 +813,9 @@ export default function App() {
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
       }
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'app_config/system');
     });
 
     // Listen to user profiles: ONLY when needed (Admin tab or Surveillance)
@@ -819,8 +833,16 @@ export default function App() {
 
     // Listen to realm codes
     const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
-      if (snapshot.exists()) setRealmCodes(snapshot.data() as any);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes'));
+      if (snapshot.exists()) {
+        const data = snapshot.data() as any;
+        setRealmCodes(data);
+        // Sync to emergency config if we are admin
+        if (isSuperAdmin) updateEmergencyConfig({ realmCodes: data });
+      }
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
+    });
 
     // Listen to chat
     const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
@@ -1097,8 +1119,11 @@ export default function App() {
     if (msg === null) return;
     try {
       await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg || null }, { merge: true });
+      await updateEmergencyConfig({ broadcastMessage: msg || null });
     } catch (e) {
-      console.error(e);
+      console.error("Broadcast failed, using local server", e);
+      await updateEmergencyConfig({ broadcastMessage: msg || null });
+      setBroadcastMessage(msg || null);
     }
   };
 

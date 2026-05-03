@@ -1,31 +1,52 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const DATA_FILE = path.join(process.cwd(), 'emergency_data.json');
 
   app.use(express.json());
 
-  // --- EMERGENCY PERSISTENCE (In-Memory for now) ---
-  // This stores critical states when Firebase is dead
-  let emergencyConfig = {
-    maintenanceMode: false,
-    realmCodes: {
-      PVP: 'w3PHnwq-5_kcfoE',
-      SURVIVAL: 'K2_7HskE9mI'
+  // --- PERSISTENCE HELPERS ---
+  const loadData = () => {
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+      }
+    } catch (e) {
+      console.error('Error loading emergency data', e);
+    }
+    return {
+      maintenanceMode: false,
+      broadcastMessage: null,
+      realmCodes: {
+        PVP: 'w3PHnwq-5_kcfoE',
+        SURVIVAL: 'K2_7HskE9mI'
+      }
+    };
+  };
+
+  const saveData = (data: any) => {
+    try {
+      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error('Error saving emergency data', e);
     }
   };
 
-  // Basic API for emergency recovery
+  let emergencyConfig = loadData();
+
+  // API for emergency recovery
   app.get('/api/emergency-config', (req, res) => {
     res.json(emergencyConfig);
   });
 
   app.post('/api/emergency-config', (req, res) => {
-    // Basic protection: normally you'd check a secret here
     emergencyConfig = { ...emergencyConfig, ...req.body };
+    saveData(emergencyConfig);
     res.json({ success: true, config: emergencyConfig });
   });
 
