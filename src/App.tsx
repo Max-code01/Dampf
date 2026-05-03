@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Info,
   Activity,
+  TriangleAlert,
   Zap,
   LogIn,
   LogOut,
@@ -397,10 +398,12 @@ export default function App() {
   const [showInstallButton, setShowInstallButton] = useState(false);
 
   const [hasQuotaError, setHasQuotaError] = useState(false);
+  const [isUsingBackup, setIsUsingBackup] = useState(false);
 
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
     setHasQuotaError(true);
+    setIsUsingBackup(true);
     try {
       const res = await fetch('/api/emergency-config');
       if (!res.ok) return;
@@ -409,11 +412,31 @@ export default function App() {
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
         setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
         if (data.broadcastMessage !== undefined) setBroadcastMessage(data.broadcastMessage);
+        
+        // Sync server states from backup
+        if (data.pvpStatus) setPvpStatus(data.pvpStatus);
+        if (data.survivalStatus) setSurvivalStatus(data.survivalStatus);
+        
+        // If we have a user cache, we could populate userProfiles with it if Firestore fails
+        if (data.userCache && userProfiles.length === 0) {
+          setUserProfiles(Object.values(data.userCache));
+        }
+
         console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
       }
     } catch (e) {
       console.error('Failed to fetch emergency config', e);
     }
+  };
+
+  const syncUserToEmergency = async (uid: string, profile: any) => {
+    try {
+      await fetch('/api/emergency-user-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, profile })
+      });
+    } catch (e) {}
   };
 
   // Poll emergency config every 30s if quota hit
@@ -720,6 +743,15 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    // Basic Auth Check for Admin Status even without Firestore
+    if (user && (user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2')) {
+      setIsSuperAdmin(true);
+      setIsAdmin(true);
+      setIsOwner(true);
+    }
+  }, [user]);
+
   // Separate listener for My Profile to avoid massive O(N^2) traffic and loops
   useEffect(() => {
     if (!user) {
@@ -731,10 +763,11 @@ export default function App() {
       if (docSnap.exists()) {
         const myProf = docSnap.data() as UserProfile;
         setMyProfile(myProf);
+        syncUserToEmergency(user.uid, myProf);
         
         // Role & Permission Logic
         const mcName = myProf.minecraftUsername;
-        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com';
+        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2';
         const isDampfk = mcName === 'dampfk' || mcName === 'Dampfk';
         const isFinn = mcName === 'finnhd1165' || mcName === 'FinnHD1165';
 
@@ -777,8 +810,12 @@ export default function App() {
       const playerList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player));
       setPlayers(playerList);
     }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'online_players');
+      if (err.message.toLowerCase().includes('quota')) {
+        console.warn('⚠️ [SYSTEM] Firebase Quota hit - fetching emergency config...');
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'online_players');
+      }
     });
 
     // Listen to pvp status
@@ -789,8 +826,11 @@ export default function App() {
         if (data.maintenance) setIsMaintenanceMode(true);
       }
     }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
+      }
     });
 
     // Listen to survival status
@@ -798,24 +838,29 @@ export default function App() {
       if (snapshot.exists()) {
         const data = snapshot.data() as ServerStatus;
         setSurvivalStatus(data);
-        // If either server is in maintenance, global maintenance is active for the UI
         if (data.maintenance) setIsMaintenanceMode(true);
       }
     }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'server_status/survival');
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'server_status/survival');
+      }
     });
 
     // Listen to maintenance/broadcast config
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
       if (snapshot.exists()) {
-        const data = snapshot.data();
+        const data = snapshot.data() as any;
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
       }
     }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'app_config/system');
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'app_config/system');
+      }
     });
 
     // Listen to user profiles: ONLY when needed (Admin tab or Surveillance)
@@ -825,7 +870,13 @@ export default function App() {
       unsubscribeProfiles = onSnapshot(q, (snapshot) => {
         const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
         setUserProfiles(profiles);
-      }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
+      }, (err) => {
+        if (err.message.toLowerCase().includes('quota')) {
+          fetchEmergencyConfig();
+        } else {
+          handleFirestoreError(err, OperationType.GET, 'user_profiles');
+        }
+      });
     } else {
       // Clear data when not active to save RAM/Quota
       setUserProfiles([]);
@@ -840,8 +891,11 @@ export default function App() {
         if (isSuperAdmin) updateEmergencyConfig({ realmCodes: data });
       }
     }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
+      }
     });
 
     // Listen to chat
@@ -860,7 +914,13 @@ export default function App() {
           }));
         }, 300);
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) {
+        fetchEmergencyConfig();
+      } else {
+        handleFirestoreError(err, OperationType.GET, 'chat_messages');
+      }
+    });
 
     // Listen to clans
     const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
@@ -2788,18 +2848,33 @@ export default function App() {
     if (!isAdmin) return;
     try {
       const status = server === 'pvp' ? pvpStatus : survivalStatus;
-      await setDoc(doc(db, 'server_status', server), { ...status, ...updates });
+      const newStatus = { ...status, ...updates };
+      await setDoc(doc(db, 'server_status', server), newStatus);
+      // Sync to emergency backup
+      await updateEmergencyConfig({ 
+        [server === 'pvp' ? 'pvpStatus' : 'survivalStatus']: newStatus 
+      });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `server_status/${server}`);
+      // Fallback
+      const status = server === 'pvp' ? pvpStatus : survivalStatus;
+      await updateEmergencyConfig({ 
+        [server === 'pvp' ? 'pvpStatus' : 'survivalStatus']: { ...status, ...updates } 
+      });
     }
   };
 
   const updateRealmCode = async (server: 'pvp' | 'survival', code: string) => {
     if (!isAdmin) return;
     try {
-      await setDoc(doc(db, 'app_config', 'realm_codes'), { ...realmCodes, [server.toUpperCase()]: code });
+      const newCodes = { ...realmCodes, [server.toUpperCase()]: code };
+      await setDoc(doc(db, 'app_config', 'realm_codes'), newCodes);
+      // Sync to emergency backup
+      await updateEmergencyConfig({ realmCodes: newCodes });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'app_config/realm_codes');
+      // Fallback
+      await updateEmergencyConfig({ realmCodes: { ...realmCodes, [server.toUpperCase()]: code } });
     }
   };
 
@@ -3064,16 +3139,83 @@ export default function App() {
 
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+      {/* MAINTENANCE OVERLAY (Global Lock for non-admins) */}
+      <AnimatePresence>
+        {isMaintenanceMode && !isAdmin && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6"
+          >
+            <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-600/30 blur-[120px] rounded-full animate-pulse" />
+            </div>
+
+            <motion.div 
+              initial={{ scale: 0.8, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: "spring", damping: 15 }}
+              className="relative max-w-lg w-full text-center space-y-8"
+            >
+              <div className="flex justify-center">
+                <motion.div
+                  animate={{ rotate: [0, -2, 2, 0], scale: [1, 1.05, 1] }}
+                  transition={{ repeat: Infinity, duration: 4 }}
+                  className="relative"
+                >
+                  <TriangleAlert size={160} className="text-red-500 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]" strokeWidth={1.5} />
+                  <motion.div 
+                    animate={{ opacity: [0, 1, 0] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="absolute inset-0 border-4 border-red-500 rounded-full scale-150 opacity-0" 
+                  />
+                </motion.div>
+              </div>
+
+              <div className="space-y-4">
+                <h1 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase italic">
+                  Systems <span className="text-red-500">Offline</span>
+                </h1>
+                <div className="h-1 w-24 bg-red-600 mx-auto rounded-full" />
+                <p className="text-gray-400 font-mono text-sm uppercase tracking-widest leading-relaxed">
+                  Kritische Wartungsarbeiten werden durchgeführt.<br/>
+                  Wir sind in Kürze wieder für euch da.
+                </p>
+              </div>
+
+              {broadcastMessage && (
+                <div className="bg-white/5 border border-white/10 p-4 rounded-xl backdrop-blur-sm">
+                  <p className="text-red-400 text-xs font-bold uppercase mb-1 flex items-center justify-center gap-2">
+                    <Activity size={12} /> Admin-Nachricht
+                  </p>
+                  <p className="text-white text-sm font-medium italic">"{broadcastMessage}"</p>
+                </div>
+              )}
+
+              <div className="pt-8 flex flex-col items-center gap-4">
+                <div className="flex gap-2">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="w-2 h-2 bg-red-600 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.2}s` }} />
+                  ))}
+                </div>
+                <p className="text-[10px] text-zinc-600 font-mono uppercase">Protocol: Aether-Grid Maintenance v2.4.0</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Emergency Fallback Banner */}
-      {isMaintenanceMode && (
+      {isUsingBackup && (
         <motion.div 
           initial={{ y: -50 }}
           animate={{ y: 0 }}
-          className="fixed top-0 left-0 right-0 bg-red-600/90 backdrop-blur-md text-white py-1 px-4 text-[9px] font-black uppercase tracking-[0.2em] text-center border-b border-red-500/50 z-[9991] flex items-center justify-center gap-3 overflow-hidden"
+          className="fixed top-0 left-0 right-0 bg-red-600/90 backdrop-blur-md text-white py-1 px-4 text-[9px] font-black uppercase tracking-[0.2em] text-center border-b border-red-500/50 z-[9991] flex items-center justify-center gap-3 overflow-hidden shadow-[0_4px_30px_rgba(220,38,38,0.3)]"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_2s_infinite]"></div>
           <ShieldAlert size={10} className="animate-pulse" />
-          <span>⚠️ EMERGENCY-BACKUP AKTIV: KRITISCHE DATEN WERDEN VOM LOKALEN SERVER GEHODELT (FIREBASE QUOTA LIMIT)</span>
+          <span>⚠️ EMERGENCY-BACKUP AKTIV: KRITISCHE DATEN WERDEN VOM LOKALEN SERVER (MONGODB) GEGENGEPRÜFT</span>
           <ShieldAlert size={10} className="animate-pulse" />
         </motion.div>
       )}
