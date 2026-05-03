@@ -22,7 +22,9 @@ service cloud.firestore {
           'block5@community.local'
         ] ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Admin') ||
+         (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Admin' ||
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Owner' ||
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role == 'Root')) ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
@@ -86,8 +88,8 @@ service cloud.firestore {
              data.minecraftUsername is string &&
              data.isOnline is bool &&
              data.currentServer in ['none', 'pvp', 'survival'] &&
-             // Ensure nobody can set themselves as Admin unless they are already Admin/Root
-             (!data.keys().hasAll(['role']) || data.role != 'Admin' || isAdmin()) &&
+             // Ensure nobody can set themselves as Admin/Owner/Root unless they are already Admin/Root
+             (!data.keys().hasAll(['role']) || !(data.role in ['Admin', 'Owner', 'Root']) || isAdmin()) &&
              data.updatedAt is timestamp &&
              data.userId == docId;
     }

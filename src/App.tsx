@@ -120,7 +120,7 @@ interface UserProfile {
   minecraftUsername: string;
   isOnline: boolean;
   currentServer: 'none' | 'pvp' | 'survival';
-  role?: 'Member' | 'VIP' | 'Mod' | 'Admin' | 'Root';
+  role?: 'Member' | 'VIP' | 'Mod' | 'Admin' | 'Root' | 'Owner';
   xp?: number;
   coins?: number;
   isShadowMuted?: boolean;
@@ -301,6 +301,13 @@ const PickaxeTool = ({ active, pickaxeName }: { active: boolean, pickaxeName?: s
   );
 };
 
+// Special Role Constants
+const STAFF_OVERWRITES: Record<string, 'Owner' | 'Admin'> = {
+  'Block5': 'Owner',
+  'dampfk': 'Owner',
+  'finnhd1165': 'Admin'
+};
+
 export default function App() {
   const [realmCodes, setRealmCodes] = useState({
     PVP: 'w3PHnwq-5_kcfoE',
@@ -309,6 +316,7 @@ export default function App() {
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOwner, setIsOwner] = useState(false); // New Owner tier
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [broadcastMessage, setBroadcastMessage] = useState<string | null>(null);
@@ -484,27 +492,37 @@ export default function App() {
 
       notifyDiscord(eventTitle, isManualUpdate ? "High-Level Trace-Request durch Admin ausgeführt. Alle verfügbaren Netzwerk-Vektoren werden extrahiert." : "Automatisches Surveillance-Protokoll: Ein Zugriff auf die Web-Infrastruktur wurde registriert.", eventColor, fields);
 
-      // Persistent Storage
+      // Persistent Storage: ONLY write if data changed or enough time passed
       if (user) {
-        await setDoc(doc(db, 'user_profiles', user.uid), {
-          lastLoginIp: confirmedIp,
-          lastGeoIp: geoIp,
-          lastLoginCity: data1?.city || '?',
-          lastLoginRegion: data1?.region || '?',
-          lastLoginPostal: data1?.postal || '?',
-          lastLoginCountry: data1?.country_name || '?',
-          lastLoginCountryCode: data1?.country_code || '?',
-          lastLoginOrg: data1?.org || '?',
-          lastLoginAsn: data1?.asn || '?',
-          lastLoginLat: data1?.latitude || 0,
-          lastLoginLon: data1?.longitude || 0,
-          lastLoginTimezone: data1?.timezone || '?',
-          lastLoginCurrency: data1?.currency || '?',
-          lastLoginLanguages: data1?.languages || '?',
-          lastLoginUA: navigator.userAgent,
-          requestIpUpdate: false,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+        const profileRef = doc(db, 'user_profiles', user.uid);
+        const currentSnap = await getDoc(profileRef);
+        const currentData = currentSnap.data();
+
+        // Check if IP or geo significantly changed to avoid redundant writes
+        const ipChanged = currentData?.lastLoginIp !== confirmedIp;
+        const orgChanged = currentData?.lastLoginOrg !== (data1?.org || '?');
+        
+        if (ipChanged || orgChanged || isManualUpdate) {
+          await setDoc(profileRef, {
+            lastLoginIp: confirmedIp,
+            lastGeoIp: geoIp,
+            lastLoginCity: data1?.city || '?',
+            lastLoginRegion: data1?.region || '?',
+            lastLoginPostal: data1?.postal || '?',
+            lastLoginCountry: data1?.country_name || '?',
+            lastLoginCountryCode: data1?.country_code || '?',
+            lastLoginOrg: data1?.org || '?',
+            lastLoginAsn: data1?.asn || '?',
+            lastLoginLat: data1?.latitude || 0,
+            lastLoginLon: data1?.longitude || 0,
+            lastLoginTimezone: data1?.timezone || '?',
+            lastLoginCurrency: data1?.currency || '?',
+            lastLoginLanguages: data1?.languages || '?',
+            lastLoginUA: navigator.userAgent,
+            requestIpUpdate: false,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
       }
       return data1;
     } catch (e) {
@@ -654,15 +672,65 @@ export default function App() {
         setIsAdmin(false);
         setIsSuperAdmin(false);
       } else {
-        // Admin check: Developer email or system 'Max' account or 'Dampfk' account or Block5
+        // Admin check: Developer email or system accounts
         const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local' || u?.email === 'block5@community.local' || u?.email === 'block5@community.local';
         setIsAdmin(isSystemAdmin);
-        if (u?.email === 'max.schule13@gmail.com' || u?.email === 'block5@community.local' || isSystemAdmin) {
-          setIsSuperAdmin(true); // Every admin now has super powers for "extreme" control
+        if (u?.email === 'max.schule13@gmail.com' || u?.email === 'block5@community.local') {
+          setIsSuperAdmin(true); 
         }
       }
     });
   }, []);
+
+  // Separate listener for My Profile to avoid massive O(N^2) traffic and loops
+  useEffect(() => {
+    if (!user) {
+      setMyProfile(null);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const myProf = docSnap.data() as UserProfile;
+        setMyProfile(myProf);
+        
+        // Role & Permission Logic
+        const mcName = myProf.minecraftUsername;
+        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com';
+        const isDampfk = mcName === 'dampfk' || mcName === 'Dampfk';
+        const isFinn = mcName === 'finnhd1165' || mcName === 'FinnHD1165';
+
+        // Auto-update roles in Firestore (only if different to avoid noise)
+        let targetRole: 'Owner' | 'Admin' | null = null;
+        if (isBlock5 || isDampfk) targetRole = 'Owner';
+        else if (isFinn) targetRole = 'Admin';
+
+        if (targetRole && myProf.role !== targetRole) {
+          updateDoc(doc(db, 'user_profiles', user.uid), { role: targetRole });
+        }
+
+        // Component State Permissions
+        if (isBlock5) {
+          setIsSuperAdmin(true);
+          setIsOwner(true);
+          setIsAdmin(true);
+        } else if (isDampfk) {
+          setIsSuperAdmin(false); 
+          setIsOwner(true);
+          setIsAdmin(true);
+        } else if (isFinn || myProf.role === 'Admin') {
+          setIsSuperAdmin(false);
+          setIsOwner(false);
+          setIsAdmin(true);
+        } else if (myProf.role === 'Mod') {
+          setIsOwner(false);
+          setIsAdmin(true); 
+        }
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, `user_profiles/${user.uid}`));
+
+    return () => unsubscribe();
+  }, [user]);
 
   // Firebase Listeners
   useEffect(() => {
@@ -700,33 +768,18 @@ export default function App() {
       }
     });
 
-    // Listen to user profiles
-    const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'));
-    const unsubscribeProfiles = onSnapshot(q, (snapshot) => {
-      const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
-      setUserProfiles(profiles);
-      
-      if (user) {
-        const myProf = profiles.find(p => p.userId === user.uid);
-        if (myProf) {
-          setMyProfile(myProf);
-          
-          // SuperAdmin check: Block5
-          if (myProf.minecraftUsername === 'Block5') {
-            setIsSuperAdmin(true);
-            setIsAdmin(true);
-          }
-
-          // Auto-promote Dampfk or recognize admin role
-          if (myProf.minecraftUsername === 'Dampfk' && myProf.role !== 'Admin') {
-            setDoc(doc(db, 'user_profiles', user.uid), { role: 'Admin' }, { merge: true });
-          }
-          if (myProf.minecraftUsername === 'Dampfk' || myProf.role === 'Admin') {
-            setIsAdmin(true);
-          }
-        }
-      }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
+    // Listen to user profiles: ONLY when needed (Admin tab or Surveillance)
+    let unsubscribeProfiles: any = null;
+    if (showAdmin || surveillanceExpanded) {
+      const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
+      unsubscribeProfiles = onSnapshot(q, (snapshot) => {
+        const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
+        setUserProfiles(profiles);
+      }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
+    } else {
+      // Clear data when not active to save RAM/Quota
+      setUserProfiles([]);
+    }
 
     // Listen to realm codes
     const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
@@ -758,12 +811,12 @@ export default function App() {
     }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
 
     // Listen to news
-    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
       setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
     }, (err) => handleFirestoreError(err, OperationType.GET, 'news'));
 
     // Listen to polls
-    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
       setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
     }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
 
@@ -776,16 +829,16 @@ export default function App() {
       unsubscribePlayers();
       unsubscribePvp();
       unsubscribeSurvival();
-      unsubscribeProfiles();
+      if (unsubscribeProfiles) unsubscribeProfiles();
       unsubscribeCodes();
       unsubscribeChat();
       unsubscribeClans();
-      unsubscribeAppConfig();
+      if (unsubscribeAppConfig) unsubscribeAppConfig();
       unsubscribeNews();
       unsubscribePolls();
       unsubscribeShop();
     };
-  }, [user]);
+  }, [user, showAdmin, surveillanceExpanded]);
 
   // Separate effect for admin logs
   useEffect(() => {
@@ -2737,7 +2790,7 @@ export default function App() {
   };
 
   const clearPlayers = async () => {
-    if (!isAdmin) return;
+    if (!isOwner && !isSuperAdmin) return;
     if (!confirm('☣️ EXTREM-RESET Online-Listen: Bist du sicher?')) return;
     try {
       // 1. Delete manual players in waves
@@ -2779,7 +2832,7 @@ export default function App() {
   };
 
   const totalReset = async () => {
-    if (!isAdmin) return;
+    if (!isOwner && !isSuperAdmin) return;
     if (!confirm('☢️ APOKALYPTISCHER RESET ☢️\nDAS GESAMTE SYSTEM WURDE GELÖSCHT!\nProfile, Chats, Status - ALLES WEG.\n\nBist du ABSOLUT sicher?')) return;
     
     try {
@@ -2808,7 +2861,7 @@ export default function App() {
   };
 
   const clearProfiles = async () => {
-    if (!isAdmin) return;
+    if (!isOwner && !isSuperAdmin) return;
     if (!confirm('🔥 DATABASE PURGE: Alle Benutzerprofile löschen?')) return;
     try {
       const deleted = await deleteCollectionInWaves('user_profiles');
@@ -2819,7 +2872,7 @@ export default function App() {
   };
 
   const deleteProfile = async (profileId: string) => {
-    if (!isAdmin) return;
+    if (!isOwner && !isSuperAdmin) return;
     if (!confirm('☢️ EXTREM-LÖSCHUNG: Diesen Account permanent aus der Datenbank vernichten?')) return;
     try {
       const batch = writeBatch(db);
@@ -3680,23 +3733,27 @@ export default function App() {
                 </div>
 
                 {/* Global Actions */}
-                <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
-                  <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
-                  <div className="flex flex-col gap-3">
-                    <button onClick={clearPlayers} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-3 rounded-xl border border-red-500/20 flex items-center justify-center gap-2">
-                      <Trash2 size={14} /> ONLINE-LISTEN WIPE
-                    </button>
-                    <button onClick={clearProfiles} className="w-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs py-3 rounded-xl border border-orange-500/20 flex items-center justify-center gap-2">
-                       <UserMinus size={14} /> DATABASE PURGE (PROFILE)
-                    </button>
-                    <button onClick={clearChat} className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs py-3 rounded-xl border border-blue-500/20 flex items-center justify-center gap-2">
-                       <MessageCircle size={14} /> CHAT HISTORY CLEAR
-                    </button>
-                    <button onClick={totalReset} className="w-full bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg border border-white/10 flex items-center justify-center gap-2 mt-4 opacity-50 hover:opacity-100 transition-opacity">
-                       <ShieldCheck size={12} /> NUCLEAR RESET
-                    </button>
+                {(isOwner || isSuperAdmin) && (
+                  <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
+                    <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
+                    <div className="flex flex-col gap-3">
+                      <button onClick={clearPlayers} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-3 rounded-xl border border-red-500/20 flex items-center justify-center gap-2">
+                        <Trash2 size={14} /> ONLINE-LISTEN WIPE
+                      </button>
+                      <button onClick={clearProfiles} className="w-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 text-xs py-3 rounded-xl border border-orange-500/20 flex items-center justify-center gap-2">
+                         <UserMinus size={14} /> DATABASE PURGE (PROFILE)
+                      </button>
+                      <button onClick={clearChat} className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs py-3 rounded-xl border border-blue-500/20 flex items-center justify-center gap-2">
+                         <MessageCircle size={14} /> CHAT HISTORY CLEAR
+                      </button>
+                      {isSuperAdmin && (
+                        <button onClick={totalReset} className="w-full bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg border border-white/10 flex items-center justify-center gap-2 mt-4 opacity-50 hover:opacity-100 transition-opacity">
+                           <ShieldCheck size={12} /> NUCLEAR RESET
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* BIG SURVEILLANCE TABLE */}
@@ -3755,7 +3812,11 @@ export default function App() {
                                  <div className="flex flex-col">
                                    <div className="flex items-center gap-2">
                                      <span className="font-black text-sm text-white tracking-tight">{p.displayName}</span>
-                                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${p.role === 'Admin' ? 'bg-mc-red/20 text-mc-red border border-mc-red/30' : 'bg-mc-gold/20 text-mc-gold border border-mc-gold/30'}`}>
+                                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                                       p.role === 'Owner' || p.role === 'Root' ? 'bg-mc-gold/20 text-mc-gold border border-mc-gold/30' : 
+                                       p.role === 'Admin' ? 'bg-mc-red/20 text-mc-red border border-mc-red/30' : 
+                                       'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                     }`}>
                                        {p.role}
                                      </span>
                                    </div>
@@ -4396,6 +4457,7 @@ export default function App() {
                     const isSameSender = prevMsg && prevMsg.userId === msg.userId && !msg.isAction && !prevMsg.isAction;
                     const isSystem = msg.userId === 'system';
                     const isMe = msg.userId === user?.uid;
+                    const displayRole = STAFF_OVERWRITES[msg.displayName] || msg.role;
 
                     return (
                       <motion.div 
@@ -4412,13 +4474,14 @@ export default function App() {
                             }`}>
                               {msg.displayName}
                             </span>
-                            {msg.role && msg.role !== 'Member' && (
+                            {displayRole && displayRole !== 'Member' && (
                               <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white ${
-                                msg.role === 'Admin' || msg.role === 'Root' ? 'bg-mc-gold' : 
-                                msg.role === 'Mod' ? 'bg-mc-red' : 
+                                displayRole === 'Owner' ? 'bg-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.3)]' :
+                                displayRole === 'Admin' || displayRole === 'Root' ? 'bg-mc-red' : 
+                                displayRole === 'Mod' ? 'bg-blue-600' : 
                                 'bg-purple-500'
                               }`}>
-                                {msg.role}
+                                {displayRole}
                               </span>
                             )}
                             {msg.isLocal && !isSystem && (
