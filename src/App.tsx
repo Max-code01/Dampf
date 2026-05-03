@@ -1667,21 +1667,52 @@ export default function App() {
     }
   };
 
-  // Auto-Mining Logic (CPS)
+  // Auto-Mining Logic (CPS) - Optimized to save every 30s to conserve Firestore Quota
   useEffect(() => {
     if (!user || coinsPerSecond <= 0) return;
 
+    let accumulatedCoins = 0;
+    let accumulatedXp = 0;
+
     const interval = setInterval(async () => {
-      // Auto-mining logic without floating rewards to save space
-      const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
-      await updateDoc(doc(db, 'user_profiles', user.uid), {
-        coins: increment(coinsPerSecond),
-        xp: increment(xpReward)
-      });
+      accumulatedCoins += coinsPerSecond;
+      accumulatedXp += Math.max(1, Math.floor(coinsPerSecond / 10));
+
+      // Visual update in local state could be added here if needed, 
+      // but we avoid high-frequency database writes.
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [user, coinsPerSecond, showMiningModal]);
+    const saveInterval = setInterval(async () => {
+      if (accumulatedCoins === 0) return;
+      
+      const coinsToSave = accumulatedCoins;
+      const xpToSave = accumulatedXp;
+      accumulatedCoins = 0;
+      accumulatedXp = 0;
+
+      try {
+        await updateDoc(doc(db, 'user_profiles', user.uid), {
+          coins: increment(coinsToSave),
+          xp: increment(xpToSave),
+          lastMiningUpdate: serverTimestamp()
+        });
+      } catch (err: any) {
+        if (err.message.toLowerCase().includes('quota')) {
+          console.warn("[QUOTA] Mining-Save skipped (Quota exceeded). Coins cached locally.");
+          accumulatedCoins += coinsToSave; // Put back for next attempt
+          accumulatedXp += xpToSave;
+          fetchEmergencyConfig();
+        } else {
+          console.error("Mining Save Error:", err);
+        }
+      }
+    }, 30000); // 30 second batch save
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(saveInterval);
+    };
+  }, [user, coinsPerSecond]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
