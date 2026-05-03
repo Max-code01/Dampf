@@ -403,12 +403,12 @@ export default function App() {
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
     setHasQuotaError(true);
-    setIsUsingBackup(true);
     try {
       const res = await fetch('/api/emergency-config');
       if (!res.ok) return;
       const data = await res.json();
       if (data) {
+        setIsUsingBackup(true);
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
         setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
         if (data.broadcastMessage !== undefined) setBroadcastMessage(data.broadcastMessage);
@@ -439,10 +439,10 @@ export default function App() {
     } catch (e) {}
   };
 
-  // Poll emergency config every 30s if quota hit
+  // Poll emergency config every 30s only if quota hit
   useEffect(() => {
-    fetchEmergencyConfig();
     if (!hasQuotaError) return;
+    fetchEmergencyConfig();
     const interval = setInterval(fetchEmergencyConfig, 30000);
     return () => clearInterval(interval);
   }, [hasQuotaError]);
