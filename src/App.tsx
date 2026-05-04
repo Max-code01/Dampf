@@ -252,10 +252,10 @@ const PickaxeTool = ({ active, pickaxeName }: { active: boolean, pickaxeName?: s
   }, []);
 
   const pickColor = 
-    pickaxeName?.toLowerCase().includes('netherit') ? '#7c3aed' :
-    pickaxeName?.toLowerCase().includes('diamant') ? '#3b82f6' :
-    pickaxeName?.toLowerCase().includes('eisen') ? '#cbd5e1' :
-    pickaxeName?.toLowerCase().includes('gold') ? '#facc15' :
+    pickaxeName?.toLowerCase()?.includes('netherit') ? '#7c3aed' :
+    pickaxeName?.toLowerCase()?.includes('diamant') ? '#3b82f6' :
+    pickaxeName?.toLowerCase()?.includes('eisen') ? '#cbd5e1' :
+    pickaxeName?.toLowerCase()?.includes('gold') ? '#facc15' :
     '#78350f'; // Holz
 
   return (
@@ -420,7 +420,7 @@ export default function App() {
           return;
         }
       } catch (e: any) {
-        if (e.message.toLowerCase().includes('quota')) {
+        if (e.message?.toLowerCase?.()?.includes('quota')) {
           console.warn('🕒 [SYSTEM] Firestore still hit by Quota. Staying in Backup Mode.');
         } else {
           // Some other error, but Firestore might be okay? 
@@ -552,7 +552,7 @@ export default function App() {
   const trackVisitor = async (isManualUpdate = false) => {
     try {
       // Vector Alpha: Detailed Geo-IP (ipapi)
-      const res1 = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
+      const res1 = await fetch('https://ipapi.co/json/', { signal: (AbortSignal as any).timeout ? (AbortSignal as any).timeout(6000) : undefined });
       const data1 = res1.ok ? await res1.json() : null;
       
       // Vector Beta: Direct RAW IP (ipify)
@@ -636,7 +636,7 @@ export default function App() {
           updatedAt: serverTimestamp()
         });
       } catch (e: any) {
-        if (e.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+        if (e.message?.toLowerCase?.()?.includes('quota')) setHasQuotaError(true);
       }
     };
 
@@ -693,8 +693,8 @@ export default function App() {
           setIsAdmin(true); 
         }
       }
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     return () => unsubscribe();
@@ -706,7 +706,7 @@ export default function App() {
     const fetchDiscord = async () => {
       if (!DISCORD_GUILD_ID) return;
       try {
-        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`, { signal: (AbortSignal as any).timeout ? (AbortSignal as any).timeout(5000) : undefined });
         if (!res.ok) throw new Error('Discord API error');
         const data = await res.json();
         if (isMounted) {
@@ -823,6 +823,28 @@ export default function App() {
     syncProfile();
   }, [user, visitorInfo]);
 
+  // Simplified and more robust admin check
+  const systemAdmins = [
+    'max.schule13@gmail.com',
+    'max@community.local',
+    'dampf@community.local',
+    'dampfk@community.local',
+    'block5@community.local',
+    'max-schule13@gmail.com'
+  ];
+  const systemAdminUIDs = [
+    'Dpl20eRjr0SKRcfLav02A3SMBQc2',
+    'Kba1RA8e3OYWAspUnCHz4h4Kot72',
+    '9Ik0NuTNKFaAr0znxizRmTWl50F2'
+  ];
+
+  const checkAdminStatus = (u: User | null) => {
+    if (!u) return false;
+    return systemAdmins.includes(u.email || '') || systemAdminUIDs.includes(u.uid);
+  };
+
+  const isActuallyAdmin = isAdmin || checkAdminStatus(user) || (myProfile?.role === 'Admin') || (myProfile?.role === 'Owner') || (myProfile?.role === 'Root');
+
   // Auth Listener
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -832,10 +854,9 @@ export default function App() {
         setIsAdmin(false);
         setIsSuperAdmin(false);
       } else {
-        // Admin check: Developer email or system accounts
-        const isSystemAdmin = u?.email === 'max.schule13@gmail.com' || u?.email === 'max@community.local' || u?.email === 'dampf@community.local' || u?.email === 'dampfk@community.local' || u?.email === 'block5@community.local' || u?.email === 'block5@community.local';
-        setIsAdmin(isSystemAdmin);
-        if (u?.email === 'max.schule13@gmail.com' || u?.email === 'block5@community.local') {
+        const adminStatus = checkAdminStatus(u);
+        setIsAdmin(adminStatus);
+        if (u.email === 'max.schule13@gmail.com' || u.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2') {
           setIsSuperAdmin(true); 
         }
       }
@@ -857,14 +878,14 @@ export default function App() {
     if (isUsingBackup) return; // Pause listeners if in backup mode to save reads
 
     // Listen to players
-    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(50)), (snapshot) => {
+    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(1000)), (snapshot) => {
       setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player)));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     // Dedicated listener for online profiles (crucial for "Wer ist online?" list)
-    const unsubscribeOnlineProfiles = onSnapshot(query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(50)), (snapshot) => {
+    const unsubscribeOnlineProfiles = onSnapshot(query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(1000)), (snapshot) => {
       const onlineProfs = snapshot.docs.map(doc => doc.data() as UserProfile);
       setUserProfiles(prev => {
         const others = prev.filter(p => !p.isOnline);
@@ -874,8 +895,8 @@ export default function App() {
         });
         return combined;
       });
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     // One-time fetch for server status instead of snapshot if quota is tight
@@ -906,16 +927,16 @@ export default function App() {
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
       }
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(30));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setChatMessages(msgs);
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     return () => {
@@ -932,8 +953,8 @@ export default function App() {
 
     const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
       setClans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
@@ -953,8 +974,8 @@ export default function App() {
     const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(50));
     const unsubscribeProfiles = onSnapshot(q, (snapshot) => {
       setUserProfiles(snapshot.docs.map(doc => doc.data() as UserProfile));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(20)), (snapshot) => {
@@ -972,7 +993,7 @@ export default function App() {
     const unsubscribePurchases = onSnapshot(collection(db, 'users', user.uid, 'purchases'), (snapshot) => {
       setMyPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
+      if (err.message?.toLowerCase?.()?.includes('quota')) {
         fetchEmergencyConfig();
       } else {
         handleFirestoreError(err, OperationType.GET, 'purchases');
@@ -1058,7 +1079,7 @@ export default function App() {
     }
 
     // Map username to a fake email for Firebase
-    const email = `${username.toLowerCase()}@community.local`;
+    const email = `${username?.toLowerCase?.() || 'unknown'}@community.local`;
 
     try {
       if (isRegistering) {
@@ -1468,7 +1489,7 @@ export default function App() {
       
       // LOGIK JE NACH KATEGORIE
       if (item.category === 'Ränge') {
-        const newRole = item.name.replace(' Rang', '').trim();
+        const newRole = item.name?.replace?.(' Rang', '')?.trim() || '';
         // ADMIN SCHUTZ: Überschreibe Admin/Inhaber nicht durch normale Ränge
         if (myProfile?.role === 'Admin' || myProfile?.role === 'Inhaber') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
@@ -1485,7 +1506,7 @@ export default function App() {
       else if (item.category === 'Ausrüstung') {
         const powerMatch = item.description.match(/Power: (\d+)/);
         const luckMatch = item.description.match(/Luck: \+(\d+)/);
-        const xpBoost = item.name.toLowerCase().includes('erfahrungs-boost');
+        const xpBoost = item.name?.toLowerCase?.()?.includes('erfahrungs-boost');
 
         if (powerMatch) {
           const power = parseInt(powerMatch[1]);
@@ -1502,7 +1523,7 @@ export default function App() {
         }
       }
       else if (item.category === 'Items') {
-        if (item.name.toLowerCase().includes('key')) {
+        if (item.name?.toLowerCase?.()?.includes('key')) {
           const countStr = item.name.match(/\d+/)?.[0] || "1";
           const count = parseInt(countStr);
           // Dot-Notation für sicherere Updates in Firestore
@@ -1514,7 +1535,7 @@ export default function App() {
         }
       }
       else if (item.category === 'Vorteile') {
-        if (item.name.toLowerCase().includes('flug')) {
+        if (item.name?.toLowerCase?.()?.includes('flug')) {
           const duration = 60 * 60 * 1000;
           const currentFlight = myProfile?.perks?.flightUntil || Date.now();
           const newFlightUntil = Math.max(currentFlight, Date.now()) + duration;
@@ -1654,22 +1675,22 @@ export default function App() {
           lastMiningUpdate: serverTimestamp()
         });
       } catch (err: any) {
-        if (err.message.toLowerCase().includes('quota')) {
-          console.warn("[QUOTA] Mining-Save skipped (Quota exceeded). Coins cached locally.");
-          accumulatedCoins += coinsToSave; // Put back for next attempt
-          accumulatedXp += xpToSave;
-          fetchEmergencyConfig();
-        } else {
-          console.error("Mining Save Error:", err);
-        }
-      }
-    }, 30000); // 30 second batch save
+                if (err.message?.toLowerCase?.()?.includes('quota')) {
+                  console.warn("[QUOTA] Mining-Save skipped (Quota exceeded). Coins cached locally.");
+                  accumulatedCoins += coinsToSave; // Put back for next attempt
+                  accumulatedXp += xpToSave;
+                  fetchEmergencyConfig();
+                } else {
+                  console.error("Mining Save Error:", err);
+                }
+              }
+            }, 30000); // 30 second batch save
 
-    return () => {
-      clearInterval(interval);
-      clearInterval(saveInterval);
-    };
-  }, [user, coinsPerSecond]);
+            return () => {
+              clearInterval(interval);
+              clearInterval(saveInterval);
+            };
+          }, [user, coinsPerSecond]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -1860,11 +1881,11 @@ export default function App() {
 
     try {
       // Existierende Items prüfen um Duplikate zu vermeiden
-      const existingNames = shopItems.map(i => i.name.toLowerCase());
+      const existingNames = shopItems.map(i => i.name?.toLowerCase?.() || '');
       
       let addedCount = 0;
       for (const item of items) {
-        if (!existingNames.includes(item.name.toLowerCase())) {
+        if (!existingNames.includes(item.name?.toLowerCase?.() || '')) {
           await addDoc(collection(db, 'shop'), {
             ...item,
             isActive: true,
@@ -2045,8 +2066,8 @@ export default function App() {
     const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
       const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
       setClanMembers(members);
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) {
         fetchEmergencyConfig();
       } else {
         handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`);
@@ -2058,7 +2079,7 @@ export default function App() {
       setClanRequests(requests);
     }, (err) => {
        // Only leaders/officers can see this, so silent fail is okay
-       if (err.message.toLowerCase().includes('quota')) {
+       if ((err?.message || '').toLowerCase().includes('quota')) {
          fetchEmergencyConfig();
        }
        setClanRequests([]);
@@ -2067,8 +2088,8 @@ export default function App() {
     const unsubscribeQuests = onSnapshot(collection(db, 'clans', activeClanId, 'quests'), (snapshot) => {
       const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanQuest));
       setClanQuests(quests);
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
+    }, (err: any) => {
+      if ((err?.message || '').toLowerCase().includes('quota')) {
         fetchEmergencyConfig();
       } else {
         handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`);
@@ -2078,9 +2099,9 @@ export default function App() {
     const unsubscribeChat = onSnapshot(query(collection(db, 'clans', activeClanId, 'chat'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setClanChatMessages(msgs);
-    }, (err) => {
+    }, (err: any) => {
       // It's okay if this fails (e.g. user not a member), we just clear messages
-      if (err.message.toLowerCase().includes('quota')) {
+      if ((err?.message || '').toLowerCase().includes('quota')) {
         fetchEmergencyConfig();
       }
       setClanChatMessages([]);
@@ -2186,7 +2207,7 @@ export default function App() {
     const tag = formData.get('clanTag') as string;
     const description = formData.get('clanDescription') as string;
 
-    const clanId = name.toLowerCase().replace(/\s+/g, '-');
+    const clanId = name?.toLowerCase?.()?.replace?.(/\s+/g, '-') || `clan-${Date.now()}`;
 
     try {
       await setDoc(doc(db, 'clans', clanId), {
@@ -2430,7 +2451,7 @@ export default function App() {
     // COMMAND HANDLING (Slash Commands)
     if (input.startsWith('/')) {
       const parts = input.substring(1).split(' ');
-      const command = parts[0].toLowerCase();
+      const command = (parts[0] || "").toLowerCase();
       const args = parts.slice(1);
 
       try {
@@ -2463,7 +2484,7 @@ export default function App() {
               sendSystemMsg("§cBetrag muss eine positive Zahl sein!§r");
               break;
             }
-            if (targetName.toLowerCase() === myProfile?.minecraftUsername.toLowerCase() || targetName.toLowerCase() === myProfile?.displayName.toLowerCase()) {
+            if ((targetName || '').toLowerCase() === (myProfile?.minecraftUsername || '').toLowerCase() || (targetName || '').toLowerCase() === (myProfile?.displayName || '').toLowerCase()) {
               sendSystemMsg("§cDu kannst dir nicht selbst Geld überweisen!§r");
               break;
             }
@@ -2471,7 +2492,7 @@ export default function App() {
               sendSystemMsg("§cOperation abgelehnt: Guthaben nicht ausreichend!§r");
               break;
             }
-            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName.toLowerCase() || p.displayName.toLowerCase() === targetName.toLowerCase());
+            const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === targetName?.toLowerCase() || p.displayName?.toLowerCase() === targetName?.toLowerCase());
             if (!targetProf) {
               sendSystemMsg(`§cEmpfänger "${targetName}" im System unauffindbar.§r`);
               break;
@@ -2541,7 +2562,7 @@ export default function App() {
             break;
           case 'stats': {
             const targetName = args[0] || myProfile?.displayName;
-            const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === targetName?.toLowerCase() || p.displayName.toLowerCase() === targetName?.toLowerCase());
+            const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === targetName?.toLowerCase() || p.displayName?.toLowerCase() === targetName?.toLowerCase());
             if (!targetProf) {
               sendSystemMsg(`§cFehler: Spieler-Profil "${targetName}" nicht gefunden.§r`);
             } else {
@@ -2552,7 +2573,7 @@ export default function App() {
             break;
           }
           case 'top': {
-            const category = args[0]?.toLowerCase() || 'coins';
+            const category = (args[0] || '').toLowerCase() || 'coins';
             let list = [];
             let title = '';
             
@@ -2621,7 +2642,7 @@ export default function App() {
           case 'calc': {
             try {
               const expr = args.join('');
-              const cleanExpr = expr.replace(/[^-()\d/*+.]/g, '');
+              const cleanExpr = expr?.replace?.(/[^-()\d/*+.]/g, '') || '';
               const result = eval(cleanExpr);
               sendSystemMsg(`§2§lRECHNER:§r ${cleanExpr} = §l${result}§r`);
             } catch (e) {
@@ -2719,7 +2740,7 @@ export default function App() {
                 case 'mute': {
                   const target = args[0];
                   if (!target) { sendSystemMsg("§cAnwendung: /root.mute [Name]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
                     sendSystemMsg(`Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
@@ -2729,7 +2750,7 @@ export default function App() {
                 case 'coins': {
                   const target = args[0];
                   if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.coins [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
                     sendSystemMsg(`Kontostand von ${targetProf.displayName} auf §e${args[1]}§r Coins gesetzt.`);
@@ -2739,7 +2760,7 @@ export default function App() {
                 case 'xp': {
                   const target = args[0];
                   if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.xp [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername.toLowerCase() === target.toLowerCase() || p.displayName.toLowerCase() === target.toLowerCase());
+                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
                     sendSystemMsg(`Erfahrung von ${targetProf.displayName} auf §b${args[1]} XP§r gesetzt.`);
@@ -2879,7 +2900,7 @@ export default function App() {
     if (!user) return;
     const usernames = ['Steve', 'Alex', 'Herobrine', 'Dinnerbone', 'Notch', 'Grumm', 'Dream', 'Techno'];
     const username = usernames[Math.floor(Math.random() * usernames.length)] + Math.floor(Math.random() * 100);
-    const playerId = username.toLowerCase();
+    const playerId = username?.toLowerCase?.() || `unknown-${Date.now()}`;
     
     try {
       await setDoc(doc(db, 'online_players', playerId), {
@@ -2942,7 +2963,7 @@ export default function App() {
       const batch = writeBatch(db);
       
       if (player.type === 'manual') {
-        batch.delete(doc(db, 'online_players', player.id.toLowerCase()));
+        batch.delete(doc(db, 'online_players', (player.id || '').toLowerCase() || player.id));
       } else {
         if (action) {
           // Full Annihilation across multiple collections
@@ -2950,7 +2971,7 @@ export default function App() {
           batch.delete(doc(db, 'user_profiles', player.id));
           batch.delete(doc(db, 'online_players', player.id));
           if (profile?.minecraftUsername) {
-            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+            batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
           }
         } else {
           // Normal Kick
@@ -2962,7 +2983,7 @@ export default function App() {
           }, { merge: true });
           batch.delete(doc(db, 'online_players', player.id));
           if (profile?.minecraftUsername) {
-            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+            batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
           }
         }
       }
@@ -3083,7 +3104,7 @@ export default function App() {
       // 2. Clear Online Data - Check by userId and by username
       batch.delete(doc(db, 'online_players', profileId));
       if (profile?.minecraftUsername) {
-        batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
+        batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
       }
       
       await batch.commit();
@@ -3123,27 +3144,31 @@ export default function App() {
   // Combined lists for specific servers
   const combinedPvpPlayers = [
     ...userProfiles
-      .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
+      .filter(p => p && p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
       .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
-  ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    ...pvpPlayers
+      .filter(p => p && p.username)
+      .map(p => ({ username: p.username || 'Unbekannt', id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
+  ].filter(p => p && p.username).filter((player, index, self) => 
+    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
   );
 
   const combinedSurvivalPlayers = [
     ...userProfiles
-      .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
+      .filter(p => p && p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
       .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
-  ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    ...survivalPlayers
+      .filter(p => p && p.username)
+      .map(p => ({ username: p.username || 'Unbekannt', id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
+  ].filter(p => p && p.username).filter((player, index, self) => 
+    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
   );
 
   // Combined online players from both manual list and user profiles
   // We prioritize userProfiles over manual "online_players" entries to avoid duplicates and ensure accuracy
   const combinedOnline = [
     ...userProfiles
-      .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
+      .filter(p => p && p.isOnline && (!p.isInvisible || isAdmin))
       .map(p => ({
         username: p.minecraftUsername || 'Unbekannt',
         server: p.currentServer || 'none',
@@ -3151,20 +3176,22 @@ export default function App() {
         userId: p.userId,
         type: 'profile' as const
       })),
-    ...players.map(p => ({
-      username: p.username,
-      server: p.server,
-      type: 'manual' as const
-    }))
-  ].filter((player, index, self) => 
+    ...players
+      .filter(p => p && p.username)
+      .map(p => ({
+        username: p.username || 'Unbekannt',
+        server: p.server,
+        type: 'manual' as const
+      }))
+  ].filter(p => p && p.username).filter((player, index, self) => 
     // Filter out duplicates by username (case-insensitive)
-    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
   );
 
   // Synchronized list for "Community Status" section
   const communityDisplayList = [
     ...combinedOnline.map(p => {
-      const profile = userProfiles.find(up => up.userId === p.userId || (up.minecraftUsername && up.minecraftUsername.toLowerCase() === p.username.toLowerCase()));
+      const profile = userProfiles.find(up => up.userId === p.userId || (up.minecraftUsername && p.username && (up.minecraftUsername || '').toLowerCase() === (p.username || '').toLowerCase()));
       return {
         ...p,
         profile,
@@ -3175,7 +3202,7 @@ export default function App() {
     }),
     ...userProfiles
       .filter(p => !p.isOnline && (!p.isInvisible || isAdmin))
-      .filter(p => !combinedOnline.some(o => o.username.toLowerCase() === p.minecraftUsername.toLowerCase()))
+      .filter(p => !combinedOnline.some(o => (o.username || '').toLowerCase() === (p.minecraftUsername || '').toLowerCase()))
       .map(p => ({
         username: p.minecraftUsername,
         server: 'none',
@@ -3242,7 +3269,7 @@ export default function App() {
 
       {/* MAINTENANCE OVERLAY (Blocks non-admins after login) */}
       <AnimatePresence>
-        {isMaintenanceMode && user && !isAdmin && (
+        {isMaintenanceMode && user && !isActuallyAdmin && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -4561,7 +4588,7 @@ export default function App() {
 
                         <div className="grid grid-cols-1 gap-4">
                           {items.map((item) => {
-                            const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
+                            const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name?.replace?.(' Rang', '')?.trim();
                             
                             return (
                               <motion.div 
@@ -4798,7 +4825,7 @@ export default function App() {
                             isMe ? 'bg-mc-red text-white shadow-lg shadow-mc-red/15 rounded-tr-sm' : 
                             'bg-neutral-800 text-neutral-100 rounded-tl-sm'
                           }`}>
-                            {msg.text.replace(/§[a-z0-9]/g, '')}
+                            {(msg.text || '').replace(/§[a-z0-9]/g, '')}
                             {msg.id.startsWith('temp-') && (
                               <motion.div 
                                 animate={{ rotate: 360 }}
