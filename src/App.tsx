@@ -78,6 +78,7 @@ import {
   query,
   orderBy,
   limit,
+  where,
   addDoc,
   serverTimestamp,
   writeBatch,
