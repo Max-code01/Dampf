@@ -65,6 +65,7 @@ import {
   Castle,
   Shield,
   RefreshCcw,
+  Wrench,
 } from 'lucide-react';
 import { 
   collection, 
@@ -100,6 +101,8 @@ const REALM_CODES = {
   SURVIVAL: 'JwMPYn9KpsVnRFo'
 };
 
+const provider = new GoogleAuthProvider();
+
 const DISCORD_URL = 'https://discord.gg/bdc79dqh';
 
 interface Player {
@@ -129,6 +132,7 @@ interface UserProfile {
   isInvisible?: boolean;
   customSkin?: string;
   updatedAt: any;
+  requestIpUpdate?: boolean;
   // NEUE FELDER
   inventory?: {
     keys?: number;
@@ -317,6 +321,7 @@ export default function App() {
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOwner, setIsOwner] = useState(false); // New Owner tier
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -403,7 +408,29 @@ export default function App() {
 
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
-    setHasQuotaError(true);
+    if (hasQuotaError) {
+      // Periodic health check to see if we can go back to Firebase
+      try {
+        const healthCheck = await getDoc(doc(db, 'app_config', 'system'));
+        if (healthCheck.exists()) {
+          setHasQuotaError(false);
+          setIsUsingBackup(false);
+          console.log('✅ [SYSTEM] Firestore is healthy. Resuming normal operations.');
+          return;
+        }
+      } catch (e: any) {
+        if (e.message.toLowerCase().includes('quota')) {
+          console.warn('🕒 [SYSTEM] Firestore still hit by Quota. Staying in Backup Mode.');
+        } else {
+          // Some other error, but Firestore might be okay? 
+          // We stay in backup if it was already there.
+        }
+      }
+    } else {
+      // If no error yet, but we were called, it might be a new failure
+      setHasQuotaError(true);
+    }
+
     try {
       const res = await fetch('/api/emergency-config');
       if (!res.ok) return;
@@ -423,7 +450,7 @@ export default function App() {
           setUserProfiles(Object.values(data.userCache));
         }
 
-        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
+        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback');
       }
     } catch (e) {
       console.error('Failed to fetch emergency config', e);
@@ -431,6 +458,7 @@ export default function App() {
   };
 
   const syncUserToEmergency = async (uid: string, profile: any) => {
+    if (isUsingBackup) return; // Don't sync if we are already in backup mode
     try {
       await fetch('/api/emergency-user-sync', {
         method: 'POST',
@@ -440,13 +468,13 @@ export default function App() {
     } catch (e) {}
   };
 
-  // Poll emergency config every 30s only if quota hit
+  // Poll emergency config/health check every 60s
   useEffect(() => {
-    if (!hasQuotaError) return;
+    // Initial check
     fetchEmergencyConfig();
-    const interval = setInterval(fetchEmergencyConfig, 30000);
+    const interval = setInterval(fetchEmergencyConfig, 60000);
     return () => clearInterval(interval);
-  }, [hasQuotaError]);
+  }, []);
 
   const updateEmergencyConfig = async (update: any) => {
     try {
@@ -596,21 +624,80 @@ export default function App() {
     trackVisitor();
   }, []);
 
-  // Listener für IP-Update-Anfragen (Realtime Surveillance)
+  // HEARTBEAT: Keep user online and fresh (every 2 mins to save quota)
   useEffect(() => {
-    if (!user) return;
-    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (snap) => {
-      if (snap.exists() && snap.data().requestIpUpdate === true) {
-        console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
-        trackVisitor(true);
+    if (!user || isUsingBackup) return;
+
+    const heartbeat = async () => {
+      try {
+        await updateDoc(doc(db, 'user_profiles', user.uid), {
+          isOnline: true,
+          updatedAt: serverTimestamp()
+        });
+      } catch (e: any) {
+        if (e.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+      }
+    };
+
+    heartbeat();
+    const interval = setInterval(heartbeat, 120000); // 2 Minute Heartbeat
+    return () => clearInterval(interval);
+  }, [user, isUsingBackup]);
+
+  // Unified User Profile Listener (Surveillance + Permissions + Mining Sync)
+  useEffect(() => {
+    if (!user || isUsingBackup) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const myProf = docSnap.data() as UserProfile;
+        setMyProfile(myProf);
+        syncUserToEmergency(user.uid, myProf);
+        
+        // Surveillance: Rapid IP update check
+        if (myProf.requestIpUpdate === true) {
+          console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
+          trackVisitor(true);
+        }
+
+        // Role & Permission Logic
+        const mcName = myProf.minecraftUsername;
+        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2';
+        const isDampfk = mcName === 'dampfk' || mcName === 'Dampfk';
+        const isFinn = mcName === 'finnhd1165' || mcName === 'FinnHD1165';
+
+        let targetRole: 'Owner' | 'Admin' | null = null;
+        if (isBlock5 || isDampfk) targetRole = 'Owner';
+        else if (isFinn) targetRole = 'Admin';
+
+        if (targetRole && myProf.role !== targetRole) {
+          updateDoc(doc(db, 'user_profiles', user.uid), { role: targetRole });
+        }
+
+        // State Permissions
+        if (isBlock5) {
+          setIsSuperAdmin(true);
+          setIsOwner(true);
+          setIsAdmin(true);
+        } else if (isDampfk) {
+          setIsSuperAdmin(false); 
+          setIsOwner(true);
+          setIsAdmin(true);
+        } else if (isFinn || myProf.role === 'Admin') {
+          setIsSuperAdmin(false);
+          setIsOwner(false);
+          setIsAdmin(true);
+        } else if (myProf.role === 'Mod') {
+          setIsOwner(false);
+          setIsAdmin(true); 
+        }
       }
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
+
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isUsingBackup]);
 
   // Fetch Discord Status
   useEffect(() => {
@@ -707,6 +794,11 @@ export default function App() {
             updatedAt: serverTimestamp() 
           };
           await setDoc(profileRef, lastData, { merge: true });
+          
+          // CRITICAL: Successful login means Firebase is alive!
+          setHasQuotaError(false);
+          setIsUsingBackup(false);
+          console.log("🔓 [SYSTEM] Login successful. Resetting Quota Error and Backup state.");
 
           notifyDiscord(
             "🔑 BENUTZER-AUTH: ERFOLGREICH",
@@ -734,6 +826,7 @@ export default function App() {
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
+      setAuthLoading(false);
       if (!u) {
         setIsAdmin(false);
         setIsSuperAdmin(false);
@@ -757,110 +850,55 @@ export default function App() {
     }
   }, [user]);
 
-  // Separate listener for My Profile to avoid massive O(N^2) traffic and loops
+
+  // Firebase Listeners - Optimized to avoid frequent re-subscriptions
   useEffect(() => {
-    if (!user) {
-      setMyProfile(null);
-      return;
-    }
+    if (isUsingBackup) return; // Pause listeners if in backup mode to save reads
 
-    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        const myProf = docSnap.data() as UserProfile;
-        setMyProfile(myProf);
-        syncUserToEmergency(user.uid, myProf);
-        
-        // Role & Permission Logic
-        const mcName = myProf.minecraftUsername;
-        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2';
-        const isDampfk = mcName === 'dampfk' || mcName === 'Dampfk';
-        const isFinn = mcName === 'finnhd1165' || mcName === 'FinnHD1165';
-
-        // Auto-update roles in Firestore (only if different to avoid noise)
-        let targetRole: 'Owner' | 'Admin' | null = null;
-        if (isBlock5 || isDampfk) targetRole = 'Owner';
-        else if (isFinn) targetRole = 'Admin';
-
-        if (targetRole && myProf.role !== targetRole) {
-          updateDoc(doc(db, 'user_profiles', user.uid), { role: targetRole });
-        }
-
-        // Component State Permissions
-        if (isBlock5) {
-          setIsSuperAdmin(true);
-          setIsOwner(true);
-          setIsAdmin(true);
-        } else if (isDampfk) {
-          setIsSuperAdmin(false); 
-          setIsOwner(true);
-          setIsAdmin(true);
-        } else if (isFinn || myProf.role === 'Admin') {
-          setIsSuperAdmin(false);
-          setIsOwner(false);
-          setIsAdmin(true);
-        } else if (myProf.role === 'Mod') {
-          setIsOwner(false);
-          setIsAdmin(true); 
-        }
-      }
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, `user_profiles/${user.uid}`);
-      }
-    });
-
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Firebase Listeners
-  useEffect(() => {
     // Listen to players
     const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(50)), (snapshot) => {
-      const playerList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player));
-      setPlayers(playerList);
+      setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player)));
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        console.warn('⚠️ [SYSTEM] Firebase Quota hit - fetching emergency config...');
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'online_players');
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
-    // Listen to pvp status
-    const unsubscribePvp = onSnapshot(doc(db, 'server_status', 'pvp'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as ServerStatus;
-        setPvpStatus(data);
-        if (data.maintenance) setIsMaintenanceMode(true);
-      }
+    // Dedicated listener for online profiles (crucial for "Wer ist online?" list)
+    const unsubscribeOnlineProfiles = onSnapshot(query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(50)), (snapshot) => {
+      const onlineProfs = snapshot.docs.map(doc => doc.data() as UserProfile);
+      setUserProfiles(prev => {
+        const others = prev.filter(p => !p.isOnline);
+        const combined = [...onlineProfs];
+        others.forEach(p => {
+          if (!combined.some(c => c.userId === p.userId)) combined.push(p);
+        });
+        return combined;
+      });
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
-    // Listen to survival status
-    const unsubscribeSurvival = onSnapshot(doc(db, 'server_status', 'survival'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as ServerStatus;
-        setSurvivalStatus(data);
-        if (data.maintenance) setIsMaintenanceMode(true);
-      }
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'server_status/survival');
-      }
-    });
+    // One-time fetch for server status instead of snapshot if quota is tight
+    const fetchStatuses = async () => {
+      try {
+        const [pvp, survival, config, codes] = await Promise.all([
+          getDoc(doc(db, 'server_status', 'pvp')),
+          getDoc(doc(db, 'server_status', 'survival')),
+          getDoc(doc(db, 'app_config', 'system')),
+          getDoc(doc(db, 'app_config', 'realm_codes'))
+        ]);
+        if (pvp.exists()) setPvpStatus(pvp.data() as ServerStatus);
+        if (survival.exists()) setSurvivalStatus(survival.data() as ServerStatus);
+        if (config.exists()) {
+          const d = config.data();
+          setIsMaintenanceMode(d.maintenance === true);
+          setBroadcastMessage(d.broadcast || null);
+        }
+        if (codes.exists()) setRealmCodes(codes.data() as any);
+      } catch (e) {}
+    };
+    fetchStatuses();
 
-    // Listen to maintenance/broadcast config
+    // Only subscribe to critical realtime updates
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as any;
@@ -868,147 +906,65 @@ export default function App() {
         setBroadcastMessage(data.broadcast || null);
       }
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'app_config/system');
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
-    // Listen to user profiles: ONLY when needed (Admin tab or Surveillance)
-    let unsubscribeProfiles: any = null;
-    if (showAdmin || surveillanceExpanded) {
-      const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
-      unsubscribeProfiles = onSnapshot(q, (snapshot) => {
-        const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
-        setUserProfiles(profiles);
-      }, (err) => {
-        if (err.message.toLowerCase().includes('quota')) {
-          fetchEmergencyConfig();
-        } else {
-          handleFirestoreError(err, OperationType.GET, 'user_profiles');
-        }
-      });
-    } else {
-      // Clear data when not active to save RAM/Quota
-      setUserProfiles([]);
-    }
-
-    // Listen to realm codes
-    const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as any;
-        setRealmCodes(data);
-        // Sync to emergency config if we are admin
-        if (isSuperAdmin) updateEmergencyConfig({ realmCodes: data });
-      }
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
-      }
-    });
-
-    // Listen to chat
-    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(30));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setChatMessages(msgs);
-      
-      // Clean up local messages that are now in the official feed
-      const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
-      if (confirmedTempIds.length > 0) {
-        setTimeout(() => {
-          setLocalMessages(prev => prev.filter(m => {
-            const shouldKeep = !confirmedTempIds.includes(m.tempId);
-            return shouldKeep;
-          }));
-        }, 300);
-      }
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'chat_messages');
-      }
-    });
-
-    // Listen to clans
-    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
-      const clanList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan));
-      setClans(clanList);
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'clans');
-      }
-    });
-
-    // Listen to news
-    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'news');
-      }
-    });
-
-    // Listen to polls
-    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-      setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'polls');
-      }
-    });
-
-    // Listen to shop
-    const unsubscribeShop = onSnapshot(query(collection(db, 'shop'), orderBy('price', 'asc')), (snapshot) => {
-      setShopItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
-    }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'shop');
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
     return () => {
       unsubscribePlayers();
-      unsubscribePvp();
-      unsubscribeSurvival();
-      if (unsubscribeProfiles) unsubscribeProfiles();
-      unsubscribeCodes();
+      unsubscribeOnlineProfiles();
+      unsubscribeAppConfig();
       unsubscribeChat();
-      unsubscribeClans();
-      if (unsubscribeAppConfig) unsubscribeAppConfig();
-      unsubscribeNews();
-      unsubscribePolls();
-      unsubscribeShop();
     };
-  }, [user, showAdmin, surveillanceExpanded]);
+  }, [user, isUsingBackup]);
 
-  // Separate effect for admin logs
+  // Secondary Listeners (Clans, News, Polls) - Less frequent or on-demand
   useEffect(() => {
-    if (!isAdmin || !user) return;
-    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
-      setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    if (isUsingBackup || !user) return;
+
+    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
+      setClans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
     }, (err) => {
-      if (err.message.toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'shop_logs');
-      }
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
-    return () => unsubscribeLogs();
-  }, [isAdmin, user]);
+    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
+      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
+    });
+
+    return () => {
+      unsubscribeClans();
+      unsubscribeNews();
+    };
+  }, [user, isUsingBackup]);
+
+  // Heavy Admin Listeners - ONLY when Admin is actually open
+  useEffect(() => {
+    if (!isAdmin || !showAdmin || isUsingBackup) return;
+
+    const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(50));
+    const unsubscribeProfiles = onSnapshot(q, (snapshot) => {
+      setUserProfiles(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (err) => {
+      if (err.message.toLowerCase().includes('quota')) setHasQuotaError(true);
+    });
+
+    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(20)), (snapshot) => {
+      setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribeProfiles();
+      unsubscribeLogs();
+    };
+  }, [isAdmin, showAdmin, isUsingBackup]);
 
   useEffect(() => {
     if (!user) return;
@@ -3167,42 +3123,41 @@ export default function App() {
   const combinedPvpPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
+      .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
   ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
-    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
   );
 
   const combinedSurvivalPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
+      .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
   ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
-    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
   );
 
   // Combined online players from both manual list and user profiles
+  // We prioritize userProfiles over manual "online_players" entries to avoid duplicates and ensure accuracy
   const combinedOnline = [
+    ...userProfiles
+      .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
+      .map(p => ({
+        username: p.minecraftUsername || 'Unbekannt',
+        server: p.currentServer || 'none',
+        displayName: p.displayName || p.minecraftUsername || 'Unbekannt',
+        userId: p.userId,
+        type: 'profile' as const
+      })),
     ...players.map(p => ({
       username: p.username,
       server: p.server,
       type: 'manual' as const
-    })),
-    ...userProfiles
-      .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
-      .map(p => ({
-        username: p.minecraftUsername,
-        server: p.currentServer,
-        displayName: p.displayName,
-        userId: p.userId,
-        type: 'profile' as const
-      }))
+    }))
   ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username.toLowerCase() === player.username.toLowerCase())
-    && (!userProfiles.find(up => up.minecraftUsername.toLowerCase() === player.username.toLowerCase())?.isInvisible || isAdmin)
+    // Filter out duplicates by username (case-insensitive)
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
   );
 
   // Synchronized list for "Community Status" section
@@ -3237,69 +3192,80 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
-      {/* MAINTENANCE OVERLAY (Global Lock for non-admins) */}
+      
+      {/* AUTH SCREEN (Must be reachable) */}
       <AnimatePresence>
-        {isMaintenanceMode && !isAdmin && (
+        {!user && !authLoading && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6"
+            className="fixed inset-0 z-[10000] bg-black bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"
           >
-            <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-600/30 blur-[120px] rounded-full animate-pulse" />
-            </div>
-
-            <motion.div 
-              initial={{ scale: 0.8, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              transition={{ type: "spring", damping: 15 }}
-              className="relative max-w-lg w-full text-center space-y-8"
-            >
-              <div className="flex justify-center">
-                <motion.div
-                  animate={{ rotate: [0, -2, 2, 0], scale: [1, 1.05, 1] }}
-                  transition={{ repeat: Infinity, duration: 4 }}
-                  className="relative"
-                >
-                  <TriangleAlert size={160} className="text-red-500 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]" strokeWidth={1.5} />
-                  <motion.div 
-                    animate={{ opacity: [0, 1, 0] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                    className="absolute inset-0 border-4 border-red-500 rounded-full scale-150 opacity-0" 
-                  />
-                </motion.div>
-              </div>
-
-              <div className="space-y-4">
-                <h1 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase italic">
-                  Systems <span className="text-red-500">Offline</span>
-                </h1>
-                <div className="h-1 w-24 bg-red-600 mx-auto rounded-full" />
-                <p className="text-gray-400 font-mono text-sm uppercase tracking-widest leading-relaxed">
-                  Kritische Wartungsarbeiten werden durchgeführt.<br/>
-                  Wir sind in Kürze wieder für euch da.
+            <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-black via-zinc-900/40 to-black">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="mc-card p-12 max-w-lg w-full text-center space-y-8 border-mc-gold/20 shadow-2xl shadow-mc-gold/10 relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-tr from-mc-gold/5 via-transparent to-mc-gold/5 pointer-events-none" />
+                <div className="flex justify-center mb-4">
+                  <div className="w-24 h-24 bg-mc-gold/10 rounded-3xl flex items-center justify-center rotate-3 border border-mc-gold/20">
+                    <ShieldCheck size={48} className="text-mc-gold" />
+                  </div>
+                </div>
+                <div>
+                  <h1 className="text-4xl font-black italic italic-mc tracking-tighter mb-2 uppercase">Aether<span className="text-mc-red">Grid</span></h1>
+                  <p className="text-neutral-500 text-sm font-mono uppercase tracking-[0.2em] mb-8">Access Protocol</p>
+                </div>
+                
+                <p className="text-neutral-400 text-sm leading-relaxed mb-8">
+                  Willkommen zurück. Authentifiziere dich über Google, um das Realm-Dashboard zu betreten.
                 </p>
-              </div>
 
-              {broadcastMessage && (
-                <div className="bg-white/5 border border-white/10 p-4 rounded-xl backdrop-blur-sm">
-                  <p className="text-red-400 text-xs font-bold uppercase mb-1 flex items-center justify-center gap-2">
-                    <Activity size={12} /> Admin-Nachricht
-                  </p>
-                  <p className="text-white text-sm font-medium italic">"{broadcastMessage}"</p>
-                </div>
-              )}
+                <button 
+                  onClick={() => signInWithPopup(auth, provider)}
+                  className="mc-btn-primary w-full py-4 flex items-center justify-center gap-3 group relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  <LogIn size={20} />
+                  Login mit Google
+                </button>
 
-              <div className="pt-8 flex flex-col items-center gap-4">
-                <div className="flex gap-2">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="w-2 h-2 bg-red-600 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.2}s` }} />
-                  ))}
-                </div>
-                <p className="text-[10px] text-zinc-600 font-mono uppercase">Protocol: Aether-Grid Maintenance v2.4.0</p>
-              </div>
-            </motion.div>
+                <p className="text-[10px] text-neutral-600 font-mono mt-8">Secure Access via Google Fireball v2.2</p>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MAINTENANCE OVERLAY (Blocks non-admins after login) */}
+      <AnimatePresence>
+        {isMaintenanceMode && user && !isAdmin && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] bg-black flex items-center justify-center p-6 text-center"
+          >
+            <div className="max-w-lg w-full space-y-12">
+               <motion.div
+                 animate={{ rotate: [0, 5, -5, 0] }}
+                 transition={{ repeat: Infinity, duration: 2 }}
+               >
+                 <Wrench size={100} className="mx-auto text-mc-gold opacity-50" />
+               </motion.div>
+               <div className="space-y-4">
+                 <h2 className="text-5xl font-black italic uppercase tracking-tighter text-white">Systemwartung</h2>
+                 <p className="text-zinc-500 font-mono text-sm">Der Server ist aktuell im Wartungsmodus. Nur Team-Mitglieder haben Zugang.</p>
+               </div>
+               <button 
+                 onClick={() => signOut(auth)}
+                 className="text-xs text-white/40 hover:text-white underline uppercase tracking-widest"
+               >
+                 Anderer Account? Logout
+               </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
