@@ -105,7 +105,7 @@ const REALM_CODES = {
   SURVIVAL: 'JwMPYn9KpsVnRFo'
 };
 
-const DISCORD_URL = 'https://discord.gg/bdc79dqh';
+const DISCORD_URL = 'https://discord.com/invite/AeYN6Yut';
 
 interface Player {
   id: string;
