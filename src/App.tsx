@@ -769,7 +769,7 @@ export default function App() {
         setMyProfile(data);
         
         // Re-verify flags based on DB state
-        if (data.role === 'Owner') { 
+        if (data.role === 'Owner' || data.role === 'Root') { 
           setIsAdmin(true); 
           setIsSuperAdmin(true); 
           setIsOwner(true);
@@ -778,6 +778,30 @@ export default function App() {
           setIsAdmin(true); 
           setIsSuperAdmin(false); 
           setIsOwner(false);
+        }
+        else if (data.role === 'Mod') {
+          setIsAdmin(true);
+          setIsSuperAdmin(false);
+          setIsOwner(false);
+        } else {
+          // Whitelist fallback for bootstrapping or emergency
+          const userEmail = auth.currentUser?.email?.toLowerCase() || '';
+          const isWhitelistedOwner = userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || userEmail.includes('dampfk');
+          const isWhitelistedStaff = isWhitelistedOwner || userEmail.includes('finnhd1165');
+          
+          if (isWhitelistedOwner) {
+            setIsAdmin(true);
+            setIsSuperAdmin(true);
+            setIsOwner(true);
+          } else if (isWhitelistedStaff) {
+            setIsAdmin(true);
+            setIsSuperAdmin(false);
+            setIsOwner(false);
+          } else {
+            setIsAdmin(false);
+            setIsSuperAdmin(false);
+            setIsOwner(false);
+          }
         }
       }
     });
@@ -1113,7 +1137,10 @@ export default function App() {
   }, [isSuperAdmin, myProfile, user, isMaintenanceMode, broadcastMessage, userProfiles]);;
 
   const toggleMaintenance = async () => {
-    if (!isSuperAdmin) return;
+    if (!isOwner) {
+      alert("Zugriff verweigert: Diese Systemfunktion ist Besitzern vorbehalten.");
+      return;
+    }
     const newState = !isMaintenanceMode;
     try {
       // 1. Firebase (attempt)
@@ -1424,8 +1451,8 @@ export default function App() {
       // LOGIK JE NACH KATEGORIE
       if (item.category === 'Ränge') {
         const newRole = item.name.replace(' Rang', '').trim();
-        // ADMIN SCHUTZ: Überschreibe Admin/Inhaber nicht durch normale Ränge
-        if (myProfile?.role === 'Admin' || myProfile?.role === 'Inhaber') {
+        // ADMIN SCHUTZ: Überschreibe Admin/Owner nicht durch normale Ränge
+        if (myProfile?.role === 'Admin' || myProfile?.role === 'Owner' || myProfile?.role === 'Root') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
           // Wir könnten hier ein Feld 'purchasedRanks' führen, aber primärer Rang bleibt Admin
           const currentRanks = myProfile?.inventory?.purchasedRanks || [];
@@ -1565,7 +1592,7 @@ export default function App() {
     let reward = 500;
     if (myProfile.role === 'VIP') reward = 1500;
     if (myProfile.role === 'MVP') reward = 5000;
-    if (myProfile.role === 'Admin' || myProfile.role === 'Inhaber') reward = 10000;
+    if (myProfile.role === 'Admin' || myProfile.role === 'Owner' || myProfile.role === 'Root') reward = 10000;
     
     try {
       await setDoc(doc(db, 'user_profiles', user.uid), {
@@ -1834,7 +1861,10 @@ export default function App() {
   };
 
   const nukeChat = async () => {
-    if (!isAdmin) return;
+    if (!isOwner) {
+      alert("Nur der Besitzer kann den globalen Chat nuken.");
+      return;
+    }
     if (!confirm('⚡ EXTREMER CHAT-WIPE: ALLES wird gelöscht. Fortfahren?')) return;
     try {
       const deletedCount = await deleteCollectionInWaves('chat_messages');
@@ -1921,27 +1951,45 @@ export default function App() {
     const targetId = editingProfileId || user?.uid;
     if (!targetId || !user) return; // Must be logged in
 
-    // Security: Only admins can edit others. Non-admins can only edit themselves.
-    if (targetId !== user.uid && !isAdmin) {
-      alert("Nicht autorisiert.");
-      return;
+    // Security & Hierarchy
+    const targetProfile = userProfiles.find(p => p.userId === targetId);
+    if (targetId !== user.uid) {
+      if (!isAdmin) {
+        alert("Nicht autorisiert.");
+        return;
+      }
+      
+      const targetIsStaff = targetProfile?.role === 'Owner' || targetProfile?.role === 'Admin' || targetProfile?.role === 'Root';
+      if (targetIsStaff && !isOwner) {
+        alert("Admins können keine anderen Teammitglieder bearbeiten. (Nur Owner)");
+        return;
+      }
     }
 
     const formData = new FormData(e.currentTarget);
     const displayName = formData.get('displayName') as string;
     const minecraftUsername = formData.get('minecraftUsername') as string;
     const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
-    // If a server is selected, automatically set online to true
     const isOnline = currentServer !== 'none' || formData.get('isOnline') === 'on';
     const role = formData.get('role') as any;
     const coins = parseInt(formData.get('coins') as string) || 0;
 
-    const targetProfile = userProfiles.find(p => p.userId === targetId);
-    
     try {
-      const existingProfile = userProfiles.find(p => p.userId === targetId) || targetProfile;
-      const finalRole = isAdmin ? (role || existingProfile?.role || 'Member') : (existingProfile?.role || 'Member');
-      const finalCoins = isAdmin ? coins : (existingProfile?.coins || 0);
+      const existingProfile = targetProfile;
+      let finalRole = existingProfile?.role || 'Member';
+      let finalCoins = existingProfile?.coins || 0;
+
+      if (isAdmin) {
+        // Only Owners can assign Admin/Owner roles
+        const isSettingStaffRole = role === 'Admin' || role === 'Owner' || role === 'Root';
+        if (isSettingStaffRole && !isOwner) {
+          alert("Du kannst keine Team-Ränge vergeben. (Nur Owner)");
+          finalRole = existingProfile?.role || 'Member';
+        } else {
+          finalRole = role || finalRole;
+        }
+        finalCoins = coins;
+      }
 
       await setDoc(doc(db, 'user_profiles', targetId), {
         userId: targetId,
@@ -2222,32 +2270,56 @@ export default function App() {
   };
 
   const deleteClan = async (clanId: string) => {
-    if (!isAdmin && (!user || clans.find(c => c.id === clanId)?.leaderId !== user.uid)) return;
-    if (!confirm('🚨 CLAN-AUFLÖSUNG: Bist du sicher? Alle Daten gehen verloren!')) return;
+    const clan = clans.find(c => c.id === clanId);
+    if (!clan) {
+      alert("Clan nicht gefunden.");
+      return;
+    }
+    
+    // Permission check: Leader OR Admin/Owner/Root
+    const canDelete = (user && clan.leaderId === user.uid) || isAdmin;
+    
+    if (!canDelete) {
+      alert('Du hast keine Berechtigung, diesen Clan aufzulösen. (Admins/Owner oder Leader einzige Erlaubnis)');
+      return;
+    }
+    
+    if (!confirm(`🚨 CLAN-AUFLÖSUNG: Bist du sicher, dass du "${clan.name}" [${clan.tag}] löschen möchtest? Alle Daten gehen verloren!`)) return;
     
     try {
-      const clan = clans.find(c => c.id === clanId);
-      // Clean up subcollections
-      await deleteCollectionInWaves(`clans/${clanId}/members`);
-      await deleteCollectionInWaves(`clans/${clanId}/chat`);
-      await deleteCollectionInWaves(`clans/${clanId}/requests`);
-      await deleteCollectionInWaves(`clans/${clanId}/quests`);
+      console.log(`Starting deletion for clan ${clanId}... (Initiator: ${user?.uid})`);
       
+      // Clean up subcollections
+      await Promise.all([
+        deleteCollectionInWaves(`clans/${clanId}/members`).catch(e => console.error("Error deleting members:", e)),
+        deleteCollectionInWaves(`clans/${clanId}/chat`).catch(e => console.error("Error deleting chat:", e)),
+        deleteCollectionInWaves(`clans/${clanId}/requests`).catch(e => console.error("Error deleting requests:", e)),
+        deleteCollectionInWaves(`clans/${clanId}/quests`).catch(e => console.error("Error deleting quests:", e))
+      ]);
+      
+      console.log(`Sub-collections for clan ${clanId} deletion attempted. Deleting main document...`);
       await deleteDoc(doc(db, 'clans', clanId));
       
       notifyDiscord(
         "🏚️ CLAN-AUFLÖSUNG",
-        `Ein Clan wurde aus den Registern der Plattform getilgt.`,
+        `Ein Clan wurde von einem Admin oder dem Leader aufgelöst.`,
         16711680,
         [
-          { name: "🛡️ Clan", value: `${clan?.name} [${clan?.tag}]`, inline: true },
-          { name: "🚧 Admin", value: myProfile?.displayName || user?.displayName || 'N/A', inline: true },
-          { name: "⚠️ Aktion", value: "Alle Sub-Subsumtionen und Mitgliederdaten gelöscht", inline: false }
+          { name: "🛡️ Clan", value: `${clan.name} [${clan.tag}]`, inline: true },
+          { name: "🚧 Initiator", value: myProfile?.displayName || user?.displayName || 'N/A', inline: true },
+          { name: "⚠️ Status", value: "Vollständig gelöscht", inline: false }
         ]
       );
 
-      console.log(`Clan ${clanId} and all sub-data deleted.`);
+      alert(`Der Clan "${clan.name}" wurde erfolgreich aufgelöst.`);
+      
+      if (activeClanId === clanId) {
+        setActiveClanId(null);
+        setMyClan(null);
+      }
     } catch (err) {
+      console.error("Critical Error during clan deletion:", err);
+      alert("Fehler beim Löschen des Clans. Details siehe Konsole.");
       handleFirestoreError(err, OperationType.DELETE, `clans/${clanId}`);
     }
   };
@@ -2629,46 +2701,68 @@ export default function App() {
                 sendSystemMsg("§cZugriff verweigert: Admin-Privilegien erforderlich!§r");
                 break;
               }
-              const action = command.substring(5);
-              switch (action) {
-                case 'invisible':
-                  await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
-                  sendSystemMsg(`Root-Modus: Du bist nun ${!myProfile?.isInvisible ? '§aUNSICHTBAR§r' : '§cSICHTBAR§r'}.`);
-                  break;
-                case 'mute': {
-                  const target = args[0];
-                  if (!target) { sendSystemMsg("§cAnwendung: /root.mute [Name]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
-                  if (targetProf) {
-                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
-                    sendSystemMsg(`Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
-                  }
-                  break;
-                }
-                case 'coins': {
-                  const target = args[0];
-                  if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.coins [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
-                  if (targetProf) {
-                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
-                    sendSystemMsg(`Kontostand von ${targetProf.displayName} auf §e${args[1]}§r Coins gesetzt.`);
-                  }
-                  break;
-                }
-                case 'xp': {
-                  const target = args[0];
-                  if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.xp [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
-                  if (targetProf) {
-                    await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
-                    sendSystemMsg(`Erfahrung von ${targetProf.displayName} auf §b${args[1]} XP§r gesetzt.`);
-                  }
-                  break;
-                }
-                case 'nuke':
-                  nukeChat();
-                  sendSystemMsg("§4DER CHAT WURDE ATOMISIERT.§r");
-                  break;
+                  const action = command.substring(5);
+                  switch (action) {
+                    case 'invisible':
+                      await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
+                      sendSystemMsg(`§6§lROOT:§r Stealth-Modus nun ${!myProfile?.isInvisible ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
+                      break;
+                    case 'mute': {
+                      const target = args[0];
+                      if (!target) { sendSystemMsg("§cVerwendung: /root.mute [Name]§r"); break; }
+                      const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
+                      if (targetProf) {
+                        const isStaff = targetProf.role === 'Owner' || targetProf.role === 'Admin' || targetProf.role === 'Root';
+                        if (isStaff && !isOwner) {
+                          sendSystemMsg("§cError: Du kannst keine Teammitglieder stummschalten!§r");
+                          break;
+                        }
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
+                        sendSystemMsg(`§6§lROOT:§r Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aGESETZT§r' : '§cENTFERNT§r'}.`);
+                      }
+                      break;
+                    }
+                    case 'coins': {
+                      const target = args[0];
+                      if (!target || !args[1]) { sendSystemMsg("§cVerwendung: /root.coins [Name] [Betrag]§r"); break; }
+                      const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
+                      if (targetProf) {
+                        const isStaff = targetProf.role === 'Owner' || targetProf.role === 'Admin' || targetProf.role === 'Root';
+                        if (isStaff && !isOwner) {
+                          sendSystemMsg("§cError: Konten von Teammitgliedern können nur von Besitzern manipuliert werden!§r");
+                          break;
+                        }
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
+                        sendSystemMsg(`§6§lROOT:§r Coins von ${targetProf.displayName} auf §e${args[1]}§r gesetzt.`);
+                      }
+                      break;
+                    }
+                    case 'xp': {
+                      const target = args[0];
+                      if (!target || !args[1]) { sendSystemMsg("§cVerwendung: /root.xp [Name] [Betrag]§r"); break; }
+                      const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
+                      if (targetProf) {
+                        const isStaff = targetProf.role === 'Owner' || targetProf.role === 'Admin' || targetProf.role === 'Root';
+                        if (isStaff && !isOwner) {
+                          sendSystemMsg("§cError: XP von Teammitgliedern können nur von Besitzern manipuliert werden!§r");
+                          break;
+                        }
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
+                        sendSystemMsg(`§6§lROOT:§r XP von ${targetProf.displayName} auf §b${args[1]}§r gesetzt.`);
+                      }
+                      break;
+                    }
+                    case 'nuke':
+                      if (!isOwner) {
+                        sendSystemMsg("§cError: /root.nuke ist ein exklusiver Owner-Befehl!§r");
+                        break;
+                      }
+                      nukeChat();
+                      sendSystemMsg("§4§lDETONATION ERFOLGT:§r Chat wurde vollständig bereinigt.");
+                      break;
+                    case 'maintenance':
+                      toggleMaintenance();
+                      break;
                 case 'broadcast':
                   if (args.length > 0) {
                     const msg = args.join(' ');
@@ -3074,10 +3168,11 @@ export default function App() {
       .sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
       .filter(p => !p.isInvisible || isAdmin)
       .map(p => {
-        const key = (p.minecraftUsername || p.displayName || p.userId).toLowerCase();
-        const displayRole = p.role === 'Owner' || p.role === 'Admin' ? 'Admin' : (p.role || 'Member');
+        const name = (p.minecraftUsername || p.displayName || p.userId || '').trim();
+        const key = name.toLowerCase();
+        const displayRole = (p.role === 'Owner' || p.role === 'Admin') ? 'Admin' : (p.role || 'Member');
         return [key, {
-          username: p.minecraftUsername || p.displayName,
+          username: name,
           displayName: p.displayName,
           userId: p.userId,
           isOnline: p.isOnline,
@@ -3090,15 +3185,28 @@ export default function App() {
 
   const staffList = Array.from(new Map(
     userProfiles
-      .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod'))
+      .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod' || p.role === 'Root'))
       .sort((a,b) => {
-        const rank = { 'Owner': 0, 'Admin': 1, 'Mod': 2 };
+        const rank = { 'Root': 0, 'Owner': 1, 'Admin': 2, 'Mod': 3 };
         const rankA = rank[a.role as keyof typeof rank] ?? 99;
         const rankB = rank[b.role as keyof typeof rank] ?? 99;
-        return rankA - rankB;
+        
+        // Sort lowest priority first so the Map(pairs) constructor keeps the highest priority (last one wins)
+        // We want Higher Rank (Lower index) to be LATER in the array
+        // Order: Mod, Admin, Owner, Root
+        if (rankA !== rankB) return rankB - rankA;
+        if (a.isOnline !== b.isOnline) return a.isOnline ? 1 : -1;
+        return (a.updatedAt?.seconds || 0) - (b.updatedAt?.seconds || 0);
       })
-      .map(p => [p.minecraftUsername?.toLowerCase() || p.userId, p])
-  ).values());
+      .map(p => [(p.minecraftUsername || p.displayName || p.userId || '').trim().toLowerCase(), p])
+  ).values()).sort((a: any, b: any) => {
+    const rank = { 'Root': 0, 'Owner': 1, 'Admin': 2, 'Mod': 3 };
+    const rankA = rank[a.role as keyof typeof rank] ?? 99;
+    const rankB = rank[b.role as keyof typeof rank] ?? 99;
+    if (rankA !== rankB) return rankA - rankB;
+    if (a.isOnline !== b.isOnline) return b.isOnline ? 1 : -1;
+    return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
+  });
 
   const totalOnline = userProfiles.filter(p => p.isOnline).length;
 
@@ -4369,7 +4477,7 @@ export default function App() {
                       </div>
                       <div>
                         <div className="text-[10px] uppercase font-black tracking-widest text-mc-gold">Aktivierter Rang</div>
-                        <div className="text-xl font-black text-white">{myProfile.role}</div>
+                        <div className="text-xl font-black text-white">{myProfile.role === 'Owner' ? 'Admin' : myProfile.role}</div>
                         <div className="text-[9px] text-neutral-400 mt-1 italic">Vorteil: Erhöhter Daily-Bonus aktiviert!</div>
                       </div>
                     </div>
@@ -4927,11 +5035,12 @@ export default function App() {
                          </div>
                          <span className="font-extrabold text-sm mb-1">{p.displayName}</span>
                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                           p.role === 'Owner' ? 'bg-mc-gold text-black' : 
+                           (p.role === 'Root' || p.role === 'Owner') ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.5)]' : 
                            p.role === 'Admin' ? 'bg-mc-red text-white' : 
-                           'bg-blue-500 text-white'
+                           p.role === 'Mod' ? 'bg-mc-red/40 text-white' : 
+                           'bg-blue-600 text-white'
                          }`}>
-                           {p.role === 'Owner' || p.role === 'Admin' ? 'Administrator' : p.role}
+                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : p.role}
                          </span>
                       </motion.div>
                     ))}
@@ -5351,7 +5460,7 @@ export default function App() {
                         </div>
 
                         <div className="flex gap-2 w-full md:w-auto">
-                          {user?.uid === clan.leaderId ? (
+                          {(user?.uid === clan.leaderId || isAdmin) ? (
                             <button 
                               onClick={(e) => { e.stopPropagation(); deleteClan(clan.id); }}
                               className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500/20"
