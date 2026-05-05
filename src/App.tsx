@@ -114,16 +114,6 @@ if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
   ReactGA.initialize(import.meta.env.VITE_GA_MEASUREMENT_ID);
 }
 
-// Initialize Umami (Privacy-focused Analytics)
-if (import.meta.env.VITE_UMAMI_ID && import.meta.env.VITE_UMAMI_SRC) {
-  const script = document.createElement("script");
-  script.async = true;
-  script.defer = true;
-  script.src = import.meta.env.VITE_UMAMI_SRC;
-  script.setAttribute("data-website-id", import.meta.env.VITE_UMAMI_ID);
-  document.head.appendChild(script);
-}
-
 const REALM_CODES = {
   PVP: 'w3PHnwq-5_kcfoE',
   SURVIVAL: 'JwMPYn9KpsVnRFo'
