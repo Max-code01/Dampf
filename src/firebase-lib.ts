@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import * as Sentry from "@sentry/react";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -50,6 +51,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
+  
+  // Capture in Sentry for real-time error tracking (Invisible to users)
+  Sentry.captureException(new Error(errInfo.error), {
+    extra: {
+      operationType: errInfo.operationType,
+      path: errInfo.path,
+      authInfo: errInfo.authInfo
+    }
+  });
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
