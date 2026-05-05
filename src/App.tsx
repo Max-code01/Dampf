@@ -371,7 +371,7 @@ export default function App() {
   const [miningCombo, setMiningCombo] = useState(0);
   const [miningMultiplier, setMiningMultiplier] = useState(1);
   const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [showStaffSection, setShowStaffSection] = useState(true);
+  const [showStaffSection, setShowStaffSection] = useState(false);
   const [openingBox, setOpeningBox] = useState<{ isOpen: boolean; item: ShopItem | null; clicks: number; rarity: 'Standard' | 'Selten' | 'EPIK' | 'LEGENDÄR' }>({
     isOpen: false,
     item: null,
