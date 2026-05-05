@@ -3088,12 +3088,17 @@ export default function App() {
       })
   ).values()).slice(0, 60);
 
-  const staffList = userProfiles
-    .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod'))
-    .sort((a,b) => {
-      const rank = { 'Owner': 0, 'Admin': 1, 'Mod': 2 };
-      return (rank[a.role as keyof typeof rank] || 99) - (rank[b.role as keyof typeof rank] || 99);
-    });
+  const staffList = Array.from(new Map(
+    userProfiles
+      .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod'))
+      .sort((a,b) => {
+        const rank = { 'Owner': 0, 'Admin': 1, 'Mod': 2 };
+        const rankA = rank[a.role as keyof typeof rank] ?? 99;
+        const rankB = rank[b.role as keyof typeof rank] ?? 99;
+        return rankA - rankB;
+      })
+      .map(p => [p.minecraftUsername?.toLowerCase() || p.userId, p])
+  ).values());
 
   const totalOnline = userProfiles.filter(p => p.isOnline).length;
 
@@ -4903,7 +4908,7 @@ export default function App() {
                   className="overflow-hidden"
                 >
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-4">
-                    {staffList.map((p, i) => (
+                    {staffList.map((p: any, i) => (
                       <motion.div 
                         key={p.userId || i}
                         initial={{ opacity: 0, y: 20 }}
