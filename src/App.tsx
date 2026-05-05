@@ -65,6 +65,7 @@ import {
   Castle,
   Shield,
   RefreshCcw,
+  Crown,
 } from 'lucide-react';
 import { 
   collection, 
@@ -373,6 +374,15 @@ export default function App() {
   const [pickaxeSwing, setPickaxeSwing] = useState(false);
   const [miningLevel, setMiningLevel] = useState(1);
   const [miningStats, setMiningStats] = useState({ totalBroken: 0, diamondsFound: 0 });
+  const [optimisticCoins, setOptimisticCoins] = useState<number | null>(null);
+
+  // Sync optimistic coins to real coins when modal closes
+  useEffect(() => {
+    if (!showMiningModal && optimisticCoins !== null) {
+      setOptimisticCoins(null);
+    }
+  }, [showMiningModal, optimisticCoins]);
+
   const [miningCombo, setMiningCombo] = useState(0);
   const [miningMultiplier, setMiningMultiplier] = useState(1);
   const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1387,12 +1397,20 @@ export default function App() {
     const nextClick = openingBox.clicks + 1;
     let nextRarity = openingBox.rarity;
 
-    // Chance auf Rarity-Upgrade pro Click
+    // Chance auf Rarity-Upgrade pro Click (Deutlich erhöht für mehr Spaß)
     const roll = Math.random();
-    if (roll > 0.7) {
-      if (nextRarity === 'Standard') nextRarity = 'Selten';
-      else if (nextRarity === 'Selten') nextRarity = 'EPIK';
-      else if (nextRarity === 'EPIK') nextRarity = 'LEGENDÄR';
+    if (roll > 0.4) {
+      if (nextRarity === 'Standard') {
+        nextRarity = 'Selten';
+        setBroadcastMessage("✨ CASE UPGRADE: SELTEN!");
+      } else if (nextRarity === 'Selten') {
+        nextRarity = 'EPIK';
+        setBroadcastMessage("🔥 CASE UPGRADE: EPIK!");
+      } else if (nextRarity === 'EPIK') {
+        nextRarity = 'LEGENDÄR';
+        setBroadcastMessage("⚡ CASE UPGRADE: LEGENDÄR!!!");
+      }
+      setTimeout(() => setBroadcastMessage(null), 2000);
     }
 
     setOpeningBox(prev => ({
@@ -1696,10 +1714,13 @@ export default function App() {
     setMiningShake(8);
     
     // Floating reward calculation for current hit
-    const hitDamage = (myProfile?.inventory?.pickaxePower || 1);
-    const floatingX = e.clientX + (Math.random() * 40 - 20);
-    const floatingY = e.clientY - 20;
+    const damage = (myProfile?.inventory?.pickaxePower || 1);
+    const coinsPerClick = Math.floor((1 + (myProfile?.pickaxePower || 0) * 0.5) * (1 + (myProfile?.luck || 0) * 0.1));
     
+    // 🔥 Optimistic Sync: UI Updates immediately
+    if (optimisticCoins === null) setOptimisticCoins((myProfile?.coins || 0) + coinsPerClick);
+    else setOptimisticCoins(prev => (prev || 0) + coinsPerClick);
+
     setTimeout(() => {
       setPickaxeSwing(false);
       setHitFeedback(false);
@@ -1714,8 +1735,8 @@ export default function App() {
       'Stone': '#737373', 'Coal': '#333333', 'Iron': '#cbd5e1', 'Gold': '#fbbf24', 'Diamond': '#60a5fa', 'Emerald': '#10b981', 'TNT': '#ef4444', 'Chest': '#b45309'
     };
 
-    const particleCount = miningBlock.type === 'TNT' ? 40 : 8; // Reduced for performance
-    const newParticles = Array.from({ length: particleCount }).map(() => ({
+    const particleCount = miningBlock.type === 'TNT' ? 40 : 8;
+    const particles = Array.from({ length: particleCount }).map(() => ({
       id: Math.random(),
       x: centerX,
       y: centerY,
@@ -1723,21 +1744,22 @@ export default function App() {
       vx: (Math.random() - 0.5) * 20,
       vy: (Math.random() - 0.5) * 20 - 10
     }));
-    setMiningParticles(prev => [...prev, ...newParticles].slice(-60)); // Lower limit
-    const damage = (myProfile?.inventory?.pickaxePower || 1);
-    const coinsPerClick = (myProfile?.mining?.coinsPerClick || 1);
-    const newHealth = Math.max(0, miningBlock.health - damage);
-
+    setMiningParticles(prev => [...prev, ...particles].slice(-60));
+    
     if (user) {
-      await updateDoc(doc(db, 'user_profiles', user.uid), {
+      updateDoc(doc(db, 'user_profiles', user.uid), {
         coins: increment(coinsPerClick)
       });
     }
+
+    const newHealth = Math.max(0, miningBlock.health - damage);
 
     if (newHealth > 0) {
       setMiningBlock(prev => ({ ...prev, health: newHealth }));
       return;
     }
+
+    // Block destroyed logic...
 
     // Block destroyed
     setMiningBlock(prev => ({ ...prev, health: 0 }));
@@ -1802,6 +1824,7 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [showMiningModal, miningParticles.length]);
+
   const seedShop = async () => {
     if (!isAdmin) return;
     
@@ -2912,7 +2935,7 @@ export default function App() {
         server,
         lastSeen: new Date().toISOString()
       });
-      // Update count locally for faster UI, though the listener will overwrite it
+      // Update count locally for faster UI
       const status = server === 'pvp' ? pvpStatus : survivalStatus;
       await setDoc(doc(db, 'server_status', server), {
         ...status,
@@ -3394,7 +3417,9 @@ export default function App() {
                    </div>
                     <div className="text-right">
                        <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Deine Coins</p>
-                       <p className="text-xl font-black text-mc-gold italic">{myProfile?.coins?.toLocaleString() || 0} 🪙</p>
+                       <p className="text-xl font-black text-mc-gold italic">
+                         {optimisticCoins !== null ? optimisticCoins.toLocaleString() : (myProfile?.coins?.toLocaleString() || 0)} 🪙
+                       </p>
                     </div>
                     <div className="text-right">
                        <p className="text-[10px] text-mc-gold font-bold uppercase mb-1">Diamanten</p>
@@ -3652,15 +3677,29 @@ export default function App() {
                   <motion.div
                     animate={{ 
                       rotateY: openingBox.clicks * 360,
-                      scale: 1 + (openingBox.clicks * 0.05),
-                      filter: openingBox.clicks > 0 ? `brightness(${1 + (openingBox.clicks * 0.2)})` : 'none',
-                      boxShadow: openingBox.rarity === 'LEGENDÄR' ? '0 0 120px rgba(255,170,0,0.6)' : 
-                                 openingBox.rarity === 'EPIK' ? '0 0 100px rgba(168,85,247,0.6)' :
-                                 openingBox.rarity === 'Selten' ? '0 0 80px rgba(59,130,246,0.6)' : '0 0 50px rgba(255,255,255,0.2)'
+                      x: openingBox.clicks > 0 ? [0, -5, 5, -5, 5, 0] : 0,
+                      scale: 1 + (openingBox.clicks * 0.1),
+                      filter: openingBox.clicks > 0 ? `brightness(${1 + (openingBox.clicks * 0.3)})` : 'none',
+                      boxShadow: openingBox.rarity === 'LEGENDÄR' ? '0 0 150px rgba(255,170,0,0.8)' : 
+                                 openingBox.rarity === 'EPIK' ? '0 0 120px rgba(168,85,247,0.8)' :
+                                 openingBox.rarity === 'Selten' ? '0 0 100px rgba(59,130,246,0.8)' : '0 0 60px rgba(255,255,255,0.3)'
                     }}
                     onClick={handleBoxClick}
-                    className="w-56 h-56 mx-auto cursor-pointer relative group/chest select-none active:scale-95 transition-transform"
+                    className="w-64 h-64 mx-auto cursor-pointer relative group/chest select-none active:scale-90 transition-transform"
                   >
+                    {/* Floating Numbers on Tap */}
+                    <AnimatePresence>
+                      {openingBox.clicks > 0 && (
+                        <motion.div
+                          key={openingBox.clicks}
+                          initial={{ opacity: 1, y: 0, scale: 1 }}
+                          animate={{ opacity: 0, y: -100, scale: 2 }}
+                          className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]"
+                        >
+                           <span className="text-4xl font-black text-white italic drop-shadow-mc-thick">TAP!</span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     {/* Minecraft-Style Chest Visual */}
                     <div className="absolute inset-0 flex flex-col">
                       {/* Chest Lid */}
@@ -3878,8 +3917,26 @@ export default function App() {
                     </span>
                     <div className="space-y-3">
                       <button 
+                        onClick={() => {
+                          if (user) {
+                            updateDoc(doc(db, 'user_profiles', user.uid), {
+                              coins: increment(10000)
+                            });
+                          }
+                        }}
+                        className="w-full py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 text-[10px] font-black uppercase tracking-widest border border-green-500/20 shadow-lg shadow-green-500/5 transition-all active:scale-95"
+                      >
+                         <Coins size={14} className="inline mr-2" /> +10k Coins (Test)
+                      </button>
+                      <button 
+                        onClick={() => addRandomPlayer('pvp')}
+                        className="w-full py-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest border border-blue-500/20 mt-2"
+                      >
+                        PVP Bot Simulieren
+                      </button>
+                      <button 
                         onClick={toggleMaintenance}
-                        className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${isMaintenanceMode ? 'bg-mc-red border-white/20 text-white shadow-lg shadow-mc-red/40' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                        className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border mt-2 ${isMaintenanceMode ? 'bg-mc-red border-white/20 text-white shadow-lg shadow-mc-red/40' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
                       >
                         {isMaintenanceMode ? 'Wartung Beenden' : 'Wartung Starten'}
                       </button>
@@ -3921,16 +3978,11 @@ export default function App() {
                     <div className="space-y-1">
                       <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Code</label>
                       <input 
-                        type="text"
+                        type="text" 
                         defaultValue={realmCodes.PVP}
                         onBlur={(e) => updateRealmCode('pvp', e.target.value)}
                         className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
                       />
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => addRandomPlayer('pvp')} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-xs py-2 rounded-lg flex items-center justify-center gap-1">
-                         <UserPlus size={12} /> +1 Spieler
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -3960,16 +4012,11 @@ export default function App() {
                     <div className="space-y-1">
                       <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Code</label>
                       <input 
-                        type="text"
+                        type="text" 
                         defaultValue={realmCodes.SURVIVAL}
                         onBlur={(e) => updateRealmCode('survival', e.target.value)}
                         className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
                       />
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => addRandomPlayer('survival')} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-xs py-2 rounded-lg flex items-center justify-center gap-1">
-                         <UserPlus size={12} /> +1 Spieler
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -4421,7 +4468,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth overscroll-contain min-h-0">
+            <div className="flex-1 overflow-y-auto p-6 scroll-smooth overscroll-contain min-h-0 custom-scrollbar space-y-12">
               {showMyItems ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
@@ -4480,9 +4527,61 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-8">
-                  {/* Rank Status Info */}
-                  {myProfile?.role && myProfile.role !== 'Spieler' && (
+                <>
+                  {/* Premium Featured Section */}
+                  <div className="relative p-8 rounded-[2.5rem] bg-gradient-to-br from-mc-gold/20 via-black to-black border-2 border-mc-gold/30 overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-12 opacity-5 scale-150 rotate-12 group-hover:rotate-0 transition-all duration-1000">
+                      <Star size={200} className="text-mc-gold" />
+                    </div>
+                    <div className="relative z-10 flex flex-col md:flex-row items-center gap-10">
+                      <div className="w-40 h-40 bg-mc-gold rounded-3xl flex items-center justify-center shadow-[0_0_50px_rgba(255,170,0,0.3)] shrink-0">
+                         <Crown size={80} className="text-black" />
+                      </div>
+                      <div className="text-center md:text-left space-y-4">
+                        <span className="bg-mc-gold text-black text-[10px] px-4 py-1 rounded-full font-black uppercase tracking-widest">Empfehlung der Admins</span>
+                        <h2 className="text-4xl font-black text-white italic tracking-tighter leading-tight">DER MVP RANG<br/><span className="text-mc-gold">MAXIMALE POWER</span></h2>
+                        <p className="text-neutral-400 text-sm max-w-md font-medium leading-relaxed italic">
+                          Hol dir den ultimativen Rang und starte jeden Tag mit <span className="text-mc-gold font-black">5.000 Coins Bonus</span>. Inklusive exklusivem Prefix & Chat-Farben!
+                        </p>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              const mvp = shopItems.find(i => i.name === 'MVP Rang');
+                              if (mvp) buyItem(mvp);
+                              else alert("MVP Rang Item wurde noch nicht generiert! Klicke unten auf 'Beispiel-Katalog Generieren'");
+                            }}
+                            className="bg-mc-gold text-black px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-xl shadow-mc-gold/20"
+                          >
+                            Jetzt Sichern
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Top Stats Cards */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="mc-card p-6 border-neutral-800 flex items-center justify-between group overflow-hidden relative">
+                      <div className="absolute inset-0 bg-mc-gold/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+                       <div>
+                         <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Guthaben</p>
+                         <span className="text-2xl font-black text-mc-gold italic">{(myProfile?.coins || 0).toLocaleString()}</span>
+                       </div>
+                       <div className="p-3 bg-mc-gold/10 text-mc-gold rounded-xl group-hover:scale-110 transition-transform"><Coins size={24} /></div>
+                    </div>
+                    <div className="mc-card p-6 border-neutral-800 flex items-center justify-between group overflow-hidden relative">
+                      <div className="absolute inset-0 bg-blue-500/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+                       <div>
+                         <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Deine Keys</p>
+                         <span className="text-2xl font-black text-mc-blue italic">{(myProfile?.inventory?.keys || 0)}</span>
+                       </div>
+                       <div className="p-3 bg-mc-blue/10 text-mc-blue rounded-xl group-hover:scale-110 transition-transform"><Key size={24} /></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-12">
+                    {/* Rank Status Info */}
+                    {myProfile?.role && myProfile.role !== 'Spieler' && (
                     <div className="p-4 bg-mc-gold/10 border border-mc-gold/20 rounded-2xl flex items-center gap-4">
                       <div className="w-12 h-12 rounded-xl bg-mc-gold/20 flex items-center justify-center shadow-[0_0_20px_rgba(255,170,0,0.2)]">
                         <Award size={24} className="text-mc-gold" />
@@ -4513,6 +4612,15 @@ export default function App() {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4">
+                          {items.length === 0 && isAdmin && (
+                            <button 
+                              onClick={seedShop}
+                              className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold hover:opacity-100 hover:border-mc-gold/50 transition-all flex flex-col items-center gap-2 group mt-4"
+                            >
+                              <Plus className="group-hover:scale-125 transition-transform" />
+                              Beispiel-Items generieren
+                            </button>
+                          )}
                           {items.map((item) => {
                             const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
                             
@@ -4525,14 +4633,16 @@ export default function App() {
                                 <div className="flex justify-between items-start mb-4 relative z-10">
                                   <div className="space-y-1.5">
                                     <div className="flex items-center gap-2">
-                                      <h5 className="font-extrabold text-base text-gray-100 group-hover:text-mc-gold transition-colors">
+                                      <h5 className={`font-black text-lg transition-colors ${item.price >= 25000 ? 'text-mc-gold' : 'text-gray-100 group-hover:text-mc-gold'}`}>
                                         {item.name}
                                       </h5>
-                                      {item.price >= 10000 && (
-                                        <span className="bg-mc-gold/20 text-mc-gold text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border border-mc-gold/20">PREMIUM</span>
-                                      )}
+                                      {item.price >= 25000 ? (
+                                        <span className="bg-mc-gold text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_15px_rgba(255,170,0,0.4)] border border-yellow-300/50">LEGENDÄR</span>
+                                      ) : item.price >= 5000 ? (
+                                        <span className="bg-purple-500/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30">ELITE</span>
+                                      ) : null}
                                       {isOwnRank && (
-                                        <span className="bg-mc-gold text-black text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,170,0,0.5)]">DEIN RANG</span>
+                                        <span className="bg-white text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">AKTIV</span>
                                       )}
                                     </div>
                                     <p className="text-[11px] text-neutral-400 leading-snug max-w-[260px] font-medium italic opacity-80">
@@ -4598,52 +4708,17 @@ export default function App() {
                         </motion.div>
                       );
                     })}
-                    {items.length === 0 && isAdmin && (
-                        <button 
-                          onClick={seedShop}
-                          className="text-center py-8 opacity-20 text-[10px] uppercase tracking-[0.3em] border-2 border-dashed border-neutral-800 rounded-2xl font-bold hover:opacity-100 hover:border-mc-gold/50 transition-all flex flex-col items-center gap-2 group"
-                        >
-                          <Plus className="group-hover:scale-125 transition-transform" />
-                          Beispiel-Items generieren
-                        </button>
-                      )}
-                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-          
-          {shopItems.length === 0 && !isAdmin && (
-                <div className="text-center py-24 opacity-30 flex flex-col items-center">
-                  <div className="relative mb-6">
-                    <ShoppingBag size={64} className="opacity-10 animate-pulse text-mc-gold" />
-                    <X size={32} className="absolute inset-0 m-auto text-mc-red opacity-50" />
-                  </div>
-                  <p className="text-xs uppercase tracking-[0.3em] font-black">Lager leer</p>
-                  <p className="text-[10px] text-neutral-500 mt-2">Die Händler sind gerade auf Reisen...</p>
                 </div>
-              )}
-            </div>
-
-            {isAdmin && (
-              <div className="p-4 border-t border-neutral-800 bg-neutral-900/30 flex items-center justify-between">
-                <div className="text-[8px] uppercase font-black tracking-widest text-neutral-600">Admin-Konsole</div>
-                <button 
-                  onClick={async () => {
-                    if (!user || !myProfile) return;
-                    await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 10000 }, { merge: true });
-                    alert("💸 10.000 Coins gutgeschrieben (Admin-Cheat)!");
-                  }}
-                  className="px-3 py-1 bg-neutral-800 hover:bg-mc-gold hover:text-black transition-all rounded text-[9px] font-bold uppercase tracking-tighter"
-                >
-                  +10k Coins (Test)
-                </button>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  </motion.div>
+)}
+</AnimatePresence>
 
       {/* Chat Drawer */}
       <AnimatePresence>
@@ -5733,24 +5808,6 @@ export default function App() {
                                   </p>
                                 </div>
                               </div>
-
-                              {(clanMembers.some(m => m.userId === user?.uid) || isAdmin) && (
-                                <div className="mt-8 p-6 bg-mc-red/5 border border-mc-red/20 rounded-2xl">
-                                  <div className="flex items-center gap-3 mb-4">
-                                    <Sword size={20} className="text-mc-red" />
-                                    <h5 className="text-xs font-bold uppercase tracking-widest">Gefechts-Simulation</h5>
-                                  </div>
-                                  <p className="text-[10px] text-neutral-400 mb-4 italic">
-                                    Im echten PvP-System werden Kills automatisch gezählt. Hier kannst du es zu Testzwecken manuell erhöhen (+10 XP).
-                                  </p>
-                                  <button 
-                                    onClick={() => addClanKill(activeClanId)}
-                                    className="w-full py-3 bg-mc-red text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-600 transition-all active:scale-95"
-                                  >
-                                    Kill melden
-                                  </button>
-                                </div>
-                              )}
 
                               <div className="pt-4 border-t border-neutral-800/50">
                                 <h5 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Top Beitragsleister</h5>
