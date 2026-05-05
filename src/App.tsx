@@ -66,7 +66,11 @@ import {
   Shield,
   RefreshCcw,
   Crown,
+  Sparkles,
+  Brain,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
   onSnapshot, 
@@ -127,7 +131,7 @@ interface UserProfile {
   minecraftUsername: string;
   isOnline: boolean;
   currentServer: 'none' | 'pvp' | 'survival';
-  role?: 'Member' | 'VIP' | 'Mod' | 'Admin' | 'Root' | 'Owner';
+  role?: 'Member' | 'VIP' | 'MVP' | 'Mod' | 'Admin' | 'Root' | 'Owner' | 'Spieler';
   xp?: number;
   coins?: number;
   isShadowMuted?: boolean;
@@ -142,6 +146,7 @@ interface UserProfile {
     pickaxeName?: string;
     luck?: number;
     xpMultiplier?: number;
+    purchasedRanks?: string[];
   };
   mining?: {
     cps?: number;
@@ -151,6 +156,17 @@ interface UserProfile {
   perks?: {
     flightUntil?: number;
   };
+  lastLoginIp?: string;
+  lastLoginCity?: string;
+  lastLoginRegion?: string;
+  lastLoginCountry?: string;
+  lastLoginPostal?: string;
+  lastLoginTimezone?: string;
+  lastLoginOrg?: string;
+  lastLoginAsn?: string;
+  registrationIp?: string;
+  lastDailyReward?: any;
+  purchasedRanks?: string[];
 }
 
 interface ChatMessage {
@@ -409,6 +425,41 @@ export default function App() {
   const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
   const [visitorInfo, setVisitorInfo] = useState<any>(null);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
+  
+  // AI Helper State
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiHistory, setAiHistory] = useState<GeminiChatMessage[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const aiChatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (aiChatEndRef.current) {
+      aiChatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [aiHistory]);
+
+  const handleAiChat = async (input?: string) => {
+    const text = input || aiInput;
+    if (!text.trim() || isAiLoading) return;
+
+    const userMsg: GeminiChatMessage = { role: 'user', parts: [{ text }] };
+    const newHistory = [...aiHistory, userMsg];
+    
+    setAiHistory(newHistory);
+    setAiInput('');
+    setIsAiLoading(true);
+
+    try {
+      const response = await getGeminiResponse(text, aiHistory);
+      setAiHistory(prev => [...prev, { role: 'model', parts: [{ text: response || 'Entschuldige, ich habe gerade eine Vision blockiert...' }] }]);
+    } catch (err) {
+      setAiHistory(prev => [...prev, { role: 'model', parts: [{ text: '⚠️ [ERROR] Die Geister sind gerade unruhig. Versuche es später erneut.' }] }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const [surveillanceExpanded, setSurveillanceExpanded] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
@@ -1715,7 +1766,7 @@ export default function App() {
     
     // Floating reward calculation for current hit
     const damage = (myProfile?.inventory?.pickaxePower || 1);
-    const coinsPerClick = Math.floor((1 + (myProfile?.pickaxePower || 0) * 0.5) * (1 + (myProfile?.luck || 0) * 0.1));
+    const coinsPerClick = Math.floor((1 + (myProfile?.inventory?.pickaxePower || 0) * 0.5) * (1 + (myProfile?.inventory?.luck || 0) * 0.1));
     
     // 🔥 Optimistic Sync: UI Updates immediately
     if (optimisticCoins === null) setOptimisticCoins((myProfile?.coins || 0) + coinsPerClick);
@@ -2469,7 +2520,17 @@ export default function App() {
               ]
             );
             const adminCmds = isAdmin ? '\n\n§c[ADMIN-BEDIENER]§r\n§7/root.invisible§r - Ninja-Modus\n§7/root.mute [User]§r - Silent-Mute\n§7/root.coins [User] [Betrag]§r - Kontostand hacken\n§7/root.xp [User] [Betrag]§r - Level manipulieren\n§7/root.nuke§r - Alles weglöschen\n§7/root.broadcast [Text]§r - Globale Megaphon-Nachricht' : '';
-            sendSystemMsg(`§6§l--- BEFEHLS-ZENTRALE ---§r\n§e/stats [Spieler]§r - Level, Coins & XP abrufen\n§e/pay [User] [Betrag]§r - Coins spendieren\n§e/top§r - Wer ist der Beste?\n§e/list§r - Wer treibt sich hier rum?\n§e/me [Aktion]§r - Rollenspiel-Action\n§e/rank§r - XP-Fortschritt checken\n§e/rules§r - Was darf ich?\n§e/discord§r - Server-Invite\n§e/ping§r - Verbindungs-Check\n§e/calc [Formel]§r - Der smarte Rechner\n§e/roll [max]§r - Glücksrad\n§e/flip§r - Münze werfen\n§e/joke§r - Lass mich dich unterhalten\n§e/clear§r - Chat sauber machen${adminCmds}`);
+            sendSystemMsg(`§6§l--- BEFEHLS-ZENTRALE ---§r\n§e/stats [Spieler]§r - Level, Coins & XP abrufen\n§e/pay [User] [Betrag]§r - Coins spendieren\n§e/top§r - Wer ist der Beste?\n§e/list§r - Wer treibt sich hier rum?\n§e/me [Aktion]§r - Rollenspiel-Action\n§e/rank§r - XP-Fortschritt checken\n§e/rules§r - Was darf ich?\n§e/discord§r - Server-Invite\n§e/ai [Frage]§r - Das Orakel befragen ✨\n§e/ping§r - Verbindungs-Check\n§e/calc [Formel]§r - Der smarte Rechner\n§e/roll [max]§r - Glücksrad\n§e/flip§r - Münze werfen\n§e/joke§r - Lass mich dich unterhalten\n§e/clear§r - Chat sauber machen${adminCmds}`);
+            break;
+          }
+          case 'ai':
+          case 'oracle': {
+            setIsAiOpen(true);
+            if (args.length > 0) {
+              handleAiChat(args.join(' '));
+            } else {
+              sendSystemMsg("§6Das scharfe Orakel wurde gerufen!§r ✨");
+            }
             break;
           }
           case 'coins':
@@ -4344,11 +4405,11 @@ export default function App() {
                         <h4 className="font-bold text-sm">{poll.question}</h4>
                         {isAdmin && (
                           <div className="flex gap-1">
-                            <button onClick={() => togglePollStatus(poll.id)} className="p-1 hover:bg-black/20 rounded">
-                              {poll.isActive ? <Lock size={12} title="Beenden" /> : <Unlock size={12} title="Aktivieren" />}
+                            <button onClick={() => togglePollStatus(poll.id)} className="p-1 hover:bg-black/20 rounded" title={poll.isActive ? "Beenden" : "Aktivieren"}>
+                              {poll.isActive ? <Lock size={12} /> : <Unlock size={12} />}
                             </button>
-                            <button onClick={() => deletePoll(poll.id)} className="p-1 hover:bg-black/20 rounded text-red-500">
-                              <Trash2 size={12} title="Löschen" />
+                            <button onClick={() => deletePoll(poll.id)} className="p-1 hover:bg-black/20 rounded text-red-500" title="Löschen">
+                              <Trash2 size={12} />
                             </button>
                           </div>
                         )}
@@ -4720,6 +4781,128 @@ export default function App() {
 )}
 </AnimatePresence>
 
+      {/* AI Oracle Drawer */}
+      <AnimatePresence>
+        {isAiOpen && (
+          <div className="fixed inset-0 z-[120] flex justify-end">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAiOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-lg bg-neutral-900 border-l border-neutral-800 h-full flex flex-col shadow-2xl"
+            >
+              <div className="p-6 border-b border-neutral-800 flex items-center justify-between bg-black/40">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-mc-gold/20 flex items-center justify-center shadow-[0_0_20px_rgba(255,170,0,0.2)]">
+                    <Sparkles className="text-mc-gold" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-white italic tracking-tighter">DAS SCHARFE ORAKEL</h3>
+                    <p className="text-[10px] text-mc-gold font-bold uppercase tracking-[0.3em]">AI-Powered Wisdom</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsAiOpen(false)}
+                  className="p-3 hover:bg-white/5 rounded-xl transition-colors text-neutral-500 hover:text-white"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 scroll-smooth space-y-6 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
+                {aiHistory.length === 0 && (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-12">
+                     <Brain size={64} className="mb-4 text-mc-gold animate-pulse" />
+                     <p className="text-lg font-black italic">Warte auf deine Fragen...</p>
+                     <p className="max-w-[280px] text-[10px] uppercase font-bold tracking-widest mt-2">Frag mich nach News, Minecraft-Tips oder wie du dein Projekt bekannter machst!</p>
+                  </div>
+                )}
+                {aiHistory.map((msg, i) => (
+                  <motion.div 
+                    key={i}
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-[85%] rounded-3xl px-5 py-4 ${
+                      msg.role === 'user' 
+                        ? 'bg-mc-gold text-black font-bold shadow-lg shadow-mc-gold/10' 
+                        : 'bg-neutral-800 text-neutral-100 border border-neutral-700/50 shadow-xl'
+                    }`}>
+                       <div className="markdown-body text-sm leading-relaxed">
+                          <ReactMarkdown>{msg.parts[0].text}</ReactMarkdown>
+                       </div>
+                    </div>
+                  </motion.div>
+                ))}
+                {isAiLoading && (
+                  <div className="flex justify-start">
+                     <div className="bg-neutral-800 border border-neutral-700/50 rounded-3xl px-6 py-4 flex items-center gap-3">
+                        <div className="flex gap-1">
+                           <div className="w-1.5 h-1.5 bg-mc-gold rounded-full animate-bounce [animation-delay:-0.3s]" />
+                           <div className="w-1.5 h-1.5 bg-mc-gold rounded-full animate-bounce [animation-delay:-0.15s]" />
+                           <div className="w-1.5 h-1.5 bg-mc-gold rounded-full animate-bounce" />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-mc-gold/50">Orakel fokussiert sich...</span>
+                     </div>
+                  </div>
+                )}
+                <div ref={aiChatEndRef} />
+              </div>
+
+              <div className="p-6 bg-black/60 border-t border-neutral-800">
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); handleAiChat(); }}
+                  className="relative group"
+                >
+                  <input 
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    placeholder="Frag das Orakel..."
+                    className="w-full bg-neutral-900 border-2 border-neutral-800 rounded-2xl py-5 px-6 pr-16 text-white focus:border-mc-gold transition-all outline-none group-focus-within:shadow-[0_0_30px_rgba(255,170,0,0.1)]"
+                  />
+                  <button 
+                    disabled={isAiLoading || !aiInput.trim()}
+                    type="submit"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-xl bg-mc-gold text-black flex items-center justify-center hover:scale-105 active:scale-95 disabled:opacity-50 disabled:grayscale transition-all shadow-lg"
+                  >
+                     <Send size={20} />
+                  </button>
+                </form>
+                <p className="text-center text-[9px] text-neutral-600 mt-4 uppercase font-bold tracking-tighter">KI kann Fehler machen. Überprüfe wichtige Informationen.</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Oracle Floating Button */}
+      {!isAiOpen && (
+        <motion.button
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          onClick={() => setIsAiOpen(true)}
+          className="fixed bottom-24 right-8 z-[90] w-16 h-16 rounded-2xl bg-black border-2 border-mc-gold flex items-center justify-center group shadow-[0_0_30px_rgba(255,170,0,0.3)] hover:scale-110 active:scale-95 transition-all"
+        >
+          <div className="absolute inset-0 bg-mc-gold/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="relative z-10 text-mc-gold">
+            <Sparkles className="group-hover:rotate-12 transition-transform" size={28} />
+          </div>
+          {/* Label Tooltip */}
+          <div className="absolute right-full mr-4 px-4 py-2 bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0 transition-all pointer-events-none shadow-xl">
+             KI- ORAKEL FRAGEN
+          </div>
+        </motion.button>
+      )}
+
       {/* Chat Drawer */}
       <AnimatePresence>
         {chatOpen && (
@@ -5049,7 +5232,7 @@ export default function App() {
             </div>
             
             <div className="flex -space-x-4">
-              {combinedOnline.map((p, i) => (
+              {combinedOnline.map((p: any, i) => (
                 <motion.div 
                   key={p.userId || p.username || `online-${i}`}
                   initial={{ x: 20, opacity: 0 }}
