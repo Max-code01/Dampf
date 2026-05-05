@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Component } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gamepad2, 
@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Info,
   Activity,
-  TriangleAlert,
   Zap,
   LogIn,
   LogOut,
@@ -23,6 +22,8 @@ import {
   ShieldAlert,
   Command,
   HelpCircle,
+  Unplug,
+  ChevronDown,
   Coins,
   Scroll,
   MessageSquare,
@@ -31,7 +32,6 @@ import {
   MapPin,
   Cpu,
   Circle,
-  ChevronDown,
   Award,
   Clock,
   Lock,
@@ -65,7 +65,6 @@ import {
   Castle,
   Shield,
   RefreshCcw,
-  Wrench,
 } from 'lucide-react';
 import { 
   collection, 
@@ -78,7 +77,6 @@ import {
   query,
   orderBy,
   limit,
-  where,
   addDoc,
   serverTimestamp,
   writeBatch,
@@ -95,14 +93,11 @@ import {
   createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { db, auth, OperationType, handleFirestoreError } from './firebase-lib';
-import { ErrorBoundary } from './components/ErrorBoundary';
 
 const REALM_CODES = {
   PVP: 'w3PHnwq-5_kcfoE',
   SURVIVAL: 'JwMPYn9KpsVnRFo'
 };
-
-const provider = new GoogleAuthProvider();
 
 const DISCORD_URL = 'https://discord.gg/bdc79dqh';
 
@@ -133,7 +128,6 @@ interface UserProfile {
   isInvisible?: boolean;
   customSkin?: string;
   updatedAt: any;
-  requestIpUpdate?: boolean;
   // NEUE FELDER
   inventory?: {
     keys?: number;
@@ -322,7 +316,6 @@ export default function App() {
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOwner, setIsOwner] = useState(false); // New Owner tier
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -378,6 +371,7 @@ export default function App() {
   const [miningCombo, setMiningCombo] = useState(0);
   const [miningMultiplier, setMiningMultiplier] = useState(1);
   const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showStaffSection, setShowStaffSection] = useState(true);
   const [openingBox, setOpeningBox] = useState<{ isOpen: boolean; item: ShopItem | null; clicks: number; rarity: 'Standard' | 'Selten' | 'EPIK' | 'LEGENDÄR' }>({
     isOpen: false,
     item: null,
@@ -404,78 +398,21 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
-  const [hasQuotaError, setHasQuotaError] = useState(false);
-  const [isUsingBackup, setIsUsingBackup] = useState(false);
-
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
-    if (hasQuotaError) {
-      // Periodic health check to see if we can go back to Firebase
-      try {
-        const healthCheck = await getDoc(doc(db, 'app_config', 'system'));
-        if (healthCheck.exists()) {
-          setHasQuotaError(false);
-          setIsUsingBackup(false);
-          console.log('✅ [SYSTEM] Firestore is healthy. Resuming normal operations.');
-          return;
-        }
-      } catch (e: any) {
-        if (e.message?.toLowerCase?.()?.includes('quota')) {
-          console.warn('🕒 [SYSTEM] Firestore still hit by Quota. Staying in Backup Mode.');
-        } else {
-          // Some other error, but Firestore might be okay? 
-          // We stay in backup if it was already there.
-        }
-      }
-    } else {
-      // If no error yet, but we were called, it might be a new failure
-      setHasQuotaError(true);
-    }
-
     try {
       const res = await fetch('/api/emergency-config');
       if (!res.ok) return;
       const data = await res.json();
       if (data) {
-        setIsUsingBackup(true);
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
         setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
-        if (data.broadcastMessage !== undefined) setBroadcastMessage(data.broadcastMessage);
-        
-        // Sync server states from backup
-        if (data.pvpStatus) setPvpStatus(data.pvpStatus);
-        if (data.survivalStatus) setSurvivalStatus(data.survivalStatus);
-        
-        // If we have a user cache, we could populate userProfiles with it if Firestore fails
-        if (data.userCache && userProfiles.length === 0) {
-          setUserProfiles(Object.values(data.userCache));
-        }
-
-        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback');
+        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
       }
     } catch (e) {
       console.error('Failed to fetch emergency config', e);
     }
   };
-
-  const syncUserToEmergency = async (uid: string, profile: any) => {
-    if (isUsingBackup) return; // Don't sync if we are already in backup mode
-    try {
-      await fetch('/api/emergency-user-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid, profile })
-      });
-    } catch (e) {}
-  };
-
-  // Poll emergency config/health check every 60s
-  useEffect(() => {
-    // Initial check
-    fetchEmergencyConfig();
-    const interval = setInterval(fetchEmergencyConfig, 60000);
-    return () => clearInterval(interval);
-  }, []);
 
   const updateEmergencyConfig = async (update: any) => {
     try {
@@ -488,6 +425,10 @@ export default function App() {
       console.error('Failed to update emergency config', e);
     }
   };
+
+  useEffect(() => {
+    fetchEmergencyConfig();
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -552,7 +493,7 @@ export default function App() {
   const trackVisitor = async (isManualUpdate = false) => {
     try {
       // Vector Alpha: Detailed Geo-IP (ipapi)
-      const res1 = await fetch('https://ipapi.co/json/', { signal: (AbortSignal as any).timeout ? (AbortSignal as any).timeout(6000) : undefined });
+      const res1 = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
       const data1 = res1.ok ? await res1.json() : null;
       
       // Vector Beta: Direct RAW IP (ipify)
@@ -625,80 +566,17 @@ export default function App() {
     trackVisitor();
   }, []);
 
-  // HEARTBEAT: Keep user online and fresh (every 2 mins to save quota)
+  // Listener für IP-Update-Anfragen (Realtime Surveillance)
   useEffect(() => {
-    if (!user || isUsingBackup) return;
-
-    const heartbeat = async () => {
-      try {
-        await updateDoc(doc(db, 'user_profiles', user.uid), {
-          isOnline: true,
-          updatedAt: serverTimestamp()
-        });
-      } catch (e: any) {
-        if (e.message?.toLowerCase?.()?.includes('quota')) setHasQuotaError(true);
+    if (!user) return;
+    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (snap) => {
+      if (snap.exists() && snap.data().requestIpUpdate === true) {
+        console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
+        trackVisitor(true);
       }
-    };
-
-    heartbeat();
-    const interval = setInterval(heartbeat, 120000); // 2 Minute Heartbeat
-    return () => clearInterval(interval);
-  }, [user, isUsingBackup]);
-
-  // Unified User Profile Listener (Surveillance + Permissions + Mining Sync)
-  useEffect(() => {
-    if (!user || isUsingBackup) return;
-
-    const unsubscribe = onSnapshot(doc(db, 'user_profiles', user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        const myProf = docSnap.data() as UserProfile;
-        setMyProfile(myProf);
-        syncUserToEmergency(user.uid, myProf);
-        
-        // Surveillance: Rapid IP update check
-        if (myProf.requestIpUpdate === true) {
-          console.log("⚡ IP UPDATE REQUESTED BY ADMIN");
-          trackVisitor(true);
-        }
-
-        // Role & Permission Logic
-        const mcName = myProf.minecraftUsername;
-        const isBlock5 = mcName === 'Block5' || user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2';
-        const isDampfk = mcName === 'dampfk' || mcName === 'Dampfk';
-        const isFinn = mcName === 'finnhd1165' || mcName === 'FinnHD1165';
-
-        let targetRole: 'Owner' | 'Admin' | null = null;
-        if (isBlock5 || isDampfk) targetRole = 'Owner';
-        else if (isFinn) targetRole = 'Admin';
-
-        if (targetRole && myProf.role !== targetRole) {
-          updateDoc(doc(db, 'user_profiles', user.uid), { role: targetRole });
-        }
-
-        // State Permissions
-        if (isBlock5) {
-          setIsSuperAdmin(true);
-          setIsOwner(true);
-          setIsAdmin(true);
-        } else if (isDampfk) {
-          setIsSuperAdmin(false); 
-          setIsOwner(true);
-          setIsAdmin(true);
-        } else if (isFinn || myProf.role === 'Admin') {
-          setIsSuperAdmin(false);
-          setIsOwner(false);
-          setIsAdmin(true);
-        } else if (myProf.role === 'Mod') {
-          setIsOwner(false);
-          setIsAdmin(true); 
-        }
-      }
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
-
     return () => unsubscribe();
-  }, [user, isUsingBackup]);
+  }, [user]);
 
   // Fetch Discord Status
   useEffect(() => {
@@ -706,7 +584,7 @@ export default function App() {
     const fetchDiscord = async () => {
       if (!DISCORD_GUILD_ID) return;
       try {
-        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`, { signal: (AbortSignal as any).timeout ? (AbortSignal as any).timeout(5000) : undefined });
+        const res = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`, { signal: AbortSignal.timeout(5000) });
         if (!res.ok) throw new Error('Discord API error');
         const data = await res.json();
         if (isMounted) {
@@ -744,7 +622,7 @@ export default function App() {
             displayName: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
             minecraftUsername: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
             coins: 100,
-            role: (user.email === 'max.schule13@gmail.com' || user.email === 'block5@community.local') ? 'Admin' : 'Member',
+            role: (user.email?.toLowerCase() === 'max.schule13@gmail.com' || user.email?.toLowerCase() === 'block5@community.local') ? 'Owner' : 'Member',
             isOnline: true,
             currentServer: 'none',
             isShadowMuted: false,
@@ -795,11 +673,6 @@ export default function App() {
             updatedAt: serverTimestamp() 
           };
           await setDoc(profileRef, lastData, { merge: true });
-          
-          // CRITICAL: Successful login means Firebase is alive!
-          setHasQuotaError(false);
-          setIsUsingBackup(false);
-          console.log("🔓 [SYSTEM] Login successful. Resetting Quota Error and Backup state.");
 
           notifyDiscord(
             "🔑 BENUTZER-AUTH: ERFOLGREICH",
@@ -823,182 +696,223 @@ export default function App() {
     syncProfile();
   }, [user, visitorInfo]);
 
-  // Simplified and more robust admin check
-  const systemAdmins = [
-    'max.schule13@gmail.com',
-    'max@community.local',
-    'dampf@community.local',
-    'dampfk@community.local',
-    'block5@community.local',
-    'max-schule13@gmail.com'
-  ];
-  const systemAdminUIDs = [
-    'Dpl20eRjr0SKRcfLav02A3SMBQc2',
-    'Kba1RA8e3OYWAspUnCHz4h4Kot72',
-    '9Ik0NuTNKFaAr0znxizRmTWl50F2'
-  ];
-
-  const checkAdminStatus = (u: User | null) => {
-    if (!u) return false;
-    return systemAdmins.includes(u.email || '') || systemAdminUIDs.includes(u.uid);
-  };
-
-  const isActuallyAdmin = isAdmin || checkAdminStatus(user) || (myProfile?.role === 'Admin') || (myProfile?.role === 'Owner') || (myProfile?.role === 'Root');
-
-  // Auth Listener
+  // Auth Listener & Role Detection
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setAuthLoading(false);
       if (!u) {
         setIsAdmin(false);
         setIsSuperAdmin(false);
+        setMyProfile(null);
       } else {
-        const adminStatus = checkAdminStatus(u);
-        setIsAdmin(adminStatus);
-        if (u.email === 'max.schule13@gmail.com' || u.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2') {
-          setIsSuperAdmin(true); 
-        }
+        const userEmail = u.email?.toLowerCase() || '';
+        const displayName = (u.displayName || '').toLowerCase();
+        
+        // Immediate UI Rank Detection based on identity
+        const isSuper = userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || displayName === 'block5';
+        const isAdminUser = isSuper || userEmail.includes('dampfk') || userEmail.includes('finnhd1165') || displayName.includes('dampfk') || displayName.includes('finnhd1165');
+        
+        setIsSuperAdmin(isSuper);
+        setIsAdmin(isAdminUser);
+        setIsOwner(isSuper); // isOwner maps to isSuper for legacy UI components
       }
     });
   }, []);
 
+  // Sync Profile, Online Status & Hardcoded Roles in Firestore
   useEffect(() => {
-    // Basic Auth Check for Admin Status even without Firestore
-    if (user && (user.email === 'max.schule13@gmail.com' || user.uid === 'Dpl20eRjr0SKRcfLav02A3SMBQc2')) {
-      setIsSuperAdmin(true);
-      setIsAdmin(true);
-      setIsOwner(true);
-    }
+    if (!user) return;
+    const profileRef = doc(db, 'user_profiles', user.uid);
+    
+    // 1. Initial Sync (Online + Assigned Role)
+    const syncProfileData = async () => {
+      const userEmail = user.email?.toLowerCase() || '';
+      const mcName = user.displayName?.toLowerCase() || '';
+      
+      // HARDCODED OVERRIDES for the specified users
+      let assignedRole: 'Owner' | 'Admin' | 'Member' = 'Member';
+      if (userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || mcName === 'block5') {
+        assignedRole = 'Owner';
+      } else if (userEmail.includes('dampfk') || userEmail.includes('finnhd1165') || mcName === 'dampfk' || mcName === 'finnhd1165') {
+        assignedRole = 'Admin';
+      }
+
+      // If we already have a profile, don't overwrite role unless it's a promotion
+      // This prevents "downgrading" manually set roles by accident
+      await setDoc(profileRef, { 
+        isOnline: true, 
+        updatedAt: serverTimestamp(),
+        role: assignedRole, // Enforce assigned role for founders
+        userId: user.uid,
+        minecraftUsername: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
+        displayName: user.displayName || user.email?.split('@')[0] || 'Unbekannt'
+      }, { merge: true });
+    };
+
+    syncProfileData();
+
+    // 2. Heartbeat for Online status
+    const heartbeat = setInterval(() => {
+      setDoc(profileRef, { isOnline: true, updatedAt: serverTimestamp() }, { merge: true });
+    }, 45000);
+
+    // 3. Cleanup on tab close (Best effort)
+    const handleUnload = () => {
+      // We can't await here but fire-and-forget
+      setDoc(profileRef, { isOnline: false, updatedAt: serverTimestamp() }, { merge: true });
+    };
+
+    // 4. Reactive Profile Listener for State
+    const unsubscribe = onSnapshot(profileRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as UserProfile;
+        setMyProfile(data);
+        
+        // Re-verify flags based on DB state
+        if (data.role === 'Owner') { 
+          setIsAdmin(true); 
+          setIsSuperAdmin(true); 
+          setIsOwner(true);
+        }
+        else if (data.role === 'Admin') { 
+          setIsAdmin(true); 
+          setIsSuperAdmin(false); 
+          setIsOwner(false);
+        }
+      }
+    });
+
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      clearInterval(heartbeat);
+      window.removeEventListener('beforeunload', handleUnload);
+      unsubscribe();
+    };
   }, [user]);
 
-
-  // Firebase Listeners - Optimized to avoid frequent re-subscriptions
+  // Firebase Listeners
   useEffect(() => {
-    if (isUsingBackup) return; // Pause listeners if in backup mode to save reads
-
     // Listen to players
-    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(1000)), (snapshot) => {
-      setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player)));
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
+    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(50)), (snapshot) => {
+      const playerList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player));
+      setPlayers(playerList);
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'online_players');
     });
 
-    // Dedicated listener for online profiles (crucial for "Wer ist online?" list)
-    const unsubscribeOnlineProfiles = onSnapshot(query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(1000)), (snapshot) => {
-      const onlineProfs = snapshot.docs.map(doc => doc.data() as UserProfile);
-      setUserProfiles(prev => {
-        const others = prev.filter(p => !p.isOnline);
-        const combined = [...onlineProfs];
-        others.forEach(p => {
-          if (!combined.some(c => c.userId === p.userId)) combined.push(p);
-        });
-        return combined;
-      });
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
+    // Listen to pvp status
+    const unsubscribePvp = onSnapshot(doc(db, 'server_status', 'pvp'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as ServerStatus;
+        setPvpStatus(data);
+        if (data.maintenance) setIsMaintenanceMode(true);
+      }
+    }, (err) => {
+      if (err.message.includes('Quota')) fetchEmergencyConfig();
+      handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
     });
 
-    // One-time fetch for server status instead of snapshot if quota is tight
-    const fetchStatuses = async () => {
-      try {
-        const [pvp, survival, config, codes] = await Promise.all([
-          getDoc(doc(db, 'server_status', 'pvp')),
-          getDoc(doc(db, 'server_status', 'survival')),
-          getDoc(doc(db, 'app_config', 'system')),
-          getDoc(doc(db, 'app_config', 'realm_codes'))
-        ]);
-        if (pvp.exists()) setPvpStatus(pvp.data() as ServerStatus);
-        if (survival.exists()) setSurvivalStatus(survival.data() as ServerStatus);
-        if (config.exists()) {
-          const d = config.data();
-          setIsMaintenanceMode(d.maintenance === true);
-          setBroadcastMessage(d.broadcast || null);
-        }
-        if (codes.exists()) setRealmCodes(codes.data() as any);
-      } catch (e) {}
-    };
-    fetchStatuses();
+    // Listen to survival status
+    const unsubscribeSurvival = onSnapshot(doc(db, 'server_status', 'survival'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as ServerStatus;
+        setSurvivalStatus(data);
+        // If either server is in maintenance, global maintenance is active for the UI
+        if (data.maintenance) setIsMaintenanceMode(true);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/survival'));
 
-    // Only subscribe to critical realtime updates
+    // Listen to maintenance/broadcast config
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
       if (snapshot.exists()) {
-        const data = snapshot.data() as any;
+        const data = snapshot.data();
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
       }
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
     });
 
-    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(30));
+    // Listen to user profiles: ALWAYS listen for community list, but limit for performance
+    const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
+    const unsubscribeProfiles = onSnapshot(profilesQuery, (snapshot) => {
+      const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
+      setUserProfiles(profiles);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
+
+    // Listen to realm codes
+    const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
+      if (snapshot.exists()) setRealmCodes(snapshot.data() as any);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes'));
+
+    // Listen to chat
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setChatMessages(msgs);
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
-    });
+      
+      // Clean up local messages that are now in the official feed
+      const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
+      if (confirmedTempIds.length > 0) {
+        setTimeout(() => {
+          setLocalMessages(prev => prev.filter(m => {
+            const shouldKeep = !confirmedTempIds.includes(m.tempId);
+            return shouldKeep;
+          }));
+        }, 300);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
+
+    // Listen to clans
+    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
+      const clanList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan));
+      setClans(clanList);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
+
+    // Listen to news
+    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
+      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'news'));
+
+    // Listen to polls
+    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
+      setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
+
+    // Listen to shop
+    const unsubscribeShop = onSnapshot(query(collection(db, 'shop'), orderBy('price', 'asc')), (snapshot) => {
+      setShopItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop'));
 
     return () => {
       unsubscribePlayers();
-      unsubscribeOnlineProfiles();
-      unsubscribeAppConfig();
+      unsubscribePvp();
+      unsubscribeSurvival();
+      if (unsubscribeProfiles) unsubscribeProfiles();
+      unsubscribeCodes();
       unsubscribeChat();
-    };
-  }, [user, isUsingBackup]);
-
-  // Secondary Listeners (Clans, News, Polls) - Less frequent or on-demand
-  useEffect(() => {
-    if (isUsingBackup || !user) return;
-
-    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
-      setClans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
-    });
-
-    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
-    });
-
-    return () => {
       unsubscribeClans();
+      if (unsubscribeAppConfig) unsubscribeAppConfig();
       unsubscribeNews();
+      unsubscribePolls();
+      unsubscribeShop();
     };
-  }, [user, isUsingBackup]);
+  }, [user, showAdmin, surveillanceExpanded]);
 
-  // Heavy Admin Listeners - ONLY when Admin is actually open
+  // Separate effect for admin logs
   useEffect(() => {
-    if (!isAdmin || !showAdmin || isUsingBackup) return;
-
-    const q = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(50));
-    const unsubscribeProfiles = onSnapshot(q, (snapshot) => {
-      setUserProfiles(snapshot.docs.map(doc => doc.data() as UserProfile));
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) setHasQuotaError(true);
-    });
-
-    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(20)), (snapshot) => {
+    if (!isAdmin || !user) return;
+    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
       setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop_logs'));
 
-    return () => {
-      unsubscribeProfiles();
-      unsubscribeLogs();
-    };
-  }, [isAdmin, showAdmin, isUsingBackup]);
+    return () => unsubscribeLogs();
+  }, [isAdmin, user]);
 
   useEffect(() => {
     if (!user) return;
     const unsubscribePurchases = onSnapshot(collection(db, 'users', user.uid, 'purchases'), (snapshot) => {
       setMyPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => {
-      if (err.message?.toLowerCase?.()?.includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, 'purchases');
-      }
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'purchases'));
 
     return () => unsubscribePurchases();
   }, [user]);
@@ -1078,12 +992,27 @@ export default function App() {
       return;
     }
 
-    // Map username to a fake email for Firebase
-    const email = `${username?.toLowerCase?.() || 'unknown'}@community.local`;
+    // Map username to a fake email for Firebase - SANITIZED
+    const sanitizedUsername = username.trim().replace(/\s+/g, '_');
+    const email = `${sanitizedUsername.toLowerCase()}@community.local`;
 
     try {
       if (isRegistering) {
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
+        
+        // Create default profile for NEW user
+        await setDoc(doc(db, 'user_profiles', userCred.user.uid), {
+          userId: userCred.user.uid,
+          displayName: username,
+          minecraftUsername: username,
+          role: 'Member',
+          coins: 50,
+          xp: 0,
+          isOnline: true,
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp()
+        }, { merge: true });
+
         notifyDiscord(
           "🆕 EMAIL-REGISTRIERUNG",
           `Ein neuer Benutzer hat sich via Email-Vektor angemeldet.`,
@@ -1096,6 +1025,10 @@ export default function App() {
         );
       } else {
         const userCred = await signInWithEmailAndPassword(auth, email, password);
+        
+        // Ensure profile is online
+        await setDoc(doc(db, 'user_profiles', userCred.user.uid), { isOnline: true, updatedAt: serverTimestamp() }, { merge: true });
+
         notifyDiscord(
           "🔑 EMAIL-LOGIN",
           `Ein Login via Email-Authentifizierung wurde durchgeführt.`,
@@ -1109,14 +1042,18 @@ export default function App() {
       setShowLoginModal(false);
     } catch (error: any) {
       console.error("Auth error", error);
-      if (error.code === 'auth/user-not-found') {
-        setLoginError("Benutzer nicht gefunden. Willst du dich registrieren?");
+      const isBlock5Attempt = username.toLowerCase() === 'block5';
+      
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        setLoginError(isBlock5Attempt ? "Passwort für Block5 ist falsch oder Benutzer existiert nicht." : "Benutzer nicht gefunden oder falscher Name/Passwort.");
       } else if (error.code === 'auth/wrong-password') {
         setLoginError("Falsches Passwort.");
       } else if (error.code === 'auth/email-already-in-use') {
         setLoginError("Dieser Name ist bereits vergeben.");
+      } else if (error.code === 'auth/invalid-email') {
+        setLoginError("Ungültiger Name. Verwende keine Sonderzeichen.");
       } else {
-        setLoginError("Fehler: " + error.message);
+        setLoginError(`Fehler: ${error.code}. Versuche den Login im neuen Fenster (Button unten).`);
       }
     }
   };
@@ -1205,11 +1142,8 @@ export default function App() {
     if (msg === null) return;
     try {
       await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg || null }, { merge: true });
-      await updateEmergencyConfig({ broadcastMessage: msg || null });
     } catch (e) {
-      console.error("Broadcast failed, using local server", e);
-      await updateEmergencyConfig({ broadcastMessage: msg || null });
-      setBroadcastMessage(msg || null);
+      console.error(e);
     }
   };
 
@@ -1361,8 +1295,8 @@ export default function App() {
 
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
-    const isAnyModalOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
-    if (isAnyModalOpen) {
+    const isOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
+    if (isOverlayOpen) {
       document.body.style.overflow = 'hidden';
       document.body.style.paddingRight = 'var(--scrollbar-width, 0px)';
     } else {
@@ -1489,7 +1423,7 @@ export default function App() {
       
       // LOGIK JE NACH KATEGORIE
       if (item.category === 'Ränge') {
-        const newRole = item.name?.replace?.(' Rang', '')?.trim() || '';
+        const newRole = item.name.replace(' Rang', '').trim();
         // ADMIN SCHUTZ: Überschreibe Admin/Inhaber nicht durch normale Ränge
         if (myProfile?.role === 'Admin' || myProfile?.role === 'Inhaber') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
@@ -1506,7 +1440,7 @@ export default function App() {
       else if (item.category === 'Ausrüstung') {
         const powerMatch = item.description.match(/Power: (\d+)/);
         const luckMatch = item.description.match(/Luck: \+(\d+)/);
-        const xpBoost = item.name?.toLowerCase?.()?.includes('erfahrungs-boost');
+        const xpBoost = item.name?.toLowerCase()?.includes('erfahrungs-boost');
 
         if (powerMatch) {
           const power = parseInt(powerMatch[1]);
@@ -1523,7 +1457,7 @@ export default function App() {
         }
       }
       else if (item.category === 'Items') {
-        if (item.name?.toLowerCase?.()?.includes('key')) {
+        if (item.name?.toLowerCase()?.includes('key')) {
           const countStr = item.name.match(/\d+/)?.[0] || "1";
           const count = parseInt(countStr);
           // Dot-Notation für sicherere Updates in Firestore
@@ -1535,7 +1469,7 @@ export default function App() {
         }
       }
       else if (item.category === 'Vorteile') {
-        if (item.name?.toLowerCase?.()?.includes('flug')) {
+        if (item.name?.toLowerCase()?.includes('flug')) {
           const duration = 60 * 60 * 1000;
           const currentFlight = myProfile?.perks?.flightUntil || Date.now();
           const newFlightUntil = Math.max(currentFlight, Date.now()) + duration;
@@ -1645,52 +1579,21 @@ export default function App() {
     }
   };
 
-  // Auto-Mining Logic (CPS) - Optimized to save every 30s to conserve Firestore Quota
+  // Auto-Mining Logic (CPS)
   useEffect(() => {
     if (!user || coinsPerSecond <= 0) return;
 
-    let accumulatedCoins = 0;
-    let accumulatedXp = 0;
-
     const interval = setInterval(async () => {
-      accumulatedCoins += coinsPerSecond;
-      accumulatedXp += Math.max(1, Math.floor(coinsPerSecond / 10));
-
-      // Visual update in local state could be added here if needed, 
-      // but we avoid high-frequency database writes.
+      // Auto-mining logic without floating rewards to save space
+      const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        coins: increment(coinsPerSecond),
+        xp: increment(xpReward)
+      });
     }, 1000);
 
-    const saveInterval = setInterval(async () => {
-      if (accumulatedCoins === 0) return;
-      
-      const coinsToSave = accumulatedCoins;
-      const xpToSave = accumulatedXp;
-      accumulatedCoins = 0;
-      accumulatedXp = 0;
-
-      try {
-        await updateDoc(doc(db, 'user_profiles', user.uid), {
-          coins: increment(coinsToSave),
-          xp: increment(xpToSave),
-          lastMiningUpdate: serverTimestamp()
-        });
-      } catch (err: any) {
-                if (err.message?.toLowerCase?.()?.includes('quota')) {
-                  console.warn("[QUOTA] Mining-Save skipped (Quota exceeded). Coins cached locally.");
-                  accumulatedCoins += coinsToSave; // Put back for next attempt
-                  accumulatedXp += xpToSave;
-                  fetchEmergencyConfig();
-                } else {
-                  console.error("Mining Save Error:", err);
-                }
-              }
-            }, 30000); // 30 second batch save
-
-            return () => {
-              clearInterval(interval);
-              clearInterval(saveInterval);
-            };
-          }, [user, coinsPerSecond]);
+    return () => clearInterval(interval);
+  }, [user, coinsPerSecond, showMiningModal]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -1881,11 +1784,11 @@ export default function App() {
 
     try {
       // Existierende Items prüfen um Duplikate zu vermeiden
-      const existingNames = shopItems.map(i => i.name?.toLowerCase?.() || '');
+      const existingNames = shopItems.map(i => i.name?.toLowerCase() || '');
       
       let addedCount = 0;
       for (const item of items) {
-        if (!existingNames.includes(item.name?.toLowerCase?.() || '')) {
+        if (!existingNames.includes(item.name?.toLowerCase() || '')) {
           await addDoc(collection(db, 'shop'), {
             ...item,
             isActive: true,
@@ -2016,7 +1919,13 @@ export default function App() {
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const targetId = editingProfileId || user?.uid;
-    if (!targetId) return;
+    if (!targetId || !user) return; // Must be logged in
+
+    // Security: Only admins can edit others. Non-admins can only edit themselves.
+    if (targetId !== user.uid && !isAdmin) {
+      alert("Nicht autorisiert.");
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const displayName = formData.get('displayName') as string;
@@ -2030,17 +1939,21 @@ export default function App() {
     const targetProfile = userProfiles.find(p => p.userId === targetId);
     
     try {
+      const existingProfile = userProfiles.find(p => p.userId === targetId) || targetProfile;
+      const finalRole = isAdmin ? (role || existingProfile?.role || 'Member') : (existingProfile?.role || 'Member');
+      const finalCoins = isAdmin ? coins : (existingProfile?.coins || 0);
+
       await setDoc(doc(db, 'user_profiles', targetId), {
         userId: targetId,
         displayName,
         minecraftUsername,
         isOnline,
         currentServer,
-        coins: isAdmin ? coins : (userProfiles.find(p => p.userId === targetId)?.coins || 0),
-        role: role || 'Member',
+        coins: finalCoins,
+        role: finalRole,
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
-      }, { merge: true }); // Use merge to be safer
+      }, { merge: true });
 
       notifyDiscord(
         "🧬 PROFIL-MODIFIKATION (STAFF)",
@@ -2066,44 +1979,26 @@ export default function App() {
     const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
       const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
       setClanMembers(members);
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`);
-      }
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/members`));
 
     const unsubscribeRequests = onSnapshot(collection(db, 'clans', activeClanId, 'requests'), (snapshot) => {
       const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanJoinRequest));
       setClanRequests(requests);
     }, (err) => {
        // Only leaders/officers can see this, so silent fail is okay
-       if ((err?.message || '').toLowerCase().includes('quota')) {
-         fetchEmergencyConfig();
-       }
        setClanRequests([]);
     });
 
     const unsubscribeQuests = onSnapshot(collection(db, 'clans', activeClanId, 'quests'), (snapshot) => {
       const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanQuest));
       setClanQuests(quests);
-    }, (err: any) => {
-      if ((err?.message || '').toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      } else {
-        handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`);
-      }
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, `clans/${activeClanId}/quests`));
 
     const unsubscribeChat = onSnapshot(query(collection(db, 'clans', activeClanId, 'chat'), orderBy('timestamp', 'desc'), limit(50)), (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setClanChatMessages(msgs);
-    }, (err: any) => {
+    }, (err) => {
       // It's okay if this fails (e.g. user not a member), we just clear messages
-      if ((err?.message || '').toLowerCase().includes('quota')) {
-        fetchEmergencyConfig();
-      }
       setClanChatMessages([]);
     });
 
@@ -2207,7 +2102,7 @@ export default function App() {
     const tag = formData.get('clanTag') as string;
     const description = formData.get('clanDescription') as string;
 
-    const clanId = name?.toLowerCase?.()?.replace?.(/\s+/g, '-') || `clan-${Date.now()}`;
+    const clanId = name?.toLowerCase()?.replace(/\s+/g, '-') || `clan-${Date.now()}`;
 
     try {
       await setDoc(doc(db, 'clans', clanId), {
@@ -2451,7 +2346,7 @@ export default function App() {
     // COMMAND HANDLING (Slash Commands)
     if (input.startsWith('/')) {
       const parts = input.substring(1).split(' ');
-      const command = (parts[0] || "").toLowerCase();
+      const command = parts[0]?.toLowerCase() || '';
       const args = parts.slice(1);
 
       try {
@@ -2484,7 +2379,7 @@ export default function App() {
               sendSystemMsg("§cBetrag muss eine positive Zahl sein!§r");
               break;
             }
-            if ((targetName || '').toLowerCase() === (myProfile?.minecraftUsername || '').toLowerCase() || (targetName || '').toLowerCase() === (myProfile?.displayName || '').toLowerCase()) {
+            if (targetName?.toLowerCase() === myProfile?.minecraftUsername?.toLowerCase() || targetName?.toLowerCase() === myProfile?.displayName?.toLowerCase()) {
               sendSystemMsg("§cDu kannst dir nicht selbst Geld überweisen!§r");
               break;
             }
@@ -2492,7 +2387,10 @@ export default function App() {
               sendSystemMsg("§cOperation abgelehnt: Guthaben nicht ausreichend!§r");
               break;
             }
-            const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === targetName?.toLowerCase() || p.displayName?.toLowerCase() === targetName?.toLowerCase());
+            const targetProf = userProfiles.find(p => 
+              (p.minecraftUsername?.toLowerCase() === targetName?.toLowerCase()) || 
+              (p.displayName?.toLowerCase() === targetName?.toLowerCase())
+            );
             if (!targetProf) {
               sendSystemMsg(`§cEmpfänger "${targetName}" im System unauffindbar.§r`);
               break;
@@ -2568,12 +2466,12 @@ export default function App() {
             } else {
               const lv = getLevel(targetProf.xp || 0);
               const statusStr = targetProf.isOnline ? '§aONLINE§r' : '§cOFFLINE§r';
-              sendSystemMsg(`§b§lAKTE: ${targetProf.displayName.toUpperCase()}§r\n§8----------------------§r\n§eRang:§r ${targetProf.role || 'Member'}\n§eLevel:§r §l${lv}§r (${targetProf.xp || 0} XP)\n§eCoins:§r ${targetProf.coins || 0}\n§eRealm:§r ${targetProf.currentServer || 'Keiner'}\n§eStatus:§r ${statusStr}`);
+              sendSystemMsg(`§b§lAKTE: ${targetProf.displayName?.toUpperCase() || 'UNBEKANNT'}§r\n§8----------------------§r\n§eRang:§r ${targetProf.role || 'Member'}\n§eLevel:§r §l${lv}§r (${targetProf.xp || 0} XP)\n§eCoins:§r ${targetProf.coins || 0}\n§eRealm:§r ${targetProf.currentServer || 'Keiner'}\n§eStatus:§r ${statusStr}`);
             }
             break;
           }
           case 'top': {
-            const category = (args[0] || '').toLowerCase() || 'coins';
+            const category = args[0]?.toLowerCase() || 'coins';
             let list = [];
             let title = '';
             
@@ -2642,7 +2540,7 @@ export default function App() {
           case 'calc': {
             try {
               const expr = args.join('');
-              const cleanExpr = expr?.replace?.(/[^-()\d/*+.]/g, '') || '';
+              const cleanExpr = expr.replace(/[^-()\d/*+.]/g, '');
               const result = eval(cleanExpr);
               sendSystemMsg(`§2§lRECHNER:§r ${cleanExpr} = §l${result}§r`);
             } catch (e) {
@@ -2740,7 +2638,7 @@ export default function App() {
                 case 'mute': {
                   const target = args[0];
                   if (!target) { sendSystemMsg("§cAnwendung: /root.mute [Name]§r"); break; }
-                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
+                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
                     sendSystemMsg(`Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
@@ -2750,7 +2648,7 @@ export default function App() {
                 case 'coins': {
                   const target = args[0];
                   if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.coins [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
+                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
                     sendSystemMsg(`Kontostand von ${targetProf.displayName} auf §e${args[1]}§r Coins gesetzt.`);
@@ -2760,7 +2658,7 @@ export default function App() {
                 case 'xp': {
                   const target = args[0];
                   if (!target || !args[1]) { sendSystemMsg("§cAnwendung: /root.xp [Name] [Betrag]§r"); break; }
-                  const targetProf = userProfiles.find(p => (p.minecraftUsername || '').toLowerCase() === (target || '').toLowerCase() || (p.displayName || '').toLowerCase() === (target || '').toLowerCase());
+                  const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target?.toLowerCase() || p.displayName?.toLowerCase() === target?.toLowerCase());
                   if (targetProf) {
                     await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
                     sendSystemMsg(`Erfahrung von ${targetProf.displayName} auf §b${args[1]} XP§r gesetzt.`);
@@ -2900,7 +2798,7 @@ export default function App() {
     if (!user) return;
     const usernames = ['Steve', 'Alex', 'Herobrine', 'Dinnerbone', 'Notch', 'Grumm', 'Dream', 'Techno'];
     const username = usernames[Math.floor(Math.random() * usernames.length)] + Math.floor(Math.random() * 100);
-    const playerId = username?.toLowerCase?.() || `unknown-${Date.now()}`;
+    const playerId = username?.toLowerCase() || `player-${Date.now()}`;
     
     try {
       await setDoc(doc(db, 'online_players', playerId), {
@@ -2923,33 +2821,18 @@ export default function App() {
     if (!isAdmin) return;
     try {
       const status = server === 'pvp' ? pvpStatus : survivalStatus;
-      const newStatus = { ...status, ...updates };
-      await setDoc(doc(db, 'server_status', server), newStatus);
-      // Sync to emergency backup
-      await updateEmergencyConfig({ 
-        [server === 'pvp' ? 'pvpStatus' : 'survivalStatus']: newStatus 
-      });
+      await setDoc(doc(db, 'server_status', server), { ...status, ...updates });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `server_status/${server}`);
-      // Fallback
-      const status = server === 'pvp' ? pvpStatus : survivalStatus;
-      await updateEmergencyConfig({ 
-        [server === 'pvp' ? 'pvpStatus' : 'survivalStatus']: { ...status, ...updates } 
-      });
     }
   };
 
   const updateRealmCode = async (server: 'pvp' | 'survival', code: string) => {
     if (!isAdmin) return;
     try {
-      const newCodes = { ...realmCodes, [server.toUpperCase()]: code };
-      await setDoc(doc(db, 'app_config', 'realm_codes'), newCodes);
-      // Sync to emergency backup
-      await updateEmergencyConfig({ realmCodes: newCodes });
+      await setDoc(doc(db, 'app_config', 'realm_codes'), { ...realmCodes, [server.toUpperCase()]: code });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'app_config/realm_codes');
-      // Fallback
-      await updateEmergencyConfig({ realmCodes: { ...realmCodes, [server.toUpperCase()]: code } });
     }
   };
 
@@ -2963,7 +2846,7 @@ export default function App() {
       const batch = writeBatch(db);
       
       if (player.type === 'manual') {
-        batch.delete(doc(db, 'online_players', (player.id || '').toLowerCase() || player.id));
+        batch.delete(doc(db, 'online_players', player.id?.toLowerCase() || player.id));
       } else {
         if (action) {
           // Full Annihilation across multiple collections
@@ -2971,7 +2854,7 @@ export default function App() {
           batch.delete(doc(db, 'user_profiles', player.id));
           batch.delete(doc(db, 'online_players', player.id));
           if (profile?.minecraftUsername) {
-            batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
+            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
           }
         } else {
           // Normal Kick
@@ -2983,7 +2866,7 @@ export default function App() {
           }, { merge: true });
           batch.delete(doc(db, 'online_players', player.id));
           if (profile?.minecraftUsername) {
-            batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
+            batch.delete(doc(db, 'online_players', profile.minecraftUsername.toLowerCase()));
           }
         }
       }
@@ -3104,7 +2987,7 @@ export default function App() {
       // 2. Clear Online Data - Check by userId and by username
       batch.delete(doc(db, 'online_players', profileId));
       if (profile?.minecraftUsername) {
-        batch.delete(doc(db, 'online_players', (profile.minecraftUsername || '').toLowerCase() || profile.userId));
+        batch.delete(doc(db, 'online_players', profile.minecraftUsername?.toLowerCase()));
       }
       
       await batch.commit();
@@ -3144,170 +3027,88 @@ export default function App() {
   // Combined lists for specific servers
   const combinedPvpPlayers = [
     ...userProfiles
-      .filter(p => p && p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...pvpPlayers
-      .filter(p => p && p.username)
-      .map(p => ({ username: p.username || 'Unbekannt', id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
-  ].filter(p => p && p.username).filter((player, index, self) => 
-    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
+      .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername?.toLowerCase() === player.username?.toLowerCase())?.isInvisible || isAdmin)
   );
 
   const combinedSurvivalPlayers = [
     ...userProfiles
-      .filter(p => p && p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername || 'Unbekannt', id: p.userId, type: 'profile' as const, role: p.role || 'Member', ip: p.lastLoginIp })),
-    ...survivalPlayers
-      .filter(p => p && p.username)
-      .map(p => ({ username: p.username || 'Unbekannt', id: p.id, type: 'manual' as const, role: 'Member', ip: null }))
-  ].filter(p => p && p.username).filter((player, index, self) => 
-    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
+      .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername?.toLowerCase() === player.username?.toLowerCase())?.isInvisible || isAdmin)
   );
 
   // Combined online players from both manual list and user profiles
-  // We prioritize userProfiles over manual "online_players" entries to avoid duplicates and ensure accuracy
   const combinedOnline = [
+    ...players.map(p => ({
+      username: p.username,
+      server: p.server,
+      type: 'manual' as const
+    })),
     ...userProfiles
-      .filter(p => p && p.isOnline && (!p.isInvisible || isAdmin))
-      .map(p => ({
-        username: p.minecraftUsername || 'Unbekannt',
-        server: p.currentServer || 'none',
-        displayName: p.displayName || p.minecraftUsername || 'Unbekannt',
-        userId: p.userId,
-        type: 'profile' as const
-      })),
-    ...players
-      .filter(p => p && p.username)
-      .map(p => ({
-        username: p.username || 'Unbekannt',
-        server: p.server,
-        type: 'manual' as const
-      }))
-  ].filter(p => p && p.username).filter((player, index, self) => 
-    // Filter out duplicates by username (case-insensitive)
-    index === self.findIndex((t) => t && (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
-  );
-
-  // Synchronized list for "Community Status" section
-  const communityDisplayList = [
-    ...combinedOnline.map(p => {
-      const profile = userProfiles.find(up => up.userId === p.userId || (up.minecraftUsername && p.username && (up.minecraftUsername || '').toLowerCase() === (p.username || '').toLowerCase()));
-      return {
-        ...p,
-        profile,
-        isOnline: true,
-        displayName: profile?.displayName || p.username,
-        role: profile?.role || 'Besucher'
-      };
-    }),
-    ...userProfiles
-      .filter(p => !p.isOnline && (!p.isInvisible || isAdmin))
-      .filter(p => !combinedOnline.some(o => (o.username || '').toLowerCase() === (p.minecraftUsername || '').toLowerCase()))
+      .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
       .map(p => ({
         username: p.minecraftUsername,
-        server: 'none',
+        server: p.currentServer,
         displayName: p.displayName,
         userId: p.userId,
-        type: 'profile' as const,
-        profile: p,
-        isOnline: false,
-        role: p.role || 'Member'
+        type: 'profile' as const
       }))
-  ];
+  ].filter((player, index, self) => 
+    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
+    && (!userProfiles.find(up => up.minecraftUsername?.toLowerCase() === player.username?.toLowerCase())?.isInvisible || isAdmin)
+  );
 
-  const totalOnline = combinedOnline.length;
+  // Final Unified Community Status List (Synced with Firebase) - Deduped by lowercase username
+  // Filter out any duplicates and invalid entries
+  const communityDisplayList = Array.from(new Map(
+    userProfiles
+      .filter(p => p.userId && (p.displayName || p.minecraftUsername)) 
+      .sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
+      .filter(p => !p.isInvisible || isAdmin)
+      .map(p => {
+        const key = (p.minecraftUsername || p.displayName || p.userId).toLowerCase();
+        const displayRole = p.role === 'Owner' || p.role === 'Admin' ? 'Admin' : (p.role || 'Member');
+        return [key, {
+          username: p.minecraftUsername || p.displayName,
+          displayName: p.displayName,
+          userId: p.userId,
+          isOnline: p.isOnline,
+          role: displayRole,
+          profile: p,
+          server: p.currentServer || 'none'
+        }];
+      })
+  ).values()).slice(0, 60);
+
+  const staffList = userProfiles
+    .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod'))
+    .sort((a,b) => {
+      const rank = { 'Owner': 0, 'Admin': 1, 'Mod': 2 };
+      return (rank[a.role as keyof typeof rank] || 99) - (rank[b.role as keyof typeof rank] || 99);
+    });
+
+  const totalOnline = userProfiles.filter(p => p.isOnline).length;
 
   return (
-    <ErrorBoundary>
-      <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
-      
-      {/* AUTH SCREEN (Must be reachable) */}
-      <AnimatePresence>
-        {!user && !authLoading && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] bg-black bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"
-          >
-            <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-black via-zinc-900/40 to-black">
-              <motion.div 
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="mc-card p-12 max-w-lg w-full text-center space-y-8 border-mc-gold/20 shadow-2xl shadow-mc-gold/10 relative overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-tr from-mc-gold/5 via-transparent to-mc-gold/5 pointer-events-none" />
-                <div className="flex justify-center mb-4">
-                  <div className="w-24 h-24 bg-mc-gold/10 rounded-3xl flex items-center justify-center rotate-3 border border-mc-gold/20">
-                    <ShieldCheck size={48} className="text-mc-gold" />
-                  </div>
-                </div>
-                <div>
-                  <h1 className="text-4xl font-black italic italic-mc tracking-tighter mb-2 uppercase">Aether<span className="text-mc-red">Grid</span></h1>
-                  <p className="text-neutral-500 text-sm font-mono uppercase tracking-[0.2em] mb-8">Access Protocol</p>
-                </div>
-                
-                <p className="text-neutral-400 text-sm leading-relaxed mb-8">
-                  Willkommen zurück. Authentifiziere dich über Google, um das Realm-Dashboard zu betreten.
-                </p>
-
-                <button 
-                  onClick={() => signInWithPopup(auth, provider)}
-                  className="mc-btn-primary w-full py-4 flex items-center justify-center gap-3 group relative overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  <LogIn size={20} />
-                  Login mit Google
-                </button>
-
-                <p className="text-[10px] text-neutral-600 font-mono mt-8">Secure Access via Google Fireball v2.2</p>
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* MAINTENANCE OVERLAY (Blocks non-admins after login) */}
-      <AnimatePresence>
-        {isMaintenanceMode && user && !isActuallyAdmin && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] bg-black flex items-center justify-center p-6 text-center"
-          >
-            <div className="max-w-lg w-full space-y-12">
-               <motion.div
-                 animate={{ rotate: [0, 5, -5, 0] }}
-                 transition={{ repeat: Infinity, duration: 2 }}
-               >
-                 <Wrench size={100} className="mx-auto text-mc-gold opacity-50" />
-               </motion.div>
-               <div className="space-y-4">
-                 <h2 className="text-5xl font-black italic uppercase tracking-tighter text-white">Systemwartung</h2>
-                 <p className="text-zinc-500 font-mono text-sm">Der Server ist aktuell im Wartungsmodus. Nur Team-Mitglieder haben Zugang.</p>
-               </div>
-               <button 
-                 onClick={() => signOut(auth)}
-                 className="text-xs text-white/40 hover:text-white underline uppercase tracking-widest"
-               >
-                 Anderer Account? Logout
-               </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+    <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
       {/* Emergency Fallback Banner */}
-      {isUsingBackup && (
+      {isMaintenanceMode && (
         <motion.div 
           initial={{ y: -50 }}
           animate={{ y: 0 }}
-          className="fixed top-0 left-0 right-0 bg-red-600/90 backdrop-blur-md text-white py-1 px-4 text-[9px] font-black uppercase tracking-[0.2em] text-center border-b border-red-500/50 z-[9991] flex items-center justify-center gap-3 overflow-hidden shadow-[0_4px_30px_rgba(220,38,38,0.3)]"
+          className="fixed top-0 left-0 right-0 bg-red-600/90 backdrop-blur-md text-white py-1 px-4 text-[9px] font-black uppercase tracking-[0.2em] text-center border-b border-red-500/50 z-[9991] flex items-center justify-center gap-3 overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_2s_infinite]"></div>
           <ShieldAlert size={10} className="animate-pulse" />
-          <span>⚠️ EMERGENCY-BACKUP AKTIV: KRITISCHE DATEN WERDEN VOM LOKALEN SERVER (MONGODB) GEGENGEPRÜFT</span>
+          <span>⚠️ EMERGENCY-BACKUP AKTIV: KRITISCHE DATEN WERDEN VOM LOKALEN SERVER GEHODELT (FIREBASE QUOTA LIMIT)</span>
           <ShieldAlert size={10} className="animate-pulse" />
         </motion.div>
       )}
@@ -3927,7 +3728,7 @@ export default function App() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="relative z-10 bg-neutral-900 border-b border-neutral-800 overflow-hidden"
+            className="relative z-10 bg-neutral-900 border-b border-neutral-800 max-h-[85vh] overflow-y-auto custom-scrollbar"
           >
             <div className="max-w-[1600px] mx-auto px-6 py-10 flex flex-col gap-8">
               <div className="flex items-center justify-between">
@@ -4588,7 +4389,7 @@ export default function App() {
 
                         <div className="grid grid-cols-1 gap-4">
                           {items.map((item) => {
-                            const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name?.replace?.(' Rang', '')?.trim();
+                            const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
                             
                             return (
                               <motion.div 
@@ -4825,7 +4626,7 @@ export default function App() {
                             isMe ? 'bg-mc-red text-white shadow-lg shadow-mc-red/15 rounded-tr-sm' : 
                             'bg-neutral-800 text-neutral-100 rounded-tl-sm'
                           }`}>
-                            {(msg.text || '').replace(/§[a-z0-9]/g, '')}
+                            {msg.text.replace(/§[a-z0-9]/g, '')}
                             {msg.id.startsWith('temp-') && (
                               <motion.div 
                                 animate={{ rotate: 360 }}
@@ -5050,7 +4851,7 @@ export default function App() {
             <div className="flex -space-x-4">
               {combinedOnline.map((p, i) => (
                 <motion.div 
-                  key={i}
+                  key={p.userId || p.username || `online-${i}`}
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
@@ -5075,6 +4876,66 @@ export default function App() {
             </div>
           </div>
         </section>
+
+        {/* Staff / Team Section */}
+        {staffList.length > 0 && (
+          <section className="mb-24">
+            <div 
+              className="flex items-center justify-between gap-3 mb-8 cursor-pointer group select-none"
+              onClick={() => setShowStaffSection(!showStaffSection)}
+            >
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="text-mc-gold" size={24} />
+                <h2 className="text-3xl font-bold">Unser Team</h2>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-neutral-500 group-hover:text-white transition-colors">
+                {showStaffSection ? 'Einklappen' : 'Ausklappen'}
+                <ChevronDown className={`transition-transform duration-300 ${showStaffSection ? 'rotate-180' : ''}`} size={16} />
+              </div>
+            </div>
+            
+            <AnimatePresence>
+              {showStaffSection && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-4">
+                    {staffList.map((p, i) => (
+                      <motion.div 
+                        key={p.userId || i}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className="mc-card p-6 flex flex-col items-center text-center group border-mc-gold/10 hover:border-mc-gold/40 transition-colors"
+                      >
+                         <div className="relative mb-4">
+                           <img 
+                             src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
+                             className="w-20 h-20 rounded-xl bg-neutral-900 border-2 border-mc-gold/20 pixelated object-cover group-hover:scale-105 transition-transform" 
+                             alt=""
+                             referrerPolicy="no-referrer"
+                           />
+                           {p.isOnline && <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-black animate-pulse" />}
+                         </div>
+                         <span className="font-extrabold text-sm mb-1">{p.displayName}</span>
+                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
+                           p.role === 'Owner' ? 'bg-mc-gold text-black' : 
+                           p.role === 'Admin' ? 'bg-mc-red text-white' : 
+                           'bg-blue-500 text-white'
+                         }`}>
+                           {p.role === 'Owner' || p.role === 'Admin' ? 'Administrator' : p.role}
+                         </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        )}
 
         {/* Realm Codes Section */}
         <section id="codes" className="mb-24">
@@ -5115,8 +4976,8 @@ export default function App() {
                   <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                      {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map((p, i) => (
+                        <div key={p.id || p.username || `pvp-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -5197,8 +5058,8 @@ export default function App() {
                    <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                      {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map((p, i) => (
+                        <div key={p.id || p.username || `surv-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -5259,9 +5120,9 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {communityDisplayList.map((p) => (
+              {communityDisplayList.map((p: any, i) => (
                 <motion.div 
-                  key={p.userId || p.username}
+                  key={p.userId || p.username || `community-${i}`}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
@@ -6349,16 +6210,16 @@ export default function App() {
                       <div className="md:col-span-2 space-y-8 pt-10 border-t border-white/5 mt-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                              <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Admin)</label>
+                              <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Nur Staff)</label>
                               <select 
                                 name="role"
                                 defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
                                 className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
                               >
                                 <option value="Member">Mitglied</option>
-                                <option value="VIP">VIP</option>
                                 <option value="Mod">Moderator</option>
-                                <option value="Admin">Admin</option>
+                                <option value="Admin">Administrator</option>
+                                <option value="Owner">Besitzer (Owner)</option>
                               </select>
                             </div>
                             <div>
@@ -6370,6 +6231,34 @@ export default function App() {
                                 className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
                               />
                             </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (!editingProfileId) return;
+                              if (confirm("🚨 KICK: Benutzer-Session terminieren?")) {
+                                setDoc(doc(db, 'user_profiles', editingProfileId), { isOnline: false }, { merge: true });
+                              }
+                            }}
+                            className="py-4 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-600 hover:text-white text-orange-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+                          >
+                             <Unplug size={16} /> Session Kicken
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (!editingProfileId) return;
+                              if (confirm("☢️ PERMANENT-DELETE: Profil vollständig vernichten?")) {
+                                deleteDoc(doc(db, 'user_profiles', editingProfileId));
+                                setShowProfileModal(false);
+                              }
+                            }}
+                            className="py-4 bg-red-600/10 border border-red-600/30 hover:bg-red-600 hover:text-white text-mc-red rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+                          >
+                             <ShieldAlert size={16} /> Profil Löschen
+                          </button>
                         </div>
                           
                         <div className="bg-black/60 border border-red-500/20 rounded-3xl overflow-hidden shadow-[inset_0_0_50px_rgba(239,68,68,0.05)]">
@@ -6604,6 +6493,5 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
-    </ErrorBoundary>
   );
 }
