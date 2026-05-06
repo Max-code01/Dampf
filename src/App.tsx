@@ -331,6 +331,54 @@ const STAFF_OVERWRITES: Record<string, 'Owner' | 'Admin'> = {
   'finnhd1165': 'Admin'
 };
 
+const FloatingParticles = () => {
+  const [particles, setParticles] = useState<any[]>([]);
+
+  useEffect(() => {
+    const p = Array.from({ length: 20 }).map(() => ({
+      id: Math.random(),
+      left: `${Math.random() * 100}%`,
+      top: `${Math.random() * 100}%`,
+      size: Math.random() * 3 + 2,
+      duration: Math.random() * 15 + 15,
+      delay: Math.random() * 10,
+      opacity: Math.random() * 0.4 + 0.1,
+    }));
+    setParticles(p);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+      {particles.map(p => (
+        <motion.div
+          key={p.id}
+          initial={{ y: '110vh', opacity: 0 }}
+          animate={{ 
+            y: '-10vh', 
+            opacity: [0, p.opacity, p.opacity, 0],
+            rotate: [0, 180, 360]
+          }}
+          transition={{ 
+            duration: p.duration, 
+            repeat: Infinity, 
+            delay: p.delay,
+            ease: "linear"
+          }}
+          style={{
+            position: 'absolute',
+            left: p.left,
+            width: p.size,
+            height: p.size,
+            backgroundColor: Math.random() > 0.5 ? '#ff4747' : '#ffaa00',
+            boxShadow: '0 0 10px rgba(255, 71, 71, 0.5)',
+            borderRadius: '1px'
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
 export default function App() {
   const [realmCodes, setRealmCodes] = useState({
     PVP: 'w3PHnwq-5_kcfoE',
@@ -1838,6 +1886,11 @@ export default function App() {
     const userXpMult = myProfile?.inventory?.xpMultiplier || 1;
     const finalXp = Math.floor(xp * miningMultiplier * userXpMult);
     const finalCoins = Math.floor(coins * miningMultiplier);
+    
+    // Synchronize optimistic coins
+    if (optimisticCoins !== null) {
+      setOptimisticCoins(prev => (prev || 0) + finalCoins);
+    }
 
     setMiningStats(prev => ({
       totalBroken: prev.totalBroken + 1,
@@ -3308,6 +3361,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+      <FloatingParticles />
       {/* Emergency Fallback Banner */}
       {isMaintenanceMode && (
         <motion.div 
@@ -3327,6 +3381,9 @@ export default function App() {
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-mc-red/5 to-transparent animate-pulse" />
         <div className="w-full h-full opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #ff4747 1px, transparent 0)', backgroundSize: '40px 40px' }} />
       </div>
+      
+      {/* Scanline Effect */}
+      <div className="absolute inset-0 z-[2] pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-20" />
 
       {/* Background Glows */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
@@ -3626,7 +3683,7 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 select-none overflow-hidden h-full relative">
+                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 overflow-hidden h-full relative">
                   <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
                     <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
@@ -4450,7 +4507,7 @@ export default function App() {
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
-            className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-black/95 backdrop-blur-xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
+            className="fixed inset-y-0 right-0 w-full md:w-[700px] bg-black/98 backdrop-blur-2xl z-[70] border-l border-neutral-800 shadow-2xl flex flex-col pt-20"
           >
             <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
               <div>
@@ -4672,7 +4729,7 @@ export default function App() {
                           <div className="h-px flex-1 bg-gradient-to-r from-neutral-800 to-transparent" />
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {items.length === 0 && isAdmin && (
                             <button 
                               onClick={seedShop}
@@ -4694,13 +4751,13 @@ export default function App() {
                                 <div className="flex justify-between items-start mb-4 relative z-10">
                                   <div className="space-y-1.5">
                                     <div className="flex items-center gap-2">
-                                      <h5 className={`font-black text-lg transition-colors ${item.price >= 25000 ? 'text-mc-gold' : 'text-gray-100 group-hover:text-mc-gold'}`}>
+                                      <h5 className={`font-black text-lg transition-colors ${(item.price >= 25000 || item.name.includes('MVP')) ? 'text-mc-gold' : item.name.includes('VIP') ? 'text-purple-400' : 'text-gray-100 group-hover:text-mc-gold'}`}>
                                         {item.name}
                                       </h5>
-                                      {item.price >= 25000 ? (
+                                      {(item.price >= 25000 || item.name.includes('MVP')) ? (
                                         <span className="bg-mc-gold text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_15px_rgba(255,170,0,0.4)] border border-yellow-300/50">LEGENDÄR</span>
-                                      ) : item.price >= 5000 ? (
-                                        <span className="bg-purple-500/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30">ELITE</span>
+                                      ) : (item.price >= 5000 || item.name.includes('VIP')) ? (
+                                        <span className="bg-purple-600/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30 shadow-[0_0_10px_rgba(147,51,234,0.2)]">VIP ELITE</span>
                                       ) : null}
                                       {isOwnRank && (
                                         <span className="bg-white text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">AKTIV</span>
@@ -5310,7 +5367,7 @@ export default function App() {
                            p.role === 'Mod' ? 'bg-mc-red/40 text-white' : 
                            'bg-blue-600 text-white'
                          }`}>
-                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : p.role}
+                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : (p.role === 'VIP') ? 'VIP' : p.role}
                          </span>
                       </motion.div>
                     ))}
@@ -5575,7 +5632,8 @@ export default function App() {
                       <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
                         p.role === 'Admin' ? 'bg-mc-gold text-black' :
                         p.role === 'Mod' ? 'bg-mc-red text-white' :
-                        p.role === 'VIP' ? 'bg-purple-500 text-white' : 
+                        p.role === 'VIP' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(147,51,234,0.5)]' :
+                        p.role === 'MVP' ? 'bg-mc-blue text-white' :
                         p.role === 'Besucher' ? 'bg-neutral-700 text-neutral-300' : ''
                       }`}>
                         {p.role}
