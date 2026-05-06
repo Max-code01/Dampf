@@ -5232,18 +5232,18 @@ export default function App() {
             </div>
             
             <div className="flex -space-x-4">
-              {combinedOnline.map((p: any, i) => (
+              {(combinedOnline || []).map((p: any, i: number) => (
                 <motion.div 
-                  key={p.userId || p.username || `online-${i}`}
+                  key={p?.userId || p?.username || `online-${i}`}
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
                   className="relative group cursor-pointer"
-                  onClick={() => isAdmin && p.type === 'profile' && openProfileEdit(p.userId)}
+                  onClick={() => isAdmin && p?.type === 'profile' && p?.userId && openProfileEdit(p.userId)}
                 >
                   <img 
-                    src={p.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p.username}`} 
-                    alt={`${p.username} Minecraft Profil`}
+                    src={p?.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p?.username}`} 
+                    alt={`${p?.username} Minecraft Profil`}
                     className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
                     title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
                     referrerPolicy="no-referrer"
