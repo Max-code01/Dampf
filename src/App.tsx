@@ -1742,14 +1742,21 @@ export default function App() {
     const interval = setInterval(async () => {
       // Auto-mining logic without floating rewards to save space
       const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
+      
+      // Update DB
       await updateDoc(doc(db, 'user_profiles', user.uid), {
         coins: increment(coinsPerSecond),
         xp: increment(xpReward)
       });
+
+      // 🔥 Sync with Optimistic UI if mining modal is open
+      if (showMiningModal) {
+        setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [user, coinsPerSecond, showMiningModal]);
+  }, [user, coinsPerSecond, showMiningModal, myProfile?.coins]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -1791,6 +1798,10 @@ export default function App() {
 
   const mineBlock = async (e: React.MouseEvent) => {
     if (miningBlock.health <= 0) return;
+
+    // Spawn Impact Particles
+    const centerX = e.clientX;
+    const centerY = e.clientY;
 
     // Combo Logic
     if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
@@ -1840,10 +1851,6 @@ export default function App() {
       setHitFeedback(false);
       setMiningShake(0);
     }, 100);
-
-    // Spawn Impact Particles
-    const centerX = e.clientX;
-    const centerY = e.clientY;
     
     const colors: Record<string, string> = {
       'Stone': '#737373', 'Coal': '#333333', 'Iron': '#cbd5e1', 'Gold': '#fbbf24', 'Diamond': '#60a5fa', 'Emerald': '#10b981', 'TNT': '#ef4444', 'Chest': '#b45309'
@@ -1872,8 +1879,6 @@ export default function App() {
       setMiningBlock(prev => ({ ...prev, health: newHealth }));
       return;
     }
-
-    // Block destroyed logic...
 
     // Block destroyed
     setMiningBlock(prev => ({ ...prev, health: 0 }));
@@ -1907,8 +1912,8 @@ export default function App() {
     setFloatingRewards(prev => [...prev, {
       id: blockRewardId,
       text: `+${finalCoins} 🪙`,
-      x: window.innerWidth / 4, // Approx center of left area
-      y: window.innerHeight / 2,
+      x: centerX,
+      y: centerY - 50,
       color: '#fbbf24'
     }].slice(-10));
 
@@ -3583,7 +3588,7 @@ export default function App() {
               </div>
 
               {/* Deep Mines Body */}
-              <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[#1a1a1a] relative">
+              <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-[#1a1a1a] relative custom-scrollbar">
                 <div 
                   className="absolute inset-0 z-0 pointer-events-none opacity-20"
                   style={{ 
@@ -3611,14 +3616,14 @@ export default function App() {
                 </AnimatePresence>
                 
                 {/* Left Column: The Clicker Area */}
-                <div className="w-full md:w-1/2 h-[280px] md:h-full flex flex-col items-center justify-center p-4 md:p-6 sm:border-r border-white/5 relative z-10 select-none">
-                  <div className="mb-4 md:mb-8 text-center space-y-1 scale-90 md:scale-100">
+                <div className="w-full md:w-1/2 h-auto min-h-[300px] md:h-full flex flex-col items-center justify-center p-4 md:p-6 sm:border-r border-white/5 relative z-10 select-none touch-pan-y">
+                  <div className="mb-4 md:mb-8 text-center space-y-1 scale-90 md:scale-100 pointer-events-none">
                      <h2 className="text-white font-black text-2xl md:text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
                      <p className="text-mc-gold font-bold italic text-sm">CPS: {coinsPerSecond} Coins/s</p>
                   </div>
 
                   {/* Center Game Area */}
-                  <div className="flex-1 flex flex-col items-center justify-center relative w-full overflow-visible">
+                  <div className="flex-1 flex flex-col items-center justify-center relative w-full overflow-visible touch-pan-y">
                     <div className="absolute inset-0 pointer-events-none z-0">
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[400px] md:h-[600px] w-full opacity-5 blur-[80px] bg-mc-gold rounded-full" />
                     </div>
@@ -3627,14 +3632,16 @@ export default function App() {
                       <motion.div
                         key={miningBlock.type}
                         initial={{ scale: 0.3, rotate: -30, opacity: 0, y: 50 }}
-                        animate={{ scale: 0.8, rotate: 0, opacity: 1, y: 0 }} // Scaled down for mobile compatibility
+                        animate={{ scale: 0.8, rotate: 0, opacity: 1, y: 0 }} 
                         whileInView={{ scale: window.innerWidth < 768 ? 0.7 : 1 }}
                         exit={{ scale: 1.1, opacity: 0 }}
                         transition={{ type: 'spring', damping: 15, stiffness: 100 }}
-                        className="relative z-50 w-48 h-48 sm:w-72 sm:h-72 group"
+                        className="relative z-50 w-48 h-48 sm:w-72 sm:h-72 group cursor-pointer touch-pan-y"
+                        onClick={mineBlock}
+                        style={{ touchAction: 'pan-y' }}
                       >
                         {/* Health Bar */}
-                        <div className="absolute -top-12 md:-top-16 left-1/2 -translate-x-1/2 w-48 md:w-64 text-center space-y-2 md:space-y-3">
+                        <div className="absolute -top-12 md:-top-16 left-1/2 -translate-x-1/2 w-48 md:w-64 text-center space-y-2 md:space-y-3 pointer-events-none">
                           <p className="text-white font-black text-sm md:text-xl uppercase tracking-[0.4em] drop-shadow-mc-thick shrink-0">
                             {miningBlock.type}
                           </p>
@@ -3713,14 +3720,14 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 overflow-hidden relative min-h-0">
+                <div className="w-full md:w-1/2 min-h-[400px] md:min-h-0 h-auto md:h-full flex flex-col bg-black/30 backdrop-blur-md md:border-l border-t md:border-t-0 border-white/5 md:overflow-hidden relative flex-shrink-0">
                   <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-4 md:p-6 pb-2 border-b border-white/5">
                     <h3 className="text-mc-gold font-black text-lg md:text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 custom-scrollbar touch-pan-y overscroll-contain relative scroll-smooth min-h-0">
+                  <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 space-y-3 custom-scrollbar touch-pan-y overscroll-contain relative scroll-smooth h-auto md:h-full min-h-[200px]">
                     {[
                       { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.', type: 'miner' },
                       { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.', type: 'miner' },
@@ -4787,7 +4794,7 @@ export default function App() {
                                       {(item.price >= 25000 || item.name.includes('MVP')) ? (
                                         <span className="bg-mc-gold text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_15px_rgba(255,170,0,0.4)] border border-yellow-300/50">LEGENDÄR</span>
                                       ) : (item.price >= 5000 || item.name.includes('VIP')) ? (
-                                        <span className="bg-purple-600/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30 shadow-[0_0_10px_rgba(147,51,234,0.2)]">VIP ELITE</span>
+                                        <span className="bg-purple-500/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.3)]">VIP ELITE</span>
                                       ) : null}
                                       {isOwnRank && (
                                         <span className="bg-white text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">AKTIV</span>
@@ -5395,7 +5402,7 @@ export default function App() {
                            (p.role === 'Root' || p.role === 'Owner') ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.5)]' : 
                            p.role === 'Admin' ? 'bg-mc-red text-white' : 
                            p.role === 'Mod' ? 'bg-mc-red/40 text-white' : 
-                           p.role === 'VIP' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]' :
+                           p.role === 'VIP' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.7)]' :
                            p.role === 'MVP' ? 'bg-mc-gold text-black' :
                            'bg-blue-600 text-white'
                          }`}>
@@ -5664,7 +5671,7 @@ export default function App() {
                       <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
                         p.role === 'Admin' ? 'bg-mc-gold text-black' :
                         p.role === 'Mod' ? 'bg-mc-red text-white' :
-                        p.role === 'VIP' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(147,51,234,0.5)]' :
+                        p.role === 'VIP' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.7)] border border-purple-400/30' :
                         p.role === 'MVP' ? 'bg-mc-blue text-white' :
                         p.role === 'Besucher' ? 'bg-neutral-700 text-neutral-300' : ''
                       }`}>
