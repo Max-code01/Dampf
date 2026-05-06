@@ -1089,6 +1089,7 @@ export default function App() {
   };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen || isAiOpen;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -1443,8 +1444,7 @@ export default function App() {
 
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
-    const isOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen;
-    if (isOverlayOpen) {
+    if (isAnyOverlayOpen) {
       document.body.style.overflow = 'hidden';
       document.body.style.paddingRight = 'var(--scrollbar-width, 0px)';
     } else {
@@ -1455,7 +1455,7 @@ export default function App() {
       document.body.style.overflow = '';
       document.body.style.paddingRight = '';
     };
-  }, [chatOpen, shopOpen, newsOpen, pollsOpen, showAdmin, showLoginModal, showProfileModal, showMiningModal, (openingBox as any).isOpen]);
+  }, [isAnyOverlayOpen]);
 
   // Shop Management
   const addShopItem = async () => {
@@ -1817,6 +1817,21 @@ export default function App() {
     const coinsPerClick = Math.floor((1 + (myProfile?.inventory?.pickaxePower || 0) * 0.5) * (1 + (myProfile?.inventory?.luck || 0) * 0.1));
     
     // 🔥 Optimistic Sync: UI Updates immediately
+    const coinsStr = `+${coinsPerClick} 🪙`;
+    const rewardId = Math.random();
+    setFloatingRewards(prev => [...prev, {
+      id: rewardId,
+      text: coinsStr,
+      x: centerX,
+      y: centerY,
+      color: '#fbbf24'
+    }].slice(-10));
+
+    // Clear reward after 1s
+    setTimeout(() => {
+      setFloatingRewards(prev => prev.filter(r => r.id !== rewardId));
+    }, 1000);
+
     if (optimisticCoins === null) setOptimisticCoins((myProfile?.coins || 0) + coinsPerClick);
     else setOptimisticCoins(prev => (prev || 0) + coinsPerClick);
 
@@ -1887,6 +1902,20 @@ export default function App() {
     const finalXp = Math.floor(xp * miningMultiplier * userXpMult);
     const finalCoins = Math.floor(coins * miningMultiplier);
     
+    // Floating reward for block destruction
+    const blockRewardId = Math.random();
+    setFloatingRewards(prev => [...prev, {
+      id: blockRewardId,
+      text: `+${finalCoins} 🪙`,
+      x: window.innerWidth / 4, // Approx center of left area
+      y: window.innerHeight / 2,
+      color: '#fbbf24'
+    }].slice(-10));
+
+    setTimeout(() => {
+      setFloatingRewards(prev => prev.filter(r => r.id !== blockRewardId));
+    }, 1500);
+
     // Synchronize optimistic coins
     if (optimisticCoins !== null) {
       setOptimisticCoins(prev => (prev || 0) + finalCoins);
@@ -3416,7 +3445,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Root Stealth Indicators - Extremely subtle and only for Block5 */}
-      {isSuperAdmin && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal) && (
+      {isSuperAdmin && !isAnyOverlayOpen && (
         <>
           {myProfile?.isInvisible && (
             <div className="fixed top-0 right-0 w-1 h-1 bg-purple-500/20 z-[9999] pointer-events-none" />
@@ -3582,30 +3611,31 @@ export default function App() {
                 </AnimatePresence>
                 
                 {/* Left Column: The Clicker Area */}
-                <div className="w-full md:w-1/2 h-[350px] md:h-full flex flex-col items-center justify-center p-6 sm:border-r border-white/5 relative z-10 select-none">
-                  <div className="mb-8 text-center space-y-1">
-                     <h2 className="text-white font-black text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
-                     <p className="text-mc-gold font-bold italic">CPS: {coinsPerSecond} Coins/s</p>
+                <div className="w-full md:w-1/2 h-[280px] md:h-full flex flex-col items-center justify-center p-4 md:p-6 sm:border-r border-white/5 relative z-10 select-none">
+                  <div className="mb-4 md:mb-8 text-center space-y-1 scale-90 md:scale-100">
+                     <h2 className="text-white font-black text-2xl md:text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
+                     <p className="text-mc-gold font-bold italic text-sm">CPS: {coinsPerSecond} Coins/s</p>
                   </div>
 
                   {/* Center Game Area */}
-                  <div className="flex-1 flex flex-col items-center justify-center relative w-full">
+                  <div className="flex-1 flex flex-col items-center justify-center relative w-full overflow-visible">
                     <div className="absolute inset-0 pointer-events-none z-0">
-                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[600px] w-full opacity-5 blur-[80px] bg-mc-gold rounded-full" />
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[400px] md:h-[600px] w-full opacity-5 blur-[80px] bg-mc-gold rounded-full" />
                     </div>
 
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={miningBlock.type}
                         initial={{ scale: 0.3, rotate: -30, opacity: 0, y: 50 }}
-                        animate={{ scale: 1, rotate: 0, opacity: 1, y: 0 }}
+                        animate={{ scale: 0.8, rotate: 0, opacity: 1, y: 0 }} // Scaled down for mobile compatibility
+                        whileInView={{ scale: window.innerWidth < 768 ? 0.7 : 1 }}
                         exit={{ scale: 1.1, opacity: 0 }}
                         transition={{ type: 'spring', damping: 15, stiffness: 100 }}
-                        className="relative z-50 w-64 h-64 sm:w-72 sm:h-72 group"
+                        className="relative z-50 w-48 h-48 sm:w-72 sm:h-72 group"
                       >
                         {/* Health Bar */}
-                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-64 text-center space-y-3">
-                          <p className="text-white font-black text-xl uppercase tracking-[0.4em] drop-shadow-mc-thick">
+                        <div className="absolute -top-12 md:-top-16 left-1/2 -translate-x-1/2 w-48 md:w-64 text-center space-y-2 md:space-y-3">
+                          <p className="text-white font-black text-sm md:text-xl uppercase tracking-[0.4em] drop-shadow-mc-thick shrink-0">
                             {miningBlock.type}
                           </p>
                           <div className="h-4 w-full bg-black/80 rounded-full p-1 border border-white/10 relative overflow-hidden">
@@ -3683,14 +3713,14 @@ export default function App() {
                 </div>
 
                 {/* Right Column: The Shop */}
-                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 overflow-hidden h-full relative">
-                  <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-6 pb-2 border-b border-white/5">
-                    <h3 className="text-mc-gold font-black text-xl flex items-center gap-2 drop-shadow-mc">
+                <div className="w-full md:w-1/2 flex-1 flex flex-col bg-black/30 backdrop-blur-md border-l border-white/5 overflow-hidden relative min-h-0">
+                  <div className="flex-shrink-0 bg-[#1a1a1a]/80 backdrop-blur-sm z-50 p-4 md:p-6 pb-2 border-b border-white/5">
+                    <h3 className="text-mc-gold font-black text-lg md:text-xl flex items-center gap-2 drop-shadow-mc">
                       <ShoppingBag size={24} /> UPGRADES & MINERS
                     </h3>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar touch-pan-y overscroll-contain relative scroll-smooth h-full">
+                  <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 custom-scrollbar touch-pan-y overscroll-contain relative scroll-smooth min-h-0">
                     {[
                       { id: 'miner_1', name: 'Holz-Mitarbeiter', price: 150, cps: 1, icon: Pickaxe, desc: 'Ein einfacher Helfer für den Start.', type: 'miner' },
                       { id: 'miner_2', name: 'Eisen-Bergmann', price: 1000, cps: 8, icon: UserIcon, desc: 'Ausgebildeter Facharbeiter.', type: 'miner' },
@@ -3919,7 +3949,7 @@ export default function App() {
 
       {/* Global Broadcast Banner */}
       <AnimatePresence>
-        {broadcastMessage && !(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) && (
+        {broadcastMessage && !isAnyOverlayOpen && (
           <motion.div 
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -3936,7 +3966,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Navigation */}
-      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
+      <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${isAnyOverlayOpen ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
@@ -4291,7 +4321,7 @@ export default function App() {
 
       {/* Floating Action Group - Hide when any overlay is open */}
       <AnimatePresence>
-        {!(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) && (
+        {!isAnyOverlayOpen && (
           <motion.div 
             initial={{ opacity: 0, scale: 0.8, y: 50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -4942,7 +4972,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* AI Oracle Floating Button */}
-      {!isAiOpen && (
+      {!isAnyOverlayOpen && (
         <motion.button
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
@@ -5181,7 +5211,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${(chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || openingBox.isOpen || showMiningModal) ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+      <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${isAnyOverlayOpen ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
           <motion.div
@@ -5365,9 +5395,11 @@ export default function App() {
                            (p.role === 'Root' || p.role === 'Owner') ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.5)]' : 
                            p.role === 'Admin' ? 'bg-mc-red text-white' : 
                            p.role === 'Mod' ? 'bg-mc-red/40 text-white' : 
+                           p.role === 'VIP' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]' :
+                           p.role === 'MVP' ? 'bg-mc-gold text-black' :
                            'bg-blue-600 text-white'
                          }`}>
-                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : (p.role === 'VIP') ? 'VIP' : p.role}
+                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : (p.role === 'VIP') ? 'VIP' : (p.role === 'MVP') ? 'MVP' : p.role}
                          </span>
                       </motion.div>
                     ))}
