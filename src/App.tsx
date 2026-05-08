@@ -3354,7 +3354,7 @@ export default function App() {
   const combinedPvpPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'pvp' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp, purchasedRank: p.purchasedRank })),
     ...pvpPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
@@ -3364,7 +3364,7 @@ export default function App() {
   const combinedSurvivalPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp })),
+      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp, purchasedRank: p.purchasedRank })),
     ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
   ].filter((player, index, self) => 
     index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
@@ -5590,6 +5590,11 @@ export default function App() {
                                 {p.role}
                               </span>
                             )}
+                            {(p as any).purchasedRank && (p as any).purchasedRank !== 'undefined' && (
+                              <span className="text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.4)]">
+                                {(p as any).purchasedRank}
+                              </span>
+                            )}
                           </span>
                           {isAdmin && (
                             <button 
@@ -5670,6 +5675,11 @@ export default function App() {
                                 'bg-purple-500 text-white'
                               }`}>
                                 {p.role}
+                              </span>
+                            )}
+                            {(p as any).purchasedRank && (p as any).purchasedRank !== 'undefined' && (
+                              <span className="text-[8px] px-1 py-0.5 rounded-sm font-bold uppercase bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.4)]">
+                                {(p as any).purchasedRank}
                               </span>
                             )}
                           </span>
