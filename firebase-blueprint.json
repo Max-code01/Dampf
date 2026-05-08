@@ -49,6 +49,10 @@
         },
         "isInvisible": {
           "type": "boolean"
+        },
+        "purchasedRank": {
+          "type": "string",
+          "description": "Secondary rank purchased from the shop"
         }
       },
       "required": ["displayName", "minecraftUsername", "isOnline", "currentServer", "updatedAt", "userId"]

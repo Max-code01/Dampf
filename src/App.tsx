@@ -97,7 +97,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { db, auth, OperationType, handleFirestoreError } from './firebase-lib';
+import { db, auth, OperationType, handleFirestoreError, testFirestoreConnection } from './firebase-lib';
 import ReactGA from "react-ga4";
 
 if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
@@ -138,6 +138,8 @@ interface UserProfile {
   isInvisible?: boolean;
   customSkin?: string;
   updatedAt: any;
+  purchasedRank?: string;
+  purchasedRanks?: string[];
   // NEUE FELDER
   inventory?: {
     keys?: number;
@@ -146,7 +148,6 @@ interface UserProfile {
     pickaxeName?: string;
     luck?: number;
     xpMultiplier?: number;
-    purchasedRanks?: string[];
   };
   mining?: {
     cps?: number;
@@ -166,7 +167,6 @@ interface UserProfile {
   lastLoginAsn?: string;
   registrationIp?: string;
   lastDailyReward?: any;
-  purchasedRanks?: string[];
 }
 
 interface ChatMessage {
@@ -180,6 +180,7 @@ interface ChatMessage {
   isLocal?: boolean;
   isStaffOnly?: boolean;
   tempId?: string;
+  purchasedRank?: string;
 }
 
 interface NewsItem {
@@ -521,10 +522,9 @@ export default function App() {
       if (data) {
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
         setRealmCodes(prev => data.realmCodes ? { ...prev, ...data.realmCodes } : prev);
-        console.warn('⚠️ [SYSTEM] Firebase Quota Hit or Offline - Using Emergency Fallback from Local Server');
       }
     } catch (e) {
-      console.error('Failed to fetch emergency config', e);
+      // Silently fail, it's just a fallback
     }
   };
 
@@ -541,7 +541,47 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchEmergencyConfig();
+    const init = async () => {
+      // 1. Initial check: Is Firebase working?
+      const isFbWorking = await testFirestoreConnection();
+      if (!isFbWorking) {
+        console.warn('⚠️ [SYSTEM] Firebase offline or quota reached. Activating emergency fallback...');
+        setIsMaintenanceMode(true);
+        fetchEmergencyConfig();
+      } else {
+        // Firebase works
+        setIsMaintenanceMode(false);
+        fetchEmergencyConfig();
+      }
+    };
+    init();
+
+    // Suppress Vite HMR WebSocket errors in the console to avoid user confusion
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    console.error = (...args: any[]) => {
+      if (args[0]?.toString().includes('WebSocket') || args[0]?.toString().includes('vite')) return;
+      originalError.apply(console, args);
+    };
+
+    console.warn = (...args: any[]) => {
+      if (args[0]?.toString().includes('Firebase Quota Hit')) return;
+      originalWarn.apply(console, args);
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('WebSocket')) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('unhandledrejection', handleRejection);
+
+    return () => {
+      console.error = originalError;
+      console.warn = originalWarn;
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
   }, []);
 
   useEffect(() => {
@@ -1578,18 +1618,21 @@ export default function App() {
       let specialMessage = "";
       
       // LOGIK JE NACH KATEGORIE
+      let purchasedRank = "";
       if (item.category === 'Ränge') {
         const newRole = item.name.replace(' Rang', '').trim();
+        purchasedRank = newRole;
         // ADMIN SCHUTZ: Überschreibe Admin/Owner nicht durch normale Ränge
         if (myProfile?.role === 'Admin' || myProfile?.role === 'Owner' || myProfile?.role === 'Root') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
-          // Wir könnten hier ein Feld 'purchasedRanks' führen, aber primärer Rang bleibt Admin
-          const currentRanks = myProfile?.inventory?.purchasedRanks || [];
+          updates.purchasedRank = newRole; // Save the purchased rank specifically
+          const currentRanks = myProfile?.purchasedRanks || [];
           if (!currentRanks.includes(newRole)) {
-            updates['inventory.purchasedRanks'] = [...currentRanks, newRole];
+            updates.purchasedRanks = [...currentRanks, newRole];
           }
         } else {
           updates.role = newRole;
+          updates.purchasedRank = ""; // Clear if they overwrite their primary role (e.g. going from VIP to MVP)
           specialMessage = `Du hast nun den Rang: ${newRole}`;
         }
       } 
@@ -1688,11 +1731,12 @@ export default function App() {
       
       await addDoc(collection(db, 'chat_messages'), {
         text: item.category === 'Ränge' 
-          ? `👑 **${myProfile.displayName}** ist nun offiziell **${updates.role}**! Herzlichen Glückwunsch!`
+          ? `👑 **${myProfile.displayName}** ist nun offiziell **${purchasedRank}**! Herzlichen Glückwunsch!`
           : `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! ${specialMessage}`,
         userId: 'system',
         displayName: 'SHOP',
         role: 'System',
+        purchasedRank: purchasedRank,
         createdAt: serverTimestamp()
       });
       
@@ -1825,7 +1869,10 @@ export default function App() {
     
     // Floating reward calculation for current hit
     const damage = (myProfile?.inventory?.pickaxePower || 1);
-    const coinsPerClick = Math.floor((1 + (myProfile?.inventory?.pickaxePower || 0) * 0.5) * (1 + (myProfile?.inventory?.luck || 0) * 0.1));
+    const baseCpc = (myProfile?.mining?.coinsPerClick || 1);
+    const powerBonus = (myProfile?.inventory?.pickaxePower || 0) * 0.5;
+    const luckBonus = (myProfile?.inventory?.luck || 0) * 0.1;
+    const coinsPerClick = Math.floor((baseCpc + powerBonus) * (1 + luckBonus) * miningMultiplier);
     
     // 🔥 Optimistic Sync: UI Updates immediately
     const coinsStr = `+${coinsPerClick} 🪙`;
@@ -2992,6 +3039,7 @@ export default function App() {
       userId: user.uid,
       displayName: (myProfile?.displayName || user.displayName || 'Unbekannt').substring(0, 64),
       role: (myProfile?.role || 'Member').substring(0, 64),
+      purchasedRank: myProfile?.purchasedRank,
       createdAt: null,
       tempId: tempId
     };
@@ -3014,6 +3062,7 @@ export default function App() {
           userId: user.uid,
           displayName: (myProfile?.displayName || user.displayName || 'Unbekannt').substring(0, 64),
           role: (myProfile?.role || 'Member').substring(0, 64),
+          purchasedRank: myProfile?.purchasedRank || "",
           createdAt: serverTimestamp(),
           tempId: tempId
         });
@@ -3360,6 +3409,7 @@ export default function App() {
           userId: p.userId,
           isOnline: p.isOnline,
           role: displayRole,
+          purchasedRank: p.purchasedRank,
           profile: p,
           server: p.currentServer || 'none'
         }];
@@ -3743,7 +3793,8 @@ export default function App() {
                       { id: 'click_4', name: 'Königlicher Segen', price: 50000, cpc: 100, icon: Trophy, desc: 'Jeder Klick ist ein Vermögen wert.', type: 'click' },
                       { id: 'power_4', name: 'Weltenspalter', price: 40000, power: 85, icon: Swords, desc: 'Kein Block hält diesem Schlag stand.', type: 'power' },
                     ].map((item) => {
-                      const canAfford = (myProfile?.coins || 0) >= item.price;
+                      const currentCoins = optimisticCoins !== null ? optimisticCoins : (myProfile?.coins || 0);
+                      const canAfford = currentCoins >= item.price;
                       const typeColor = item.type === 'miner' ? 'text-blue-400' : item.type === 'click' ? 'text-yellow-400' : 'text-mc-red';
                       const typeBg = item.type === 'miner' ? 'bg-blue-400/10' : item.type === 'click' ? 'bg-yellow-400/10' : 'bg-mc-red/10';
 
@@ -3754,6 +3805,14 @@ export default function App() {
                           whileTap={canAfford ? { scale: 0.98 } : {}}
                           onClick={async () => {
                              if (!canAfford || !user) return;
+                             
+                             // 🔥 Optimistic UI update
+                             if (optimisticCoins !== null) {
+                               setOptimisticCoins(prev => (prev || 0) - item.price);
+                             } else {
+                               setOptimisticCoins((myProfile?.coins || 0) - item.price);
+                             }
+
                              const updates: any = { coins: increment(-item.price) };
                              if ('cps' in item) {
                                setCoinsPerSecond(prev => prev + (item.cps || 0));
@@ -3765,7 +3824,23 @@ export default function App() {
                              if ('power' in item) {
                                updates['inventory.pickaxePower'] = increment(item.power || 0);
                              }
-                             await updateDoc(doc(db, 'user_profiles', user.uid), updates);
+
+                             try {
+                               await updateDoc(doc(db, 'user_profiles', user.uid), updates);
+                               
+                               // Feedback
+                               setFloatingRewards(prev => [...prev, {
+                                 id: Math.random(),
+                                 text: `GEKAUFT: ${item.name}`,
+                                 x: window.innerWidth / 2,
+                                 y: window.innerHeight / 2,
+                                 color: '#22c55e'
+                               }].slice(-10));
+                             } catch (err) {
+                               console.error("Purchase failed:", err);
+                               // Revert optimistic coins on failure
+                               setOptimisticCoins(null);
+                             }
                           }}
                           className={`w-full p-4 rounded-2xl border flex items-center gap-4 text-left transition-all ${
                             canAfford 
@@ -4749,6 +4824,19 @@ export default function App() {
                     </div>
                   )}
 
+                  {myProfile?.purchasedRank && (
+                    <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.2)]">
+                        <Award size={24} className="text-purple-400" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-black tracking-widest text-purple-400">Erworbener Rang</div>
+                        <div className="text-xl font-black text-white">{myProfile.purchasedRank}</div>
+                        <div className="text-[9px] text-neutral-400 mt-1 italic">Vorteil: Dieser Rang wird im Chat angezeigt!</div>
+                      </div>
+                    </div>
+                  )}
+
                   {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
                     const items = shopItems.filter(i => i.category === cat);
                     if (items.length === 0 && !isAdmin) return null;
@@ -5078,6 +5166,21 @@ export default function App() {
                                 {displayRole}
                               </span>
                             )}
+                            {(() => {
+                              const senderProf = userProfiles.find(p => p.userId === msg.userId);
+                              const rankToShow = (msg.purchasedRank && msg.purchasedRank !== 'undefined') 
+                                ? msg.purchasedRank 
+                                : senderProf?.purchasedRank;
+                                
+                              if (rankToShow && rankToShow !== 'undefined') {
+                                return (
+                                  <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase text-white bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                                    {rankToShow}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                             {msg.isLocal && !isSystem && (
                               <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase bg-neutral-800 text-neutral-400 border border-neutral-700">
                                 Privat
@@ -5103,7 +5206,14 @@ export default function App() {
                             isMe ? 'bg-mc-red text-white shadow-lg shadow-mc-red/15 rounded-tr-sm' : 
                             'bg-neutral-800 text-neutral-100 rounded-tl-sm'
                           }`}>
-                            {msg.text.replace(/§[a-z0-9]/g, '')}
+                            {(() => {
+                              let cleanText = msg.text.replace(/§[a-z0-9]/g, '');
+                              if (msg.userId === 'system' && cleanText.includes('ist nun offiziell **undefined**!')) {
+                                // Versuche den Rang aus dem purchasedRank Feld zu nehmen, falls vorhanden
+                                cleanText = cleanText.replace('**undefined**', `**${msg.purchasedRank || 'Mitglied'}**`);
+                              }
+                              return cleanText;
+                            })()}
                             {msg.id.startsWith('temp-') && (
                               <motion.div 
                                 animate={{ rotate: 360 }}
@@ -5408,6 +5518,11 @@ export default function App() {
                          }`}>
                            {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : (p.role === 'VIP') ? 'VIP' : (p.role === 'MVP') ? 'MVP' : p.role}
                          </span>
+                         {p.purchasedRank && p.purchasedRank !== 'undefined' && (
+                           <span className="mt-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.4)]">
+                             {p.purchasedRank}
+                           </span>
+                         )}
                       </motion.div>
                     ))}
                   </div>
@@ -5676,6 +5791,11 @@ export default function App() {
                         p.role === 'Besucher' ? 'bg-neutral-700 text-neutral-300' : ''
                       }`}>
                         {p.role}
+                      </div>
+                    )}
+                    {p.purchasedRank && p.purchasedRank !== 'undefined' && (
+                      <div className="px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm bg-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                        {p.purchasedRank}
                       </div>
                     )}
                     {isAdmin && (

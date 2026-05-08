@@ -53,3 +53,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
+
+export async function testFirestoreConnection() {
+  try {
+    await getDocFromServer(doc(db, 'app_config', 'system'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('offline') || error.message.includes('quota') || error.message.includes('permission-denied'))) {
+      return false;
+    }
+    return false;
+  }
+}
