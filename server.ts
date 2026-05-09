@@ -14,7 +14,7 @@ async function startServer() {
     maintenanceMode: false,
     realmCodes: {
       PVP: 'w3PHnwq-5_kcfoE',
-      SURVIVAL: 'K2_7HskE9mI'
+      SURVIVAL: 'JwMPYn9KpsVnRFo'
     }
   };
 

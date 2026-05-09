@@ -59,6 +59,7 @@ import {
   History,
   Check,
   Package,
+  RefreshCw,
   Image as ImageIcon,
   Play,
   Flame,
@@ -424,6 +425,59 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
+  const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+
+  // Optimized fetch functions
+  const fetchServerStatus = async () => {
+    try {
+      const pvpSnap = await getDoc(doc(db, 'server_status', 'pvp'));
+      if (pvpSnap.exists()) setPvpStatus(pvpSnap.data() as any);
+      
+      const survivalSnap = await getDoc(doc(db, 'server_status', 'survival'));
+      if (survivalSnap.exists()) setSurvivalStatus(survivalSnap.data() as any);
+    } catch (err: any) {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'server_status');
+    }
+  };
+
+  const fetchOnlinePlayers = async () => {
+    try {
+      const playersQuery = query(collection(db, 'online_players'), limit(50));
+      const snapshot = await getDocs(playersQuery);
+      setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    } catch (err: any) {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'online_players');
+    }
+  };
+
+  const fetchRealmCodes = async () => {
+    try {
+      const snap = await getDoc(doc(db, 'app_config', 'realm_codes'));
+      if (snap.exists()) setRealmCodes(snap.data() as any);
+    } catch (err: any) {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
+    }
+  };
+
+  // Optimization: Fetch profiles manually to save quota
+  const fetchProfiles = async () => {
+    setIsRefreshingProfiles(true);
+    try {
+      const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
+      const snapshot = await getDocs(profilesQuery);
+      const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
+      setUserProfiles(profiles);
+    } catch (err: any) {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'user_profiles');
+    } finally {
+      setIsRefreshingProfiles(false);
+    }
+  };
 
   const [miningShake, setMiningShake] = useState(0);
   const [hitFeedback, setHitFeedback] = useState(false);
@@ -917,7 +971,7 @@ export default function App() {
     // 2. Heartbeat for Online status
     const heartbeat = setInterval(() => {
       setDoc(profileRef, { isOnline: true, updatedAt: serverTimestamp() }, { merge: true });
-    }, 45000);
+    }, 120000); // 2 minutes heartbeat to save quota
 
     // 3. Cleanup on tab close (Best effort)
     const handleUnload = () => {
@@ -979,136 +1033,102 @@ export default function App() {
 
   // Firebase Listeners
   useEffect(() => {
-    // Listen to players
-    const unsubscribePlayers = onSnapshot(query(collection(db, 'online_players'), limit(50)), (snapshot) => {
-      const playerList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Player));
-      setPlayers(playerList);
-    }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'online_players');
-    });
+    if (isQuotaExceeded) return;
 
-    // Listen to pvp status
-    const unsubscribePvp = onSnapshot(doc(db, 'server_status', 'pvp'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as ServerStatus;
-        setPvpStatus(data);
-        if (data.maintenance) setIsMaintenanceMode(true);
-      }
-    }, (err) => {
-      if (err.message.includes('Quota')) fetchEmergencyConfig();
-      handleFirestoreError(err, OperationType.GET, 'server_status/pvp');
-    });
+    // Initial fetch for everything
+    fetchOnlinePlayers();
+    fetchServerStatus();
+    fetchRealmCodes();
+    fetchProfiles();
 
-    // Listen to survival status
-    const unsubscribeSurvival = onSnapshot(doc(db, 'server_status', 'survival'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as ServerStatus;
-        setSurvivalStatus(data);
-        // If either server is in maintenance, global maintenance is active for the UI
-        if (data.maintenance) setIsMaintenanceMode(true);
-      }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'server_status/survival'));
-
-    // Listen to maintenance/broadcast config
+    // Listen to maintenance/broadcast config (Small payload, keep real-time)
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
-        if (data.realmNames) {
-          setRealmNames(prev => ({ ...prev, ...data.realmNames }));
-        }
-        if (data.realmColors) {
-          setRealmColors(prev => ({ ...prev, ...data.realmColors }));
-        }
+        if (data.realmNames) setRealmNames(prev => ({ ...prev, ...data.realmNames }));
+        if (data.realmColors) setRealmColors(prev => ({ ...prev, ...data.realmColors }));
       }
+    }, (err) => {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
     });
 
-    // Listen to user profiles: ALWAYS listen for community list, but limit for performance
-    const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
-    const unsubscribeProfiles = onSnapshot(profilesQuery, (snapshot) => {
-      const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
-      setUserProfiles(profiles);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'user_profiles'));
-
-    // Listen to realm codes
-    const unsubscribeCodes = onSnapshot(doc(db, 'app_config', 'realm_codes'), (snapshot) => {
-      if (snapshot.exists()) setRealmCodes(snapshot.data() as any);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes'));
-
-    // Listen to chat
-    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
+    // Chat remains real-time for interactivity but limited
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(30));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
       setChatMessages(msgs);
       
-      // Clean up local messages that are now in the official feed
       const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
       if (confirmedTempIds.length > 0) {
         setTimeout(() => {
-          setLocalMessages(prev => prev.filter(m => {
-            const shouldKeep = !confirmedTempIds.includes(m.tempId);
-            return shouldKeep;
-          }));
+          setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
         }, 300);
       }
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'chat_messages'));
+    }, (err) => {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'chat_messages');
+    });
 
-    // Listen to clans
-    const unsubscribeClans = onSnapshot(collection(db, 'clans'), (snapshot) => {
-      const clanList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan));
-      setClans(clanList);
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'clans'));
+    // One-time listeners for rarely updated content
+    const fetchOthers = async () => {
+      try {
+        const clansSnap = await getDocs(collection(db, 'clans'));
+        setClans(clansSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
 
-    // Listen to news
-    const unsubscribeNews = onSnapshot(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-      setNews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'news'));
+        const newsSnap = await getDocs(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)));
+        setNews(newsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
 
-    // Listen to polls
-    const unsubscribePolls = onSnapshot(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
-      setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'polls'));
+        const pollsSnap = await getDocs(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)));
+        setPolls(pollsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
 
-    // Listen to shop
-    const unsubscribeShop = onSnapshot(query(collection(db, 'shop'), orderBy('price', 'asc')), (snapshot) => {
-      setShopItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop'));
+        const shopSnap = await getDocs(query(collection(db, 'shop'), orderBy('price', 'asc')));
+        setShopItems(shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
+      } catch (err: any) {
+        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      }
+    };
+
+    fetchOthers();
 
     return () => {
-      unsubscribePlayers();
-      unsubscribePvp();
-      unsubscribeSurvival();
-      if (unsubscribeProfiles) unsubscribeProfiles();
-      unsubscribeCodes();
+      unsubscribeAppConfig();
       unsubscribeChat();
-      unsubscribeClans();
-      if (unsubscribeAppConfig) unsubscribeAppConfig();
-      unsubscribeNews();
-      unsubscribePolls();
-      unsubscribeShop();
     };
-  }, [user, showAdmin, surveillanceExpanded]);
+  }, [user, showAdmin, surveillanceExpanded, isQuotaExceeded]);
 
   // Separate effect for admin logs
   useEffect(() => {
-    if (!isAdmin || !user) return;
-    const unsubscribeLogs = onSnapshot(query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30)), (snapshot) => {
-      setShopLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'shop_logs'));
-
-    return () => unsubscribeLogs();
-  }, [isAdmin, user]);
+    if (!isAdmin || !user || isQuotaExceeded) return;
+    
+    const fetchLogs = async () => {
+      try {
+        const q = query(collection(db, 'shop_logs'), orderBy('createdAt', 'desc'), limit(30));
+        const snap = await getDocs(q);
+        setShopLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (err: any) {
+        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      }
+    };
+    
+    fetchLogs();
+  }, [isAdmin, user, isQuotaExceeded]);
 
   useEffect(() => {
-    if (!user) return;
-    const unsubscribePurchases = onSnapshot(collection(db, 'users', user.uid, 'purchases'), (snapshot) => {
-      setMyPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'purchases'));
-
-    return () => unsubscribePurchases();
-  }, [user]);
+    if (!user || isQuotaExceeded) return;
+    
+    const fetchPurchases = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users', user.uid, 'purchases'));
+        setMyPurchases(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (err: any) {
+        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      }
+    };
+    
+    fetchPurchases();
+  }, [user, isQuotaExceeded]);
 
   // Update my profile when user object changes
   useEffect(() => {
@@ -3944,6 +3964,33 @@ export default function App() {
         )}
       </AnimatePresence>
       <AnimatePresence>
+        {isQuotaExceeded && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-[90%] max-w-md pointer-events-none"
+          >
+            <div className="bg-orange-500/90 border border-white/20 backdrop-blur-xl rounded-2xl p-4 flex items-center gap-4 shadow-[0_0_50px_rgba(249,115,22,0.4)] pointer-events-auto">
+              <div className="p-2 bg-white/20 text-white rounded-xl">
+                <ShieldAlert size={24} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-black text-white italic uppercase tracking-wider">System im Ruhemodus</h4>
+                <p className="text-[10px] text-white/80 leading-relaxed uppercase font-bold tracking-widest mt-0.5">
+                  Das Firebase-Limit wurde erreicht. Echtzeit-Updates sind bis morgen pausiert.
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsQuotaExceeded(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-white/50 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {openingBox.isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -5215,7 +5262,9 @@ export default function App() {
                 const combined = [...chatMessages];
                 // Add local messages that aren't confirmed yet
                 localMessages.forEach(lm => {
-                  if (!chatMessages.some(cm => cm.tempId === lm.tempId)) {
+                  if (lm.isLocal && lm.userId === 'system') {
+                    combined.push(lm);
+                  } else if (lm.tempId && !chatMessages.some(cm => cm.tempId === lm.tempId)) {
                     combined.push(lm);
                   }
                 });
@@ -5298,7 +5347,7 @@ export default function App() {
                             </button>
                           )}
                           
-                          <div className={`relative px-4 py-2 rounded-2xl text-sm break-words transition-all ${
+                          <div className={`relative px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap transition-all ${
                             msg.isAction ? 'italic text-neutral-400 bg-transparent py-1 px-0 shadow-none border-0' :
                             msg.userId === 'system' ? 'bg-mc-gold/10 border border-mc-gold/20 text-mc-gold' :
                             msg.id.startsWith('temp-') ? 'bg-neutral-800 text-neutral-400 opacity-60 border border-neutral-700 border-dashed' :
@@ -5523,12 +5572,21 @@ export default function App() {
         <section className="mb-12">
           <div className="mc-card p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-mc-gold/20 relative overflow-hidden">
             <div className="absolute inset-0 bg-mc-gold/[0.02] pointer-events-none" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-3 mb-2">
-                <Circle className="text-mc-red fill-mc-red animate-pulse" size={12} />
-                <h2 className="text-2xl font-bold">Wer ist gerade online?</h2>
+            <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between w-full gap-4">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <Circle className="text-mc-red fill-mc-red animate-pulse" size={12} />
+                  <h2 className="text-2xl font-bold">Wer ist gerade online?</h2>
+                </div>
+                <p className="text-neutral-500 text-sm">Aktuell sind {totalOnline} Spieler in der Community aktiv.</p>
               </div>
-              <p className="text-neutral-500 text-sm">Aktuell sind {totalOnline} Spieler in der Community aktiv.</p>
+              <button 
+                onClick={fetchOnlinePlayers}
+                className="flex items-center gap-2 px-4 py-2 bg-black/40 border border-neutral-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white transition-all hover:border-neutral-700 active:scale-95 group/refresh"
+              >
+                <RefreshCw size={12} className="group-hover/refresh:rotate-180 transition-transform duration-500" />
+                Aktualisieren
+              </button>
             </div>
             
             <div className="flex -space-x-4">
@@ -5646,6 +5704,13 @@ export default function App() {
               <h2 className="text-3xl font-bold mb-4">Realm Zugangscodes</h2>
               <p className="text-neutral-400">Direkter Zugang für geprüfte Community-Mitglieder.</p>
             </div>
+            <button 
+              onClick={() => { fetchServerStatus(); fetchRealmCodes(); }}
+              className="flex items-center gap-2 px-6 py-3 bg-neutral-900 border border-neutral-800 rounded-2xl text-xs font-black uppercase tracking-[0.2em] text-neutral-400 hover:text-white transition-all hover:border-neutral-700 active:scale-95 group/status"
+            >
+              <RefreshCw size={14} className="group-hover/status:rotate-180 transition-transform duration-700" />
+              Status Refresh
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-24">
@@ -5833,9 +5898,19 @@ export default function App() {
 
           {/* Community Players List */}
           <div className="mb-12">
-            <div className="flex items-center gap-3 mb-8">
-              <Globe className="text-mc-gold" size={28} />
-              <h2 className="text-3xl font-bold">Community Status</h2>
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <Globe className="text-mc-gold" size={28} />
+                <h2 className="text-3xl font-bold">Community Status</h2>
+              </div>
+              <button 
+                onClick={fetchProfiles}
+                disabled={isRefreshingProfiles}
+                className={`flex items-center gap-2 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-xs font-bold uppercase tracking-widest text-neutral-400 hover:text-white transition-all hover:border-neutral-700 ${isRefreshingProfiles ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <RefreshCw size={14} className={isRefreshingProfiles ? 'animate-spin' : ''} />
+                {isRefreshingProfiles ? 'Refreshing...' : 'Aktualisieren'}
+              </button>
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
