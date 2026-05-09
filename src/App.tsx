@@ -392,6 +392,7 @@ export default function App() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [realmNames, setRealmNames] = useState({ pvp: 'Helden', survival: 'Survival World' });
+  const [realmColors, setRealmColors] = useState({ pvp: '#ff3b3b', survival: '#ff3b3b' });
   const [broadcastMessage, setBroadcastMessage] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
@@ -1017,6 +1018,9 @@ export default function App() {
         setBroadcastMessage(data.broadcast || null);
         if (data.realmNames) {
           setRealmNames(prev => ({ ...prev, ...data.realmNames }));
+        }
+        if (data.realmColors) {
+          setRealmColors(prev => ({ ...prev, ...data.realmColors }));
         }
       }
     });
@@ -3353,6 +3357,19 @@ export default function App() {
     }
   };
 
+  const updateRealmColor = async (server: 'pvp' | 'survival', color: string) => {
+    if (!isAdmin && !isOwner && !isSuperAdmin) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'system'), {
+        realmColors: {
+          [server]: color
+        }
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/system');
+    }
+  };
+
   const clearChat = async () => {
     if (!isAdmin) return;
     if (!confirm('🗑️ CHAT-VERLAUF LEEREN? Fortfahren?')) return;
@@ -4268,6 +4285,15 @@ export default function App() {
                         className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
                       />
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Farbe</label>
+                      <input 
+                        type="color"
+                        defaultValue={realmColors.pvp}
+                        onBlur={(e) => updateRealmColor('pvp', e.target.value)}
+                        className="w-full h-8 bg-black/40 border border-neutral-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -4310,6 +4336,15 @@ export default function App() {
                         defaultValue={realmCodes.SURVIVAL}
                         onBlur={(e) => updateRealmCode('survival', e.target.value)}
                         className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Farbe</label>
+                      <input 
+                        type="color"
+                        defaultValue={realmColors.survival}
+                        onBlur={(e) => updateRealmColor('survival', e.target.value)}
+                        className="w-full h-8 bg-black/40 border border-neutral-800 rounded-lg cursor-pointer"
                       />
                     </div>
                   </div>
@@ -5618,23 +5653,27 @@ export default function App() {
               whileHover={{ scale: 1.01 }}
               className="relative overflow-hidden group"
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent pointer-events-none" />
-              <div className="mc-card h-full flex flex-col justify-between border-red-500/20">
+              <div 
+                className="absolute inset-0 pointer-events-none" 
+                style={{ background: `linear-gradient(to bottom right, ${realmColors.pvp}1a, transparent)` }}
+              />
+              <div className="mc-card h-full flex flex-col justify-between" style={{ borderColor: `${realmColors.pvp}33` }}>
                 <div>
                   <div className="flex items-center justify-between mb-8">
-                    <div className="p-3 bg-red-500/20 text-red-400 rounded-xl">
+                    <div className="p-3 rounded-xl" style={{ backgroundColor: `${realmColors.pvp}33`, color: realmColors.pvp }}>
                       <Swords size={32} />
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Live Status</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: realmColors.pvp }}>Live Status</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono bg-red-500/10 text-red-400 px-3 py-1 rounded-full border border-red-500/20">
+                        <span className="text-xs font-mono px-3 py-1 rounded-full border" style={{ backgroundColor: `${realmColors.pvp}1a`, color: realmColors.pvp, borderColor: `${realmColors.pvp}33` }}>
                           {combinedPvpPlayers.length} / {pvpStatus.maxPlayers} Online
                         </span>
                       </div>
                     </div>
                   </div>
                   <h3 className="text-2xl font-bold mb-2">{realmNames.pvp}</h3>
+
                   <p className="text-neutral-400 mb-6 leading-relaxed">
                     {realmNames.pvp === 'PvP Arena' ? 'Der offizielle Realm für unsere PvP-Turniere. Kämpfe gegen andere, verbessere deine Skills und dominiere.' : `Willkommen auf dem ${realmNames.pvp} Realm!`}
                   </p>
@@ -5645,11 +5684,11 @@ export default function App() {
                     <div className="flex flex-wrap gap-2">
                       {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map((p, i) => (
                         <div key={p.id || p.username || `pvp-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
-                          <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.pvp, boxShadow: `0 0 5px ${realmColors.pvp}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
                             {isAdmin && (p as any).ip && (
-                              <span className="text-[9px] font-mono text-mc-red bg-red-500/10 px-1 rounded border border-red-500/20">
+                              <span className="text-[9px] font-mono px-1 rounded border" style={{ color: realmColors.pvp, backgroundColor: `${realmColors.pvp}1a`, borderColor: `${realmColors.pvp}33` }}>
                                 {(p as any).ip}
                               </span>
                             )}
@@ -5705,17 +5744,20 @@ export default function App() {
               whileHover={{ scale: 1.01 }}
               className="relative overflow-hidden group"
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-mc-red/10 to-transparent pointer-events-none" />
-              <div className="mc-card h-full flex flex-col justify-between border-mc-red/20">
+              <div 
+                className="absolute inset-0 pointer-events-none" 
+                style={{ background: `linear-gradient(to bottom right, ${realmColors.survival}1a, transparent)` }}
+              />
+              <div className="mc-card h-full flex flex-col justify-between" style={{ borderColor: `${realmColors.survival}33` }}>
                 <div>
                   <div className="flex items-center justify-between mb-8">
-                    <div className="p-3 bg-mc-red/20 text-mc-red rounded-xl">
+                    <div className="p-3 rounded-xl" style={{ backgroundColor: `${realmColors.survival}33`, color: realmColors.survival }}>
                       <Trees size={32} />
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[10px] font-bold text-mc-red uppercase tracking-widest mb-1">Live Status</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: realmColors.survival }}>Live Status</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono bg-mc-red/10 text-mc-red px-3 py-1 rounded-full border border-mc-red/20">
+                        <span className="text-xs font-mono px-3 py-1 rounded-full border" style={{ backgroundColor: `${realmColors.survival}1a`, color: realmColors.survival, borderColor: `${realmColors.survival}33` }}>
                           {combinedSurvivalPlayers.length} / {survivalStatus.maxPlayers} Online
                         </span>
                       </div>
@@ -5732,11 +5774,11 @@ export default function App() {
                     <div className="flex flex-wrap gap-2">
                       {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map((p, i) => (
                         <div key={p.id || p.username || `surv-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
-                          <div className="w-2 h-2 rounded-full bg-mc-red shadow-sm shadow-red-500/50" />
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.survival, boxShadow: `0 0 5px ${realmColors.survival}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
                             {isAdmin && (p as any).ip && (
-                              <span className="text-[9px] font-mono text-mc-red bg-red-500/10 px-1 rounded border border-red-500/20">
+                              <span className="text-[9px] font-mono px-1 rounded border" style={{ color: realmColors.survival, backgroundColor: `${realmColors.survival}1a`, borderColor: `${realmColors.survival}33` }}>
                                 {(p as any).ip}
                               </span>
                             )}
@@ -5916,7 +5958,14 @@ export default function App() {
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[10px] text-neutral-500 uppercase tracking-widest">{p.isOnline ? 'Online' : 'Offline'}</p>
                     {p.isOnline && p.server && p.server !== 'none' && (
-                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${p.server === 'pvp' ? 'bg-red-500/20 text-red-400' : 'bg-mc-red/20 text-mc-red'}`}>
+                      <span 
+                        className="text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter border shadow-sm"
+                        style={{ 
+                          backgroundColor: `${p.server === 'pvp' ? realmColors.pvp : realmColors.survival}1a`, 
+                          color: p.server === 'pvp' ? realmColors.pvp : realmColors.survival,
+                          borderColor: `${p.server === 'pvp' ? realmColors.pvp : realmColors.survival}33`
+                        }}
+                      >
                         {p.server}
                       </span>
                     )}
@@ -6410,51 +6459,51 @@ export default function App() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="mc-card border-red-500/10 bg-red-500/[0.01]">
+            <div className="mc-card" style={{ borderColor: `${realmColors.pvp}1a`, backgroundColor: `${realmColors.pvp}02` }}>
               <div className="flex items-center gap-3 mb-6">
-                <Swords className="text-red-400" size={24} />
+                <Swords size={24} style={{ color: realmColors.pvp }} className="opacity-80" />
                 <h3 className="text-xl font-bold">{realmNames.pvp} Rules</h3>
               </div>
               <ul className="space-y-4">
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.pvp }} />
                   Keine künstlichen Verzögerungen oder "Lag-Switching".
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.pvp }} />
                   Respektvoller Umgang im Chat nach einem Kampf (GG!).
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.pvp }} />
                   Kein Teaming in Solo-Modi.
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.pvp }} />
                   Nutzung von Exploits führt zum sofortigen Bann.
                 </li>
               </ul>
             </div>
 
-            <div className="mc-card border-mc-red/10 bg-mc-red/[0.01]">
+            <div className="mc-card" style={{ borderColor: `${realmColors.survival}1a`, backgroundColor: `${realmColors.survival}02` }}>
               <div className="flex items-center gap-3 mb-6">
-                <Trees className="text-mc-red" size={24} />
+                <Trees size={24} style={{ color: realmColors.survival }} className="opacity-80" />
                 <h3 className="text-xl font-bold">{realmNames.survival} Rules</h3>
               </div>
               <ul className="space-y-4">
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.survival }} />
                   Kein Griefing oder Zerstören fremder Bauwerke.
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.survival }} />
                   Kein Stehlen aus Kisten – fragt vorher um Erlaubnis.
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.survival }} />
                   Haltet die Welt sauber (keine schwebenden Baumkronen).
                 </li>
                 <li className="flex gap-3 text-sm text-neutral-400">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mc-red shrink-0" />
+                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: realmColors.survival }} />
                   Große Projekte bitte vorher im Discord anmelden.
                 </li>
               </ul>
