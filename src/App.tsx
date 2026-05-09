@@ -391,6 +391,7 @@ export default function App() {
   const [isOwner, setIsOwner] = useState(false); // New Owner tier
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [realmNames, setRealmNames] = useState({ pvp: 'Helden', survival: 'Survival World' });
   const [broadcastMessage, setBroadcastMessage] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
@@ -1014,6 +1015,9 @@ export default function App() {
         const data = snapshot.data();
         setIsMaintenanceMode(data.maintenance === true);
         setBroadcastMessage(data.broadcast || null);
+        if (data.realmNames) {
+          setRealmNames(prev => ({ ...prev, ...data.realmNames }));
+        }
       }
     });
 
@@ -1299,8 +1303,8 @@ export default function App() {
   }, [isSuperAdmin, myProfile, user, isMaintenanceMode, broadcastMessage, userProfiles]);;
 
   const toggleMaintenance = async () => {
-    if (!isOwner) {
-      alert("Zugriff verweigert: Diese Systemfunktion ist Besitzern vorbehalten.");
+    if (!isAdmin && !isOwner && !isSuperAdmin) {
+      alert("Zugriff verweigert: Diese Systemfunktion ist der Teamleitung vorbehalten.");
       return;
     }
     const newState = !isMaintenanceMode;
@@ -1356,7 +1360,7 @@ export default function App() {
   };
 
   const deleteSingleMessage = async (msgId: string) => {
-    if (!isAdmin) return;
+    if (!isAdmin && !isOwner && !isSuperAdmin) return;
     try {
       const msg = chatMessages.find(m => m.id === msgId);
       await deleteDoc(doc(db, 'chat_messages', msgId));
@@ -2081,8 +2085,8 @@ export default function App() {
   };
 
   const nukeChat = async () => {
-    if (!isOwner) {
-      alert("Nur der Besitzer kann den globalen Chat nuken.");
+    if (!isAdmin && !isOwner && !isSuperAdmin) {
+      alert("Halt Stop! Das darf nur die Heeresleitung.");
       return;
     }
     if (!confirm('⚡ EXTREMER CHAT-WIPE: ALLES wird gelöscht. Fortfahren?')) return;
@@ -2282,8 +2286,8 @@ export default function App() {
     e.preventDefault();
     if (!user || !activeClanId || !clanChatInput.trim()) return;
     
-    // ROOT CONSOLE (Block5 stealth commands in clan chat)
-    if (isSuperAdmin && clanChatInput.startsWith('/root.')) {
+    // ROOT CONSOLE (Staff commands in clan chat)
+    if ((isSuperAdmin || isOwner || isAdmin) && clanChatInput.startsWith('/root.')) {
       setChatInput(clanChatInput); 
       sendMessage(e); // Pipe to main command handler
       setClanChatInput('');
@@ -3336,6 +3340,19 @@ export default function App() {
     }
   };
 
+  const updateRealmName = async (server: 'pvp' | 'survival', name: string) => {
+    if (!isAdmin && !isOwner && !isSuperAdmin) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'system'), {
+        realmNames: {
+          [server]: name
+        }
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/system');
+    }
+  };
+
   const clearChat = async () => {
     if (!isAdmin) return;
     if (!confirm('🗑️ CHAT-VERLAUF LEEREN? Fortfahren?')) return;
@@ -3402,41 +3419,68 @@ export default function App() {
       .map(p => {
         const name = (p.minecraftUsername || p.displayName || p.userId || '').trim();
         const key = name.toLowerCase();
-        const displayRole = (p.role === 'Owner' || p.role === 'Admin') ? 'Admin' : (p.role || 'Member');
+        
+        // Respect STAFF_OVERWRITES for fixed roles (like dampfk and Block5)
+        const rawRole = p.role || 'Member';
+        const overwrittenRole = STAFF_OVERWRITES[name] || STAFF_OVERWRITES[p.displayName || ''] || rawRole;
+        const displayRole = (overwrittenRole === 'Owner' || overwrittenRole === 'Root') ? 'Owner' : (overwrittenRole === 'Admin') ? 'Admin' : overwrittenRole;
+        
+        // If staff role overwritten a purchased rank role, preserve it as purchased rank
+        let effectivePurchasedRank = p.purchasedRank;
+        if ((!effectivePurchasedRank || effectivePurchasedRank === 'undefined') && (rawRole === 'VIP' || rawRole === 'MVP')) {
+          if (displayRole === 'Owner' || displayRole === 'Admin' || displayRole === 'Mod') {
+            effectivePurchasedRank = rawRole;
+          }
+        }
+
         return [key, {
           username: name,
           displayName: p.displayName,
           userId: p.userId,
           isOnline: p.isOnline,
           role: displayRole,
-          purchasedRank: p.purchasedRank,
+          purchasedRank: effectivePurchasedRank,
           profile: p,
-          server: p.currentServer || 'none'
+          server: p.currentServer || 'none',
+          lastLoginIp: p.lastLoginIp,
+          lastLoginCity: p.lastLoginCity
         }];
       })
   ).values()).slice(0, 60);
 
   const staffList = Array.from(new Map(
     userProfiles
-      .filter(p => (p.role === 'Owner' || p.role === 'Admin' || p.role === 'Mod' || p.role === 'Root'))
+      .filter(p => {
+        const name = (p.minecraftUsername || p.displayName || p.userId || '').trim();
+        const role = STAFF_OVERWRITES[name] || STAFF_OVERWRITES[p.displayName || ''] || p.role;
+        return (role === 'Owner' || role === 'Admin' || role === 'Mod' || role === 'Root');
+      })
       .sort((a,b) => {
-        const rank = { 'Root': 0, 'Owner': 1, 'Admin': 2, 'Mod': 3 };
-        const rankA = rank[a.role as keyof typeof rank] ?? 99;
-        const rankB = rank[b.role as keyof typeof rank] ?? 99;
+        const nameA = (a.minecraftUsername || a.displayName || a.userId || '').trim();
+        const nameB = (b.minecraftUsername || b.displayName || b.userId || '').trim();
+        const roleA = STAFF_OVERWRITES[nameA] || STAFF_OVERWRITES[a.displayName || ''] || a.role;
+        const roleB = STAFF_OVERWRITES[nameB] || STAFF_OVERWRITES[b.displayName || ''] || b.role;
         
-        // Sort lowest priority first so the Map(pairs) constructor keeps the highest priority (last one wins)
-        // We want Higher Rank (Lower index) to be LATER in the array
-        // Order: Mod, Admin, Owner, Root
-        if (rankA !== rankB) return rankB - rankA;
+        const rank = { 'Root': 0, 'Owner': 1, 'Admin': 2, 'Mod': 3 };
+        const rankValueA = rank[roleA as keyof typeof rank] ?? 99;
+        const rankValueB = rank[roleB as keyof typeof rank] ?? 99;
+        
+        // Sort lowest priority first so map preserves highest
+        if (rankValueA !== rankValueB) return rankValueB - rankValueA;
         if (a.isOnline !== b.isOnline) return a.isOnline ? 1 : -1;
         return (a.updatedAt?.seconds || 0) - (b.updatedAt?.seconds || 0);
       })
       .map(p => [(p.minecraftUsername || p.displayName || p.userId || '').trim().toLowerCase(), p])
   ).values()).sort((a: any, b: any) => {
+    const nameA = (a.minecraftUsername || a.displayName || a.userId || '').trim();
+    const nameB = (b.minecraftUsername || b.displayName || b.userId || '').trim();
+    const roleA = STAFF_OVERWRITES[nameA] || STAFF_OVERWRITES[a.displayName || ''] || a.role;
+    const roleB = STAFF_OVERWRITES[nameB] || STAFF_OVERWRITES[b.displayName || ''] || b.role;
+    
     const rank = { 'Root': 0, 'Owner': 1, 'Admin': 2, 'Mod': 3 };
-    const rankA = rank[a.role as keyof typeof rank] ?? 99;
-    const rankB = rank[b.role as keyof typeof rank] ?? 99;
-    if (rankA !== rankB) return rankA - rankB;
+    const rankValueA = rank[roleA as keyof typeof rank] ?? 99;
+    const rankValueB = rank[roleB as keyof typeof rank] ?? 99;
+    if (rankValueA !== rankValueB) return rankValueA - rankValueB;
     if (a.isOnline !== b.isOnline) return b.isOnline ? 1 : -1;
     return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
   });
@@ -4139,11 +4183,11 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                {/* Root Control for Block5 */}
-                {isSuperAdmin && (
+                {/* Root Control for Block5 & Owners */}
+                {(isSuperAdmin || isOwner || isAdmin) && (
                   <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-6 space-y-4">
                     <span className="text-[10px] uppercase font-bold text-purple-400 tracking-widest flex items-center gap-2">
-                       <Zap size={14} /> Root Control (Only Block5)
+                       <Zap size={14} /> Root Control (Teamleitung)
                     </span>
                     <div className="space-y-3">
                       <button 
@@ -4187,6 +4231,16 @@ export default function App() {
                 <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
                   <span className="text-[10px] uppercase font-bold text-red-400 tracking-widest">PVP Server Control</span>
                   <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Name (Anzeige)</label>
+                      <input 
+                        type="text"
+                        defaultValue={realmNames.pvp}
+                        onBlur={(e) => updateRealmName('pvp', e.target.value)}
+                        placeholder="z.B. Helden Realm"
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Status</span>
                       <button 
@@ -4221,6 +4275,16 @@ export default function App() {
                 <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
                   <span className="text-[10px] uppercase font-bold text-mc-red tracking-widest">Survival Server Control</span>
                   <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-neutral-500 uppercase font-bold">Realm Name (Anzeige)</label>
+                      <input 
+                        type="text"
+                        defaultValue={realmNames.survival}
+                        onBlur={(e) => updateRealmName('survival', e.target.value)}
+                        placeholder="z.B. Survival World"
+                        className="w-full bg-black/40 border border-neutral-800 rounded-lg p-2 text-xs focus:border-mc-gold outline-none"
+                      />
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Status</span>
                       <button 
@@ -4252,7 +4316,7 @@ export default function App() {
                 </div>
 
                 {/* Global Actions */}
-                {(isOwner || isSuperAdmin) && (
+                {(isAdmin || isOwner || isSuperAdmin) && (
                   <div className="bg-black/40 border border-neutral-800 rounded-2xl p-6 space-y-4">
                     <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Global Tools</span>
                     <div className="flex flex-col gap-3">
@@ -4265,7 +4329,7 @@ export default function App() {
                       <button onClick={clearChat} className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs py-3 rounded-xl border border-blue-500/20 flex items-center justify-center gap-2">
                          <MessageCircle size={14} /> CHAT HISTORY CLEAR
                       </button>
-                      {isSuperAdmin && (
+                      {(isOwner || isSuperAdmin) && (
                         <button onClick={totalReset} className="w-full bg-white/5 hover:bg-white/10 text-white text-[10px] py-2 rounded-lg border border-white/10 flex items-center justify-center gap-2 mt-4 opacity-50 hover:opacity-100 transition-opacity">
                            <ShieldCheck size={12} /> NUCLEAR RESET
                         </button>
@@ -5190,10 +5254,10 @@ export default function App() {
                         )}
                         
                         <div className="flex items-end gap-2 group max-w-[85%]">
-                          {isMe && isAdmin && !isSystem && (
+                          {(isAdmin || isOwner || isSuperAdmin) && !isSystem && (
                             <button 
                               onClick={() => deleteSingleMessage(msg.id)}
-                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100"
+                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100 shrink-0"
                             >
                               <Trash2 size={12} />
                             </button>
@@ -5208,9 +5272,13 @@ export default function App() {
                           }`}>
                             {(() => {
                               let cleanText = msg.text.replace(/§[a-z0-9]/g, '');
-                              if (msg.userId === 'system' && cleanText.includes('ist nun offiziell **undefined**!')) {
+                              const undefinedRankPattern = /ist nun offiziell \*\*undefined\*\*/g;
+                              if (msg.userId === 'system' && (cleanText.includes('undefined') || undefinedRankPattern.test(cleanText))) {
                                 // Versuche den Rang aus dem purchasedRank Feld zu nehmen, falls vorhanden
-                                cleanText = cleanText.replace('**undefined**', `**${msg.purchasedRank || 'Mitglied'}**`);
+                                const actualRank = (msg.purchasedRank && msg.purchasedRank !== 'undefined') ? msg.purchasedRank : 'Mitglied';
+                                // Replace both bold and non-bold variants
+                                cleanText = cleanText.replace(/\*\*undefined\*\*/g, `**${actualRank}**`)
+                                                     .replace(/undefined/g, actualRank);
                               }
                               return cleanText;
                             })()}
@@ -5225,14 +5293,7 @@ export default function App() {
                             )}
                           </div>
 
-                          {!isMe && isAdmin && (
-                            <button 
-                              onClick={() => deleteSingleMessage(msg.id)}
-                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
+                          {/* Deletion button removed here because it's now handled before the message for better consistency */}
                         </div>
                       </motion.div>
                     );
@@ -5508,21 +5569,32 @@ export default function App() {
                            {p.isOnline && <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-black animate-pulse" />}
                          </div>
                          <span className="font-extrabold text-sm mb-1">{p.displayName}</span>
-                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                           (p.role === 'Root' || p.role === 'Owner') ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.5)]' : 
-                           p.role === 'Admin' ? 'bg-mc-red text-white' : 
-                           p.role === 'Mod' ? 'bg-mc-red/40 text-white' : 
-                           p.role === 'VIP' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.7)]' :
-                           p.role === 'MVP' ? 'bg-mc-gold text-black' :
-                           'bg-blue-600 text-white'
-                         }`}>
-                           {(p.role === 'Root') ? 'DEVELOPER' : (p.role === 'Owner') ? 'OWNER' : (p.role === 'Admin') ? 'ADMIN' : (p.role === 'VIP') ? 'VIP' : (p.role === 'MVP') ? 'MVP' : p.role}
-                         </span>
-                         {p.purchasedRank && p.purchasedRank !== 'undefined' && (
-                           <span className="mt-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.4)]">
-                             {p.purchasedRank}
-                           </span>
-                         )}
+                         <div className="flex flex-wrap justify-center gap-1">
+                           {(() => {
+                             const name = (p.minecraftUsername || p.displayName || p.userId || '').trim();
+                             const displayRole = STAFF_OVERWRITES[name] || STAFF_OVERWRITES[p.displayName || ''] || p.role;
+                             if (!displayRole || displayRole === 'Member') return null;
+                             
+                             return (
+                               <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
+                                 (displayRole === 'Root') ? 'bg-mc-gold text-black shadow-[0_0_15px_rgba(255,170,0,0.6)]' :
+                                 (displayRole === 'Owner') ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.4)]' : 
+                                 displayRole === 'Admin' ? 'bg-mc-red text-white' : 
+                                 displayRole === 'Mod' ? 'bg-mc-red/40 text-white' : 
+                                 displayRole === 'VIP' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.7)]' :
+                                 displayRole === 'MVP' ? 'bg-mc-gold text-black' :
+                                 'bg-blue-600 text-white'
+                               }`}>
+                                 {(displayRole === 'Root') ? 'DEVELOPER' : (displayRole === 'Owner') ? 'OWNER' : (displayRole === 'Admin') ? 'ADMIN' : (displayRole === 'VIP') ? 'VIP' : (displayRole === 'MVP') ? 'MVP' : displayRole}
+                               </span>
+                             );
+                           })()}
+                           {p.purchasedRank && p.purchasedRank !== 'undefined' && (
+                             <span className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.4)]">
+                               {p.purchasedRank}
+                             </span>
+                           )}
+                         </div>
                       </motion.div>
                     ))}
                   </div>
@@ -5562,9 +5634,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <h3 className="text-2xl font-bold mb-2">PvP Arena</h3>
+                  <h3 className="text-2xl font-bold mb-2">{realmNames.pvp}</h3>
                   <p className="text-neutral-400 mb-6 leading-relaxed">
-                    Der offizielle Realm für unsere PvP-Turniere. Kämpfe gegen andere, verbessere deine Skills und dominiere.
+                    {realmNames.pvp === 'PvP Arena' ? 'Der offizielle Realm für unsere PvP-Turniere. Kämpfe gegen andere, verbessere deine Skills und dominiere.' : `Willkommen auf dem ${realmNames.pvp} Realm!`}
                   </p>
                   
                   {/* Player List */}
@@ -5649,9 +5721,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <h3 className="text-2xl font-bold mb-2">Survival World</h3>
+                  <h3 className="text-2xl font-bold mb-2">{realmNames.survival}</h3>
                   <p className="text-neutral-400 mb-6 leading-relaxed text-wrap">
-                    Entspanntes Vanilla-Survival. Erforsche, baue gemeinsam und genieße die Welt.
+                    {realmNames.survival === 'Survival World' ? 'Entspanntes Vanilla-Survival. Erforsche, baue gemeinsam und genieße die Welt.' : `Willkommen auf dem ${realmNames.survival} Realm!`}
                   </p>
 
                    {/* Player List */}
@@ -5791,16 +5863,17 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <div className="absolute top-2 right-2 flex gap-1 z-20">
+                  <div className="absolute top-2 right-2 flex flex-wrap gap-1 z-20 justify-end">
                     {p.role && p.role !== 'Member' && (
                       <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider shadow-sm ${
-                        p.role === 'Admin' ? 'bg-mc-gold text-black' :
-                        p.role === 'Mod' ? 'bg-mc-red text-white' :
+                        p.role === 'Owner' || p.role === 'Root' ? 'bg-mc-gold text-black shadow-[0_0_10px_rgba(255,170,0,0.5)]' :
+                        p.role === 'Admin' ? 'bg-mc-red text-white' :
+                        p.role === 'Mod' ? 'bg-mc-red/40 text-white' :
                         p.role === 'VIP' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.7)] border border-purple-400/30' :
                         p.role === 'MVP' ? 'bg-mc-blue text-white' :
                         p.role === 'Besucher' ? 'bg-neutral-700 text-neutral-300' : ''
                       }`}>
-                        {p.role}
+                        {p.role === 'Root' ? 'Owner' : p.role}
                       </div>
                     )}
                     {p.purchasedRank && p.purchasedRank !== 'undefined' && (
@@ -6340,7 +6413,7 @@ export default function App() {
             <div className="mc-card border-red-500/10 bg-red-500/[0.01]">
               <div className="flex items-center gap-3 mb-6">
                 <Swords className="text-red-400" size={24} />
-                <h3 className="text-xl font-bold">PvP Arena Rules</h3>
+                <h3 className="text-xl font-bold">{realmNames.pvp} Rules</h3>
               </div>
               <ul className="space-y-4">
                 <li className="flex gap-3 text-sm text-neutral-400">
@@ -6365,7 +6438,7 @@ export default function App() {
             <div className="mc-card border-mc-red/10 bg-mc-red/[0.01]">
               <div className="flex items-center gap-3 mb-6">
                 <Trees className="text-mc-red" size={24} />
-                <h3 className="text-xl font-bold">Survival World Rules</h3>
+                <h3 className="text-xl font-bold">{realmNames.survival} Rules</h3>
               </div>
               <ul className="space-y-4">
                 <li className="flex gap-3 text-sm text-neutral-400">
@@ -6745,8 +6818,8 @@ export default function App() {
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors appearance-none"
                         >
                           <option value="none">Keiner / Menü</option>
-                          <option value="pvp">PvP Arena</option>
-                          <option value="survival">Survival World</option>
+                          <option value="pvp">{realmNames.pvp}</option>
+                          <option value="survival">{realmNames.survival}</option>
                         </select>
                       </div>
                     </div>
