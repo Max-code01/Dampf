@@ -1280,16 +1280,17 @@ export default function App() {
 
   const loginWithDiscord = async () => {
     const providerId = import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com';
-    console.log("[OAUTH] Starting Login process with Provider:", providerId);
+    console.log("[OAUTH] Attempting Discord Login with Provider ID:", providerId);
     
     try {
-      // Ensure we don't have multiple popups conflicting
       setLoginError(null);
       
       const provider = new OAuthProvider(providerId);
       
-      // Dynamic scopes based on provider type
-      if (providerId.includes('oidc')) {
+      // Determine scopes based on provider naming convention
+      // If it's an OIDC provider, we use 'openid', 'profile', 'email'
+      // If it's a standard Discord OAuth provider, we use 'identify', 'email'
+      if (providerId.toLowerCase().includes('oidc')) {
         provider.addScope('openid');
         provider.addScope('email');
         provider.addScope('profile');
@@ -1323,25 +1324,25 @@ export default function App() {
         );
       }
     } catch (error: any) {
-      console.error("Discord Login detailed error:", error);
+      console.error("[OAUTH] Discord Login Error:", error);
       
-      // Cleanup for common errors
       if (error.code === 'auth/cancelled-popup-request') {
-        console.warn("A login popup was already open or closed too fast.");
-        return; // Silent fail for this one
+        return; // Ignore internal cancellation
       }
       
       if (error.code === 'auth/popup-closed-by-user') {
-        setLoginError("Login abgebrochen (Fenster wurde geschlossen).");
+        setLoginError("Anmeldung abgebrochen.");
         return;
       }
 
       if (error.code === 'auth/operation-not-allowed') {
-        setLoginError(`Fehler: Der Anbieter '${providerId}' ist in Firebase nicht AKTIVIERT. Geh in die Firebase Console -> Auth -> Sign-in Method und aktiviere OAuth für discord.com.`);
+        setLoginError(`Der Provider '${providerId}' ist in Firebase nicht AKTIVIERT. Geh in 'Authentication' -> 'Sign-in method' und aktiviere deinen Discord-Anbieter.`);
       } else if (error.code === 'auth/unauthorized-domain') {
-        setLoginError("Diese Domain ist in Firebase nicht unter 'Authorized Domains' eingetragen.");
+        setLoginError(`Diese Domain (${window.location.hostname}) ist in Firebase nicht autorisiert.`);
+      } else if (error.code === 'auth/argument-error') {
+        setLoginError(`Ungültiger Provider ID: ${providerId}`);
       } else {
-        setLoginError(`Discord-Fehler: ${error.message || error.code}`);
+        setLoginError(`Fehler: ${error.message || error.code}`);
       }
     }
   };
@@ -7019,6 +7020,9 @@ export default function App() {
                     <Globe size={18} />
                     Mit Discord anmelden
                   </button>
+                  <div className="text-[10px] text-center text-neutral-600 opacity-50 -mt-2">
+                    ID: {import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com'}
+                  </div>
 
                   <button 
                     onClick={() => setIsRegistering(!isRegistering)}
