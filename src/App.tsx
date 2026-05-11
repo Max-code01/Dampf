@@ -428,6 +428,8 @@ export default function App() {
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState<UserProfile[]>([]);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
 
   // Optimized fetch functions
@@ -1156,11 +1158,21 @@ export default function App() {
       // Silent fail for quota
     });
 
+    // 6. Leaderboard Listener (Real-time Top 50 by Coins)
+    const leaderboardQuery = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
+    const unsubscribeLeaderboard = onSnapshot(leaderboardQuery, (snap) => {
+      const data = snap.docs.map(doc => doc.data() as UserProfile);
+      setLeaderboardData(data);
+    }, (err) => {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+    });
+
     return () => {
       clearInterval(heartbeat);
       window.removeEventListener('beforeunload', handleUnload);
       unsubscribe();
       unsubscribeOnline();
+      unsubscribeLeaderboard();
     };
   }, [user, isQuotaExceeded]);
 
@@ -1288,7 +1300,7 @@ export default function App() {
   };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || (openingBox as any).isOpen || isAiOpen;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -4783,6 +4795,22 @@ export default function App() {
               </button>
             )}
 
+            {/* Leaderboard Button */}
+            <button 
+              onClick={() => { 
+                setLeaderboardOpen(!leaderboardOpen);
+                setShopOpen(false);
+                setNewsOpen(false); 
+                setPollsOpen(false); 
+                setChatOpen(false); 
+                setShowMiningModal(false);
+              }}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${leaderboardOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
+              title="Bestenliste"
+            >
+              <Trophy size={24} />
+            </button>
+
             {/* Mining Game Button */}
             <button 
               onClick={() => { setShowMiningModal(true); setShopOpen(false); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
@@ -5468,6 +5496,130 @@ export default function App() {
 
       {/* Chat Drawer */}
       <AnimatePresence>
+        {/* Leaderboard Modal */}
+        <AnimatePresence>
+          {leaderboardOpen && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+              onClick={(e) => { if (e.target === e.currentTarget) setLeaderboardOpen(false); }}
+            >
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="w-full max-w-2xl bg-neutral-900 border border-mc-gold/30 rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(255,170,0,0.1)] flex flex-col max-h-[85vh]"
+              >
+                {/* Header */}
+                <div className="p-8 bg-gradient-to-r from-mc-gold/10 via-transparent to-mc-gold/5 flex items-center justify-between border-b border-white/5">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-mc-gold rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(255,170,0,0.4)]">
+                      <Trophy size={28} className="text-black" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Globales Leaderboard</h2>
+                      <p className="text-[10px] text-mc-gold/60 font-bold uppercase tracking-widest mt-1 italic">Wer sind die reichsten Spieler?</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setLeaderboardOpen(false)}
+                    className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                  {leaderboardData.length === 0 ? (
+                    <div className="py-20 text-center">
+                      <RefreshCw className="mx-auto text-mc-gold/20 animate-spin mb-4" size={40} />
+                      <p className="text-neutral-500 uppercase font-black text-xs tracking-widest">Lade Daten aus dem Multiversum...</p>
+                    </div>
+                  ) : (
+                    leaderboardData.map((profile, idx) => (
+                      <motion.div 
+                        key={profile.userId}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className={`flex items-center justify-between p-4 rounded-2xl border transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
+                          profile.userId === user?.uid 
+                            ? 'bg-mc-gold/20 border-mc-gold shadow-[0_0_30px_rgba(255,170,0,0.1)]' 
+                            : 'bg-black/40 border-white/5 hover:border-mc-gold/30'
+                        }`}
+                        onClick={() => {
+                          setEditingProfileId(profile.userId);
+                          setShowProfileModal(true);
+                          setLeaderboardOpen(false);
+                        }}
+                      >
+                        <div className="flex items-center gap-4">
+                          {/* Rank indicator */}
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${
+                            idx === 0 ? 'bg-mc-gold text-black shadow-[0_0_15px_rgba(255,170,0,0.5)]' :
+                            idx === 1 ? 'bg-neutral-300 text-black' :
+                            idx === 2 ? 'bg-orange-400 text-black' :
+                            'bg-neutral-800 text-neutral-500'
+                          }`}>
+                            #{idx + 1}
+                          </div>
+                          
+                          {/* Avatar */}
+                          <div className="relative">
+                            <img 
+                              src={profile.customSkin || `https://mc-heads.net/avatar/${profile.minecraftUsername || profile.displayName}/64`} 
+                              alt="Avatar"
+                              className="w-10 h-10 rounded-xl"
+                            />
+                            {profile.isOnline && (
+                              <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-neutral-900 rounded-full" />
+                            )}
+                          </div>
+                          
+                          {/* Name & Role */}
+                          <div className="flex flex-col">
+                            <span className={`font-black uppercase tracking-tight text-sm ${profile.userId === user?.uid ? 'text-mc-gold' : 'text-white'}`}>
+                              {profile.displayName || 'Unbekannt'}
+                            </span>
+                            <span className="text-[9px] text-neutral-500 uppercase font-black tracking-widest">
+                              {profile.role || 'Member'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Coins */}
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl font-black text-white italic tracking-tighter">
+                              {new Intl.NumberFormat('de-DE').format(profile.coins || 0)}
+                            </span>
+                            <Coins size={18} className="text-mc-gold drop-shadow-[0_0_8px_rgba(255,170,0,0.5)]" />
+                          </div>
+                          <span className="text-[8px] text-neutral-600 uppercase font-bold tracking-widest">Credits</span>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+
+                {/* Footer Info */}
+                <div className="p-6 bg-black/40 border-t border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-[9px] font-black text-neutral-500 uppercase tracking-widest">
+                    <History size={14} />
+                    Letztes Update: Gerade eben
+                  </div>
+                  <div className="text-[9px] font-black text-mc-gold uppercase tracking-widest">
+                    Zählt Gesamte Coins im System
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {chatOpen && (
           <motion.div 
             initial={{ opacity: 0, x: 100 }}
