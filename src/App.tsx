@@ -1275,8 +1275,9 @@ export default function App() {
   };
 
   const loginWithDiscord = async () => {
+    const providerId = import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com';
     try {
-      const provider = new OAuthProvider('discord.com');
+      const provider = new OAuthProvider(providerId);
       // Discord permissions: identify, email
       provider.addScope('identify');
       provider.addScope('email');
@@ -1307,7 +1308,7 @@ export default function App() {
       if (error.code === 'auth/popup-blocked') {
         setLoginError("Popup wurde blockiert. Bitte erlaube Popups für diese Seite (oben rechts im Browser).");
       } else if (error.code === 'auth/operation-not-allowed') {
-        setLoginError("Der Discord-Login ist in Firebase nicht aktiv. Du musst in der Firebase Console 'Identity Platform' aktivieren und dann den Anbieter 'discord.com' unter 'OAuth' hinzufügen.");
+        setLoginError(`Discord Login ("${import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com'}") ist in Firebase deinstalliert oder nicht aktiviert.`);
       } else if (error.code === 'auth/unauthorized-domain') {
         setLoginError("Diese Domain ist in Firebase noch nicht autorisiert (Einstellungen -> Authorized Domains).");
       } else if (error.code === 'auth/invalid-oauth-client-id') {
