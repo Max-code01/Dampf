@@ -1278,9 +1278,16 @@ export default function App() {
     const providerId = import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com';
     try {
       const provider = new OAuthProvider(providerId);
-      // Discord permissions: identify, email
-      provider.addScope('identify');
-      provider.addScope('email');
+      
+      // Handle OIDC vs standard OAuth scopes
+      if (providerId.startsWith('oidc.')) {
+        provider.addScope('openid');
+        provider.addScope('email');
+        provider.addScope('profile');
+      } else {
+        provider.addScope('identify');
+        provider.addScope('email');
+      }
       
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
