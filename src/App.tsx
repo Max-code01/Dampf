@@ -1119,13 +1119,15 @@ export default function App() {
   useEffect(() => {
     if (isQuotaExceeded) return;
 
-    // Initial fetch for essential minimal data
+    // Initial fetch for EVERYTHING automatically as requested
     fetchOnlinePlayers();
     fetchServerStatus();
     fetchRealmCodes();
-
-    // Lazy load other core data if respective views are open
-    if (showAdmin || surveillanceExpanded) fetchProfiles();
+    fetchProfiles();
+    fetchNews();
+    fetchPolls();
+    fetchShop();
+    fetchClans();
 
     // Listen to maintenance/broadcast config (Small payload, keep real-time)
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
@@ -1276,12 +1278,16 @@ export default function App() {
 
   const loginWithDiscord = async () => {
     const providerId = import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com';
-    console.log("[OAUTH] Initializing login with Provider:", providerId);
+    console.log("[OAUTH] Starting Login process with Provider:", providerId);
+    
     try {
+      // Ensure we don't have multiple popups conflicting
+      setLoginError(null);
+      
       const provider = new OAuthProvider(providerId);
       
-      // Handle OIDC vs standard OAuth scopes
-      if (providerId.startsWith('oidc.')) {
+      // Dynamic scopes based on provider type
+      if (providerId.includes('oidc')) {
         provider.addScope('openid');
         provider.addScope('email');
         provider.addScope('profile');
@@ -1289,40 +1295,40 @@ export default function App() {
         provider.addScope('identify');
         provider.addScope('email');
       }
-      
+
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
         setShowLoginModal(false);
-        setLoginError(null);
-        
         notifyDiscord(
           "🎮 DISCORD-LOGIN ERFOLGREICH",
-          `Ein Benutzer hat sich erfolgreich via Discord authentifiziert.`,
+          `Profil: ${result.user.displayName}`,
           5793266,
           [
-            { name: "👤 Name", value: result.user.displayName || 'Unbekannt', inline: true },
-            { name: "📧 Email", value: result.user.email || 'N/A', inline: true }
+            { name: "👤 User", value: result.user.displayName || 'Unbekannt', inline: true },
+            { name: "📧 Mail", value: result.user.email || 'N/A', inline: true }
           ]
         );
       }
     } catch (error: any) {
-      console.error("Discord Login Error Details:", {
-        code: error.code,
-        message: error.message,
-        customData: error.customData,
-        credential: error.credential
-      });
+      console.error("Discord Login detailed error:", error);
+      
+      // Cleanup for common errors
+      if (error.code === 'auth/cancelled-popup-request') {
+        console.warn("A login popup was already open or closed too fast.");
+        return; // Silent fail for this one
+      }
+      
+      if (error.code === 'auth/popup-closed-by-user') {
+        setLoginError("Login abgebrochen (Fenster wurde geschlossen).");
+        return;
+      }
 
-      if (error.code === 'auth/popup-blocked') {
-        setLoginError("Popup wurde blockiert. Bitte erlaube Popups für diese Seite (oben rechts im Browser).");
-      } else if (error.code === 'auth/operation-not-allowed') {
-        setLoginError(`Discord Login ("${import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com'}") ist in Firebase deinstalliert oder nicht aktiviert.`);
+      if (error.code === 'auth/operation-not-allowed') {
+        setLoginError(`Fehler: Der Anbieter '${providerId}' ist in Firebase nicht AKTIVIERT. Geh in die Firebase Console -> Auth -> Sign-in Method und aktiviere OAuth für discord.com.`);
       } else if (error.code === 'auth/unauthorized-domain') {
-        setLoginError("Diese Domain ist in Firebase noch nicht autorisiert (Einstellungen -> Authorized Domains).");
-      } else if (error.code === 'auth/invalid-oauth-client-id') {
-        setLoginError("Die Discord Client ID in Firebase ist falsch.");
+        setLoginError("Diese Domain ist in Firebase nicht unter 'Authorized Domains' eingetragen.");
       } else {
-        setLoginError(`Fehler: ${error.message || error.code}`);
+        setLoginError(`Discord-Fehler: ${error.message || error.code}`);
       }
     }
   };
