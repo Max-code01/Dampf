@@ -615,8 +615,10 @@ export default function App() {
   // Emergency Fallback: If Firebase is dead, we fetch basic info from our own server
   const fetchEmergencyConfig = async () => {
     try {
-      const res = await fetch('/api/emergency-config');
-      if (!res.ok) return;
+      // Use full URL if provided via env, otherwise fallback to local /api
+      const target = import.meta.env.VITE_EMERGENCY_CONFIG_URL || '/api/emergency-config';
+      const res = await fetch(target);
+      if (!res.ok) return; // Silent skip
       const data = await res.json();
       if (data) {
         setIsMaintenanceMode(prev => data.maintenanceMode !== undefined ? data.maintenanceMode : prev);
@@ -1298,6 +1300,17 @@ export default function App() {
 
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
+        // Create/Update profile for Discord user
+        await setDoc(doc(db, 'user_profiles', result.user.uid), {
+          userId: result.user.uid,
+          displayName: result.user.displayName || 'Unbekannt',
+          minecraftUsername: result.user.displayName || '',
+          role: 'Member',
+          isOnline: true,
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp()
+        }, { merge: true });
+
         setShowLoginModal(false);
         notifyDiscord(
           "🎮 DISCORD-LOGIN ERFOLGREICH",
