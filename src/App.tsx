@@ -1300,17 +1300,20 @@ export default function App() {
       console.error("Discord Login Error Details:", {
         code: error.code,
         message: error.message,
-        customData: error.customData
+        customData: error.customData,
+        credential: error.credential
       });
 
       if (error.code === 'auth/popup-blocked') {
-        setLoginError("Popup wurde blockiert. Bitte erlaube Popups für diese Seite.");
+        setLoginError("Popup wurde blockiert. Bitte erlaube Popups für diese Seite (oben rechts im Browser).");
       } else if (error.code === 'auth/operation-not-allowed') {
-        setLoginError("Discord Login ist in Firebase noch nicht aktiviert (OAuth Provider fehlt).");
+        setLoginError("Der Discord-Login ist in Firebase nicht aktiv. Du musst in der Firebase Console 'Identity Platform' aktivieren und dann den Anbieter 'discord.com' unter 'OAuth' hinzufügen.");
       } else if (error.code === 'auth/unauthorized-domain') {
-        setLoginError("Diese Domain ist in Firebase noch nicht autorisiert.");
+        setLoginError("Diese Domain ist in Firebase noch nicht autorisiert (Einstellungen -> Authorized Domains).");
+      } else if (error.code === 'auth/invalid-oauth-client-id') {
+        setLoginError("Die Discord Client ID in Firebase ist falsch.");
       } else {
-        setLoginError(`Discord Login Fehler (${error.code || 'Unbekannt'}). Bitte prüfe die Konsole.`);
+        setLoginError(`Fehler: ${error.message || error.code}`);
       }
     }
   };
