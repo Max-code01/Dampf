@@ -92,6 +92,7 @@ import {
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
+  OAuthProvider,
   signOut, 
   onAuthStateChanged,
   User,
@@ -707,10 +708,10 @@ export default function App() {
   };
 
   // Constants
-  const DISCORD_GUILD_ID = '1451980583969230882'; 
+  const DISCORD_GUILD_ID = import.meta.env.VITE_DISCORD_GUILD_ID || '1451980583969230882'; 
   const WEBHOOK_URL = (import.meta as any).env.VITE_DISCORD_WEBHOOK_URL;
 
-  // Discord Notifier
+  // Discord Notifier (System-Logs / Security)
   const notifyDiscord = async (title: string, message: string, color: number = 16711680, fields: { name: string, value: string, inline?: boolean }[] = [], thumbnail?: string) => {
     if (!WEBHOOK_URL) return;
     try {
@@ -718,6 +719,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          username: "MC HUB Security",
+          avatar_url: "https://i.imgur.com/8nNf9u8.png",
           embeds: [{
             title: title,
             description: message,
@@ -737,7 +740,43 @@ export default function App() {
         })
       });
     } catch (e) {
-      console.error("Webhook failed", e);
+      console.warn("Discord Log failed", e);
+    }
+  };
+
+  // Dedicated function for Player Status Webhook
+  const updateDiscordStatus = async () => {
+    const statusWebhook = import.meta.env.VITE_DISCORD_STATUS_WEBHOOK;
+    if (!statusWebhook) return;
+
+    const totalOnline = players.length;
+    const pvpCount = players.filter(p => p.server === 'pvp').length;
+    const survivalCount = players.filter(p => p.server === 'survival').length;
+
+    try {
+      await fetch(statusWebhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: "MC HUB Server-Agent",
+          avatar_url: "https://i.imgur.com/8nNf9u8.png",
+          embeds: [{
+            title: "📊 SERVER-STATUS UPDATE",
+            description: `**${totalOnline}** Mitglieder sind aktuell auf der Plattform aktiv.`,
+            color: 3447003, // Blue-ish
+            thumbnail: { url: "https://i.imgur.com/8nNf9u8.png" },
+            fields: [
+              { name: "⚔️ PvP Realm", value: `\`${pvpCount} Spieler\``, inline: true },
+              { name: "🌲 Survival", value: `\`${survivalCount} Spieler\``, inline: true },
+              { name: "🔗 Website", value: `[Dashboard öffnen](https://${window.location.hostname})`, inline: false }
+            ],
+            footer: { text: "MC HUB - Echtzeit Community Monitoring" },
+            timestamp: new Date().toISOString()
+          }]
+        })
+      });
+    } catch (err) {
+      console.warn("Discord Status update failed", err);
     }
   };
 
@@ -1127,6 +1166,18 @@ export default function App() {
     };
   }, [user, showAdmin, surveillanceExpanded, isQuotaExceeded, chatOpen]);
 
+  // Auto-Update for Discord Status Webhook
+  useEffect(() => {
+    if (!import.meta.env.VITE_DISCORD_STATUS_WEBHOOK) return;
+    
+    // Initial update
+    updateDiscordStatus();
+
+    // Every 15 minutes to avoid spam but keep it fresh
+    const interval = setInterval(updateDiscordStatus, 900000);
+    return () => clearInterval(interval);
+  }, [players.length > 0]);
+
   // Separate effect for admin logs
   useEffect(() => {
     if (!isAdmin || !user || isQuotaExceeded) return;
@@ -1220,6 +1271,38 @@ export default function App() {
           { name: "📜 Nachricht", value: error.message || 'N/A', inline: false }
         ]
       );
+    }
+  };
+
+  const loginWithDiscord = async () => {
+    try {
+      const provider = new OAuthProvider('discord.com');
+      // Discord permissions: identify, email
+      provider.addScope('identify');
+      provider.addScope('email');
+      
+      const result = await signInWithPopup(auth, provider);
+      if (result.user) {
+        setShowLoginModal(false);
+        setLoginError(null);
+        
+        notifyDiscord(
+          "🎮 DISCORD-LOGIN ERFOLGREICH",
+          `Ein Benutzer hat sich erfolgreich via Discord authentifiziert.`,
+          5793266,
+          [
+            { name: "👤 Name", value: result.user.displayName || 'Unbekannt', inline: true },
+            { name: "📧 Email", value: result.user.email || 'N/A', inline: true }
+          ]
+        );
+      }
+    } catch (error: any) {
+      console.error("Discord Login failed", error);
+      if (error.code === 'auth/popup-blocked') {
+        setLoginError("Popup wurde blockiert. Bitte erlaube Popups.");
+      } else {
+        setLoginError("Discord Login fehlgeschlagen. Stelle sicher, dass Discord in Firebase aktiviert ist.");
+      }
     }
   };
 
@@ -6887,6 +6970,14 @@ export default function App() {
                   >
                     <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google Logo" />
                     Mit Google anmelden
+                  </button>
+
+                  <button 
+                    onClick={loginWithDiscord}
+                    className="w-full px-6 py-4 rounded-xl font-bold bg-[#5865F2] text-white hover:bg-[#4752C4] transition-all flex items-center justify-center gap-2"
+                  >
+                    <Globe size={18} />
+                    Mit Discord anmelden
                   </button>
 
                   <button 
