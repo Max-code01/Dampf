@@ -1297,11 +1297,20 @@ export default function App() {
         );
       }
     } catch (error: any) {
-      console.error("Discord Login failed", error);
+      console.error("Discord Login Error Details:", {
+        code: error.code,
+        message: error.message,
+        customData: error.customData
+      });
+
       if (error.code === 'auth/popup-blocked') {
-        setLoginError("Popup wurde blockiert. Bitte erlaube Popups.");
+        setLoginError("Popup wurde blockiert. Bitte erlaube Popups für diese Seite.");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setLoginError("Discord Login ist in Firebase noch nicht aktiviert (OAuth Provider fehlt).");
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setLoginError("Diese Domain ist in Firebase noch nicht autorisiert.");
       } else {
-        setLoginError("Discord Login fehlgeschlagen. Stelle sicher, dass Discord in Firebase aktiviert ist.");
+        setLoginError(`Discord Login Fehler (${error.code || 'Unbekannt'}). Bitte prüfe die Konsole.`);
       }
     }
   };
