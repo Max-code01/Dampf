@@ -83,6 +83,7 @@ import {
   query,
   orderBy,
   limit,
+  where,
   addDoc,
   serverTimestamp,
   writeBatch,
@@ -1051,9 +1052,21 @@ export default function App() {
 
     syncProfileData();
 
-    // 2. Heartbeat for Online status
+    // 2. Heartbeat for Online status (ONLY if they actually have status visibility turned on)
     const heartbeat = setInterval(() => {
-      setDoc(profileRef, { isOnline: true, updatedAt: serverTimestamp() }, { merge: true });
+      // Re-read current online status preference from myProfile state if available
+      // If we don't know yet, we default to pulse if they are viewing the page
+      const shouldBeOnline = myProfile?.isOnline !== false;
+      
+      if (shouldBeOnline) {
+        setDoc(profileRef, { 
+          isOnline: true, 
+          updatedAt: serverTimestamp() 
+        }, { merge: true }).catch(err => {
+            // Silently fail if persistent quota issues, but log internally
+            if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+        });
+      }
     }, 120000); // 2 minutes heartbeat to save quota
 
     // 3. Cleanup on tab close (Best effort)
@@ -1110,10 +1123,44 @@ export default function App() {
     }
 
     window.addEventListener('beforeunload', handleUnload);
+
+    // 5. Global Listener for Online Stat (Real-time count)
+    const onlineQuery = query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(100));
+    const unsubscribeOnline = onSnapshot(onlineQuery, (snap) => {
+      // Merge online users into local userProfiles state if not already there or updated
+      const fetchedProfiles = snap.docs.map(doc => doc.data() as UserProfile);
+      setUserProfiles(prev => {
+        const merged = [...prev];
+        fetchedProfiles.forEach(p => {
+          const idx = merged.findIndex(up => up.userId === p.userId);
+          if (idx >= 0) merged[idx] = p;
+          else merged.push(p);
+        });
+        // Also ensure people who are NOT in fetchedProfiles but were marked as online in 'prev' are updated? 
+        // Actually onSnapshot returns the FULL set matching the query.
+        // So those in merged but NOT in fetchedProfiles should be marked offline if they were part of the 'isOnline == true' set.
+        // But some users in merged might be offline but still in the list because of the initial fetchProfiles(50).
+        
+        // Simple approach: mark everyone in prev who matches 'isOnline: true' but is not in fetchedProfiles as 'isOnline: false'
+        // ONLY if they were actually part of a previous online sync.
+        const snapIds = new Set(fetchedProfiles.map(p => p.userId));
+        return merged.map(up => {
+          if (up.isOnline && !snapIds.has(up.userId)) {
+             // If we were listening to all online and they are gone, they are offline.
+             return { ...up, isOnline: false };
+          }
+          return up;
+        }).sort((a,b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)).slice(0, 100);
+      });
+    }, (err) => {
+      // Silent fail for quota
+    });
+
     return () => {
       clearInterval(heartbeat);
       window.removeEventListener('beforeunload', handleUnload);
       unsubscribe();
+      unsubscribeOnline();
     };
   }, [user, isQuotaExceeded]);
 
@@ -2372,37 +2419,53 @@ export default function App() {
     const minecraftUsername = formData.get('minecraftUsername') as string;
     const currentServer = formData.get('currentServer') as 'none' | 'pvp' | 'survival';
     const isOnline = currentServer !== 'none' || formData.get('isOnline') === 'on';
-    const role = formData.get('role') as any;
-    const coins = parseInt(formData.get('coins') as string) || 0;
 
     try {
-      const existingProfile = targetProfile;
-      let finalRole = existingProfile?.role || 'Member';
-      let finalCoins = existingProfile?.coins || 0;
+      let finalRole: string | undefined = undefined;
+      let finalCoins: number | undefined = undefined;
 
-      if (isAdmin) {
-        // Only Owners can assign Admin/Owner roles
-        const isSettingStaffRole = role === 'Admin' || role === 'Owner' || role === 'Root';
-        if (isSettingStaffRole && !isOwner) {
-          alert("Du kannst keine Team-Ränge vergeben. (Nur Owner)");
-          finalRole = existingProfile?.role || 'Member';
-        } else {
-          finalRole = role || finalRole;
-        }
-        finalCoins = coins;
-      }
-
-      await setDoc(doc(db, 'user_profiles', targetId), {
+      const updates: any = {
         userId: targetId,
         displayName,
         minecraftUsername,
         isOnline,
         currentServer,
-        coins: finalCoins,
-        role: finalRole,
         customSkin: tempSkin || null,
         updatedAt: serverTimestamp()
-      }, { merge: true });
+      };
+
+      if (isAdmin) {
+        // Staff/Admin updates
+        const roleVal = formData.get('role') as any;
+        const coinsVal = parseInt(formData.get('coins') as string);
+        
+        const isSettingStaffRole = roleVal === 'Admin' || roleVal === 'Owner' || roleVal === 'Root';
+        if (isSettingStaffRole && !isOwner) {
+          alert("Du kannst keine Team-Ränge vergeben. (Nur Owner)");
+        } else if (roleVal) {
+          updates.role = roleVal;
+          finalRole = roleVal;
+        }
+        
+        if (!isNaN(coinsVal)) {
+          updates.coins = coinsVal;
+          finalCoins = coinsVal;
+        }
+      }
+
+      await setDoc(doc(db, 'user_profiles', targetId), updates, { merge: true });
+      
+      // Update local state immediately for better UX
+      if (targetId === user.uid) {
+        setMyProfile(prev => prev ? { ...prev, ...updates } : updates);
+      }
+
+      alert("✅ Profil erfolgreich gespeichert!");
+      
+      if (targetId === user.uid) {
+         setShowProfileModal(false);
+         setEditingProfileId(null);
+      }
 
       notifyDiscord(
         "🧬 PROFIL-MODIFIKATION (STAFF)",
@@ -2411,7 +2474,7 @@ export default function App() {
         [
           { name: "👮 Admin", value: myProfile?.displayName || user?.displayName || 'System', inline: true },
           { name: "🎯 Ziel-Konto", value: targetProfile?.displayName || 'Unbekannt', inline: true },
-          { name: "📊 Neue Daten", value: `Rolle: ${role || targetProfile?.role}\nCoins: ${coins}`, inline: false }
+          { name: "📊 Neue Daten", value: `Rolle: ${finalRole || targetProfile?.role || 'Unverändert'}\nCoins: ${finalCoins !== undefined ? finalCoins : (targetProfile?.coins || 0)}`, inline: false }
         ]
       );
 
@@ -3571,11 +3634,11 @@ export default function App() {
   const combinedSurvivalPlayers = [
     ...userProfiles
       .filter(p => p.isOnline && p.currentServer === 'survival' && (!p.isInvisible || isAdmin))
-      .map(p => ({ username: p.minecraftUsername, id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp, purchasedRank: p.purchasedRank })),
-    ...survivalPlayers.map(p => ({ username: p.username, id: p.id, type: 'manual', role: 'Member', ip: null }))
+      .map(p => ({ username: p.minecraftUsername || p.displayName || p.userId || 'Unbekannt', id: p.userId, type: 'profile', role: p.role || 'Member', ip: p.lastLoginIp, purchasedRank: p.purchasedRank })),
+    ...survivalPlayers.map(p => ({ username: p.username || 'Unbekannt', id: p.id, type: 'manual', role: 'Member', ip: null }))
   ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
-    && (!userProfiles.find(up => up.minecraftUsername?.toLowerCase() === player.username?.toLowerCase())?.isInvisible || isAdmin)
+    index === self.findIndex((t) => (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
+    && (!userProfiles.find(up => (up.minecraftUsername || up.displayName || '').toLowerCase() === (player.username || '').toLowerCase())?.isInvisible || isAdmin)
   );
 
   // Combined online players from both manual list and user profiles
@@ -3588,15 +3651,15 @@ export default function App() {
     ...userProfiles
       .filter(p => p.isOnline && (!p.isInvisible || isAdmin))
       .map(p => ({
-        username: p.minecraftUsername,
+        username: p.minecraftUsername || p.displayName || p.userId || 'Unbekannt',
         server: p.currentServer,
         displayName: p.displayName,
         userId: p.userId,
         type: 'profile' as const
       }))
   ].filter((player, index, self) => 
-    index === self.findIndex((t) => t.username?.toLowerCase() === player.username?.toLowerCase())
-    && (!userProfiles.find(up => up.minecraftUsername?.toLowerCase() === player.username?.toLowerCase())?.isInvisible || isAdmin)
+    index === self.findIndex((t) => (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
+    && (!userProfiles.find(up => (up.minecraftUsername || up.displayName || '').toLowerCase() === (player.username || '').toLowerCase())?.isInvisible || isAdmin)
   );
 
   // Final Unified Community Status List (Synced with Firebase) - Deduped by lowercase username
@@ -3675,7 +3738,7 @@ export default function App() {
     return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
   });
 
-  const totalOnline = userProfiles.filter(p => p.isOnline).length;
+  const totalOnline = combinedOnline.length;
 
   return (
     <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
@@ -7190,6 +7253,9 @@ export default function App() {
                                 className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
                               >
                                 <option value="Member">Mitglied</option>
+                                <option value="Spieler">Spieler</option>
+                                <option value="VIP">VIP</option>
+                                <option value="MVP">MVP</option>
                                 <option value="Mod">Moderator</option>
                                 <option value="Admin">Administrator</option>
                                 <option value="Owner">Besitzer (Owner)</option>
