@@ -465,17 +465,59 @@ export default function App() {
 
   // Optimization: Fetch profiles manually to save quota
   const fetchProfiles = async () => {
+    if (isQuotaExceeded) return;
     setIsRefreshingProfiles(true);
     try {
-      const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(100));
+      const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(50));
       const snapshot = await getDocs(profilesQuery);
       const profiles = snapshot.docs.map(doc => doc.data() as UserProfile);
       setUserProfiles(profiles);
+      // Cache profiles briefly in memory (already in state)
     } catch (err: any) {
       if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'user_profiles');
     } finally {
       setIsRefreshingProfiles(false);
+    }
+  };
+
+  const fetchClans = async () => {
+    if (isQuotaExceeded) return;
+    try {
+      const clansSnap = await getDocs(collection(db, 'clans'));
+      setClans(clansSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
+    } catch (err: any) {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+    }
+  };
+
+  const fetchNews = async () => {
+    if (isQuotaExceeded) return;
+    try {
+      const newsSnap = await getDocs(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)));
+      setNews(newsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
+    } catch (err: any) {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+    }
+  };
+
+  const fetchPolls = async () => {
+    if (isQuotaExceeded) return;
+    try {
+      const pollsSnap = await getDocs(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)));
+      setPolls(pollsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
+    } catch (err: any) {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+    }
+  };
+
+  const fetchShop = async () => {
+    if (isQuotaExceeded) return;
+    try {
+      const shopSnap = await getDocs(query(collection(db, 'shop'), orderBy('price', 'asc')));
+      setShopItems(shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
+    } catch (err: any) {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
     }
   };
 
@@ -980,48 +1022,51 @@ export default function App() {
     };
 
     // 4. Reactive Profile Listener for State
-    const unsubscribe = onSnapshot(profileRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as UserProfile;
-        setMyProfile(data);
-        
-        // Re-verify flags based on DB state
-        if (data.role === 'Owner' || data.role === 'Root') { 
-          setIsAdmin(true); 
-          setIsSuperAdmin(true); 
-          setIsOwner(true);
-        }
-        else if (data.role === 'Admin') { 
-          setIsAdmin(true); 
-          setIsSuperAdmin(false); 
-          setIsOwner(false);
-        }
-        else if (data.role === 'Mod') {
-          setIsAdmin(true);
-          setIsSuperAdmin(false);
-          setIsOwner(false);
-        } else {
-          // Whitelist fallback for bootstrapping or emergency
-          const userEmail = auth.currentUser?.email?.toLowerCase() || '';
-          const isWhitelistedOwner = userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || userEmail.includes('dampfk');
-          const isWhitelistedStaff = isWhitelistedOwner || userEmail.includes('finnhd1165');
+    let unsubscribe = () => {};
+    if (!isQuotaExceeded) {
+      unsubscribe = onSnapshot(profileRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as UserProfile;
+          setMyProfile(data);
           
-          if (isWhitelistedOwner) {
-            setIsAdmin(true);
-            setIsSuperAdmin(true);
+          // Re-verify flags based on DB state
+          if (data.role === 'Owner' || data.role === 'Root') { 
+            setIsAdmin(true); 
+            setIsSuperAdmin(true); 
             setIsOwner(true);
-          } else if (isWhitelistedStaff) {
+          }
+          else if (data.role === 'Admin') { 
+            setIsAdmin(true); 
+            setIsSuperAdmin(false); 
+            setIsOwner(false);
+          }
+          else if (data.role === 'Mod') {
             setIsAdmin(true);
             setIsSuperAdmin(false);
             setIsOwner(false);
           } else {
-            setIsAdmin(false);
-            setIsSuperAdmin(false);
-            setIsOwner(false);
+            // Whitelist fallback for bootstrapping or emergency
+            const userEmail = auth.currentUser?.email?.toLowerCase() || '';
+            const isWhitelistedOwner = userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || userEmail.includes('dampfk');
+            const isWhitelistedStaff = isWhitelistedOwner || userEmail.includes('finnhd1165');
+            
+            if (isWhitelistedOwner) {
+              setIsAdmin(true);
+              setIsSuperAdmin(true);
+              setIsOwner(true);
+            } else if (isWhitelistedStaff) {
+              setIsAdmin(true);
+              setIsSuperAdmin(false);
+              setIsOwner(false);
+            } else {
+              setIsAdmin(false);
+              setIsSuperAdmin(false);
+              setIsOwner(false);
+            }
           }
         }
-      }
-    });
+      });
+    }
 
     window.addEventListener('beforeunload', handleUnload);
     return () => {
@@ -1029,17 +1074,19 @@ export default function App() {
       window.removeEventListener('beforeunload', handleUnload);
       unsubscribe();
     };
-  }, [user]);
+  }, [user, isQuotaExceeded]);
 
   // Firebase Listeners
   useEffect(() => {
     if (isQuotaExceeded) return;
 
-    // Initial fetch for everything
+    // Initial fetch for essential minimal data
     fetchOnlinePlayers();
     fetchServerStatus();
     fetchRealmCodes();
-    fetchProfiles();
+
+    // Lazy load other core data if respective views are open
+    if (showAdmin || surveillanceExpanded) fetchProfiles();
 
     // Listen to maintenance/broadcast config (Small payload, keep real-time)
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
@@ -1054,49 +1101,31 @@ export default function App() {
       if (err.message.includes('Quota')) setIsQuotaExceeded(true);
     });
 
-    // Chat remains real-time for interactivity but limited
-    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(30));
-    const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
-      setChatMessages(msgs);
-      
-      const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
-      if (confirmedTempIds.length > 0) {
-        setTimeout(() => {
-          setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
-        }, 300);
-      }
-    }, (err) => {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
-      handleFirestoreError(err, OperationType.GET, 'chat_messages');
-    });
-
-    // One-time listeners for rarely updated content
-    const fetchOthers = async () => {
-      try {
-        const clansSnap = await getDocs(collection(db, 'clans'));
-        setClans(clansSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
-
-        const newsSnap = await getDocs(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)));
-        setNews(newsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
-
-        const pollsSnap = await getDocs(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)));
-        setPolls(pollsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
-
-        const shopSnap = await getDocs(query(collection(db, 'shop'), orderBy('price', 'asc')));
-        setShopItems(shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
-      } catch (err: any) {
+    // Chat listener only active when chat is actually open
+    let unsubscribeChat = () => {};
+    if (chatOpen && !isQuotaExceeded) {
+      const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(20));
+      unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
+        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
+        setChatMessages(msgs);
+        
+        const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
+        if (confirmedTempIds.length > 0) {
+          setTimeout(() => {
+            setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
+          }, 300);
+        }
+      }, (err) => {
         if (err.message.includes('Quota')) setIsQuotaExceeded(true);
-      }
-    };
-
-    fetchOthers();
+        handleFirestoreError(err, OperationType.GET, 'chat_messages');
+      });
+    }
 
     return () => {
       unsubscribeAppConfig();
       unsubscribeChat();
     };
-  }, [user, showAdmin, surveillanceExpanded, isQuotaExceeded]);
+  }, [user, showAdmin, surveillanceExpanded, isQuotaExceeded, chatOpen]);
 
   // Separate effect for admin logs
   useEffect(() => {
@@ -2271,7 +2300,7 @@ export default function App() {
 
   // Listen to clan members when user is in a clan or viewing one
   useEffect(() => {
-    if (!activeClanId) return;
+    if (!activeClanId || isQuotaExceeded) return;
     const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
       const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
       setClanMembers(members);
@@ -2304,7 +2333,7 @@ export default function App() {
       unsubscribeQuests();
       unsubscribeChat();
     };
-  }, [activeClanId, user]);
+  }, [activeClanId, user, isQuotaExceeded]);
 
   const sendClanMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4578,7 +4607,14 @@ export default function App() {
 
             {/* Shop Button */}
             <button 
-              onClick={() => { setShopOpen(!shopOpen); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
+              onClick={() => { 
+                const newState = !shopOpen;
+                setShopOpen(newState); 
+                if (newState) fetchShop();
+                setNewsOpen(false); 
+                setPollsOpen(false); 
+                setChatOpen(false); 
+              }}
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${shopOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
               title="Globaler Shop"
             >
@@ -4587,7 +4623,13 @@ export default function App() {
 
             {/* News Button */}
             <button 
-              onClick={() => { setNewsOpen(!newsOpen); setPollsOpen(false); setChatOpen(false); }}
+              onClick={() => { 
+                const newState = !newsOpen;
+                setNewsOpen(newState); 
+                if (newState) fetchNews();
+                setPollsOpen(false); 
+                setChatOpen(false); 
+              }}
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${newsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
               title="News-Feed"
             >
@@ -4596,7 +4638,13 @@ export default function App() {
 
             {/* Polls Button */}
             <button 
-              onClick={() => { setPollsOpen(!pollsOpen); setNewsOpen(false); setChatOpen(false); }}
+              onClick={() => { 
+                const newState = !pollsOpen;
+                setPollsOpen(newState); 
+                if (newState) fetchPolls();
+                setNewsOpen(false); 
+                setChatOpen(false); 
+              }}
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${pollsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
               title="Umfragen"
             >
