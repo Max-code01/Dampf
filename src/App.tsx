@@ -1276,6 +1276,7 @@ export default function App() {
 
   const loginWithDiscord = async () => {
     const providerId = import.meta.env.VITE_DISCORD_PROVIDER_ID || 'discord.com';
+    console.log("[OAUTH] Initializing login with Provider:", providerId);
     try {
       const provider = new OAuthProvider(providerId);
       
