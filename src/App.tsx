@@ -129,6 +129,7 @@ interface ServerStatus {
 }
 
 interface UserProfile {
+  id?: string;
   userId: string;
   displayName: string;
   minecraftUsername: string;
@@ -1161,8 +1162,25 @@ export default function App() {
     // 6. Leaderboard Listener (Real-time Top 50 by Coins)
     const leaderboardQuery = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
     const unsubscribeLeaderboard = onSnapshot(leaderboardQuery, (snap) => {
-      const data = snap.docs.map(doc => doc.data() as UserProfile);
-      setLeaderboardData(data);
+      const rawData = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile));
+      
+      // Deduplicate by Name (case-insensitive) AND userId, keeping the highest coins version (since it's pre-sorted by coins)
+      const seenNames = new Set<string>();
+      const seenUserIds = new Set<string>();
+      const dedupedData: UserProfile[] = [];
+      
+      rawData.forEach(profile => {
+        const userId = profile.userId || profile.id;
+        const nameKey = (profile.minecraftUsername || profile.displayName || userId || '').trim().toLowerCase();
+        
+        if (userId && !seenUserIds.has(userId) && nameKey && !seenNames.has(nameKey)) {
+          seenUserIds.add(userId);
+          seenNames.add(nameKey);
+          dedupedData.push(profile);
+        }
+      });
+
+      setLeaderboardData(dedupedData);
     }, (err) => {
       if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
     });
@@ -5541,7 +5559,7 @@ export default function App() {
                   ) : (
                     leaderboardData.map((profile, idx) => (
                       <motion.div 
-                        key={profile.userId}
+                        key={`leaderboard-${profile.userId || profile.id || idx}-${idx}`}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
@@ -5979,7 +5997,7 @@ export default function App() {
             <div className="flex -space-x-4">
               {(combinedOnline || []).map((p: any, i: number) => (
                 <motion.div 
-                  key={p?.userId || p?.username || `online-${i}`}
+                  key={`online-avatar-${p?.userId || p?.username || i}-${i}`}
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
@@ -6033,7 +6051,7 @@ export default function App() {
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-4">
                     {staffList.map((p: any, i) => (
                       <motion.div 
-                        key={p.userId || i}
+                        key={`staff-member-${p.userId || p.id || i}-${i}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
@@ -6135,7 +6153,7 @@ export default function App() {
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
                       {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map((p, i) => (
-                        <div key={p.id || p.username || `pvp-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                        <div key={`pvp-player-${p.id || p.username || i}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.pvp, boxShadow: `0 0 5px ${realmColors.pvp}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -6225,7 +6243,7 @@ export default function App() {
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
                       {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map((p, i) => (
-                        <div key={p.id || p.username || `surv-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                        <div key={`survival-player-${p.id || p.username || i}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.survival, boxShadow: `0 0 5px ${realmColors.survival}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -6303,7 +6321,7 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
               {communityDisplayList.map((p: any, i) => (
                 <motion.div 
-                  key={p.userId || p.username || `community-${i}`}
+                  key={`community-profile-${p.userId || p.id || p.username || i}-${i}`}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
