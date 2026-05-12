@@ -7022,25 +7022,28 @@ export default function App() {
                 <MessageCircle className="text-purple-500" size={20} />
                 Discord Community
               </div>
-              <span className="text-xs font-mono bg-purple-500/20 text-purple-400 px-2 py-1 rounded-lg">
-                {discordData?.online_count || 0} Online
+      <span className="text-xs font-mono bg-purple-500/20 text-purple-400 px-2 py-1 rounded-lg">
+                {(discordData?.online_count && discordData.online_count > 0) ? `${discordData.online_count} Online` : 'Community'}
               </span>
             </h3>
             
             {/* Discord Online List */}
-            <div className="mb-6 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
+            <div className="mb-6 max-h-[140px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
               {discordData?.members && discordData.members.length > 0 ? (
                 discordData.members.slice(0, 15).map((member) => (
-                  <div key={member.id} className="flex items-center gap-3 text-sm">
+                  <div key={member.id} className="flex items-center gap-3 text-sm group/member">
                     <div className="relative">
-                      <img src={member.avatar_url} alt={`${member.username} Discord`} className="w-6 h-6 rounded-full" />
-                      <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-full" />
+                      <img src={member.avatar_url} alt={`${member.username} Discord`} className="w-6 h-6 rounded-full border border-purple-500/20 group-hover/member:border-purple-500/50 transition-colors" />
+                      <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
                     </div>
-                    <span className="text-neutral-300 truncate">{member.username}</span>
+                    <span className="text-neutral-300 truncate group-hover/member:text-white transition-colors">{member.username}</span>
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-neutral-500 italic">Widget noch nicht aktiviert oder ID falsch.</p>
+                <div className="py-4 text-center">
+                  <p className="text-xs text-neutral-400 font-medium mb-1">Tritt unserer Community bei!</p>
+                  <p className="text-[10px] text-neutral-600 uppercase tracking-widest italic font-black">Join jetzt</p>
+                </div>
               )}
             </div>
 
