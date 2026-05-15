@@ -20,6 +20,7 @@ import {
   Trash2,
   ShieldCheck,
   ShieldAlert,
+  AlertTriangle,
   Command,
   HelpCircle,
   Unplug,
@@ -429,9 +430,42 @@ export default function App() {
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [floatingRewards, setFloatingRewards] = useState<{ id: number, text: string, x: number, y: number, color: string }[]>([]);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<UserProfile[]>([]);
-  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [lastLeaderboardFetch, setLastLeaderboardFetch] = useState<number>(0);
+
+  const fetchLeaderboard = async () => {
+    if (Date.now() - lastLeaderboardFetch < 60000 && leaderboardData.length > 0) return; // Cache for 1 minute
+    
+    try {
+      const q = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
+      const snap = await getDocs(q);
+      const rawData = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile));
+      
+      const seenNames = new Set<string>();
+      const seenUserIds = new Set<string>();
+      const dedupedData: UserProfile[] = [];
+      
+      rawData.forEach(profile => {
+        const userId = profile.userId || profile.id;
+        const nameKey = (profile.minecraftUsername || profile.displayName || userId || '').trim().toLowerCase();
+        
+        if (userId && !seenUserIds.has(userId) && nameKey && !seenNames.has(nameKey)) {
+          seenUserIds.add(userId);
+          seenNames.add(nameKey);
+          dedupedData.push(profile);
+        }
+      });
+
+      setLeaderboardData(dedupedData);
+      setLastLeaderboardFetch(Date.now());
+    } catch (err: any) {
+      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      console.error("Leaderboard fetch error:", err);
+    }
+  };
 
   // Optimized fetch functions
   const fetchServerStatus = async () => {
@@ -647,16 +681,20 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      // 1. Initial check: Is Firebase working?
-      const isFbWorking = await testFirestoreConnection();
-      if (!isFbWorking) {
-        console.warn('⚠️ [SYSTEM] Firebase offline or quota reached. Activating emergency fallback...');
-        setIsMaintenanceMode(true);
-        fetchEmergencyConfig();
-      } else {
-        // Firebase works
-        setIsMaintenanceMode(false);
-        fetchEmergencyConfig();
+      try {
+        // 1. Initial check: Is Firebase working?
+        const isFbWorking = await testFirestoreConnection();
+        if (!isFbWorking) {
+          console.warn('⚠️ [SYSTEM] Firebase offline or quota reached. Activating emergency fallback...');
+          setIsMaintenanceMode(true);
+          fetchEmergencyConfig();
+        } else {
+          // Firebase works
+          setIsMaintenanceMode(false);
+          fetchEmergencyConfig();
+        }
+      } catch (err) {
+        console.error('Initialization failed:', err);
       }
     };
     init();
@@ -790,7 +828,8 @@ export default function App() {
   const trackVisitor = async (isManualUpdate = false) => {
     try {
       // Vector Alpha: Detailed Geo-IP (ipapi)
-      const res1 = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(6000) });
+      const timeoutSignal = AbortSignal?.timeout ? AbortSignal.timeout(6000) : undefined;
+      const res1 = await fetch('https://ipapi.co/json/', { signal: timeoutSignal });
       const data1 = res1.ok ? await res1.json() : null;
       
       // Vector Beta: Direct RAW IP (ipify)
@@ -1128,8 +1167,9 @@ export default function App() {
     window.addEventListener('beforeunload', handleUnload);
 
     // 5. Global Listener for Online Stat (Real-time count)
-    const onlineQuery = query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(100));
+    const onlineQuery = query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(50));
     const unsubscribeOnline = onSnapshot(onlineQuery, (snap) => {
+      if (isQuotaExceeded) return;
       // Merge online users into local userProfiles state if not already there or updated
       const fetchedProfiles = snap.docs.map(doc => doc.data() as UserProfile);
       setUserProfiles(prev => {
@@ -1159,38 +1199,11 @@ export default function App() {
       // Silent fail for quota
     });
 
-    // 6. Leaderboard Listener (Real-time Top 50 by Coins)
-    const leaderboardQuery = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
-    const unsubscribeLeaderboard = onSnapshot(leaderboardQuery, (snap) => {
-      const rawData = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile));
-      
-      // Deduplicate by Name (case-insensitive) AND userId, keeping the highest coins version (since it's pre-sorted by coins)
-      const seenNames = new Set<string>();
-      const seenUserIds = new Set<string>();
-      const dedupedData: UserProfile[] = [];
-      
-      rawData.forEach(profile => {
-        const userId = profile.userId || profile.id;
-        const nameKey = (profile.minecraftUsername || profile.displayName || userId || '').trim().toLowerCase();
-        
-        if (userId && !seenUserIds.has(userId) && nameKey && !seenNames.has(nameKey)) {
-          seenUserIds.add(userId);
-          seenNames.add(nameKey);
-          dedupedData.push(profile);
-        }
-      });
-
-      setLeaderboardData(dedupedData);
-    }, (err) => {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
-    });
-
     return () => {
       clearInterval(heartbeat);
       window.removeEventListener('beforeunload', handleUnload);
       unsubscribe();
       unsubscribeOnline();
-      unsubscribeLeaderboard();
     };
   }, [user, isQuotaExceeded]);
 
@@ -1562,12 +1575,20 @@ export default function App() {
       return;
     }
     const newState = !isMaintenanceMode;
+    
+    let broadcastMsg: string | null = null;
+    if (newState) {
+      const msg = prompt("Wartungs-Hinweis (Globale Warnung):", "⚠️ SYSTEM-WARTUNG: Zugriff eingeschränkt.");
+      if (msg === null) return; // User cancelled
+      broadcastMsg = msg || "⚠️ SYSTEM-WARTUNG: Zugriff eingeschränkt.";
+    }
+
     try {
       // 1. Firebase (attempt)
       const batch = writeBatch(db);
       batch.set(doc(db, 'app_config', 'system'), { 
         maintenance: newState,
-        broadcast: newState ? "⚠️ SYSTEM-WARTUNG: Zugriff eingeschränkt." : null
+        broadcast: broadcastMsg
       }, { merge: true });
       batch.set(doc(db, 'server_status', 'pvp'), { maintenance: newState }, { merge: true });
       batch.set(doc(db, 'server_status', 'survival'), { maintenance: newState }, { merge: true });
@@ -1584,8 +1605,8 @@ export default function App() {
   };
 
   const setGlobalBroadcast = async () => {
-    if (!isSuperAdmin) return;
-    const msg = prompt('Globale Nachricht eingeben (leer zum Löschen):', broadcastMessage || '');
+    if (!isAdmin && !isOwner && !isSuperAdmin) return;
+    const msg = prompt('Globale Nachricht / Warnung eingeben (leer zum Löschen):', broadcastMessage || '');
     if (msg === null) return;
     try {
       await setDoc(doc(db, 'app_config', 'system'), { broadcast: msg || null }, { merge: true });
@@ -2086,17 +2107,32 @@ export default function App() {
     }
   }, [showMiningModal]);
 
-  const [floatingRewards, setFloatingRewards] = useState<{ id: number, text: string, x: number, y: number, color: string }[]>([]);
+  const pendingCoinUpdateRef = useRef<number>(0);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Cleanup old floating rewards
-  useEffect(() => {
-    if (floatingRewards.length > 0) {
-      const timer = setTimeout(() => {
-        setFloatingRewards(prev => prev.slice(1));
-      }, 1000);
-      return () => clearTimeout(timer);
+  const syncCoinsToDb = async () => {
+    if (!user || pendingCoinUpdateRef.current <= 0) return;
+    
+    const amountToSync = pendingCoinUpdateRef.current;
+    pendingCoinUpdateRef.current = 0; // Reset early to avoid race conditions
+    
+    try {
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        coins: increment(amountToSync)
+      });
+      // Also update xp if needed, but xp is usually updated on block break
+    } catch (err: any) {
+      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      // Put back if it failed? No, usually quota errors mean we should stop.
     }
-  }, [floatingRewards]);
+  };
+
+  const queueCoinUpdate = (amount: number) => {
+    pendingCoinUpdateRef.current += amount;
+    
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(syncCoinsToDb, 3000); // Sync every 3 seconds of inactivity
+  };
 
   const mineBlock = async (e: React.MouseEvent) => {
     if (miningBlock.health <= 0) return;
@@ -2172,11 +2208,8 @@ export default function App() {
     }));
     setMiningParticles(prev => [...prev, ...particles].slice(-60));
     
-    if (user) {
-      updateDoc(doc(db, 'user_profiles', user.uid), {
-        coins: increment(coinsPerClick)
-      });
-    }
+    // BATCHED COIN UPDATE INSTEAD OF IMMEDIATE
+    queueCoinUpdate(coinsPerClick);
 
     const newHealth = Math.max(0, miningBlock.health - damage);
 
@@ -2237,10 +2270,13 @@ export default function App() {
     }));
 
     if (user) {
+      // Syncing XP is still okay on block break as it's less frequent than per-click
       await updateDoc(doc(db, 'user_profiles', user.uid), {
         xp: increment(finalXp),
-        coins: increment(finalCoins)
+        coins: increment(finalCoins + pendingCoinUpdateRef.current)
       });
+      pendingCoinUpdateRef.current = 0; // Clear pending since we just synced
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     }
 
     // Visual pause before respawn
@@ -4528,7 +4564,7 @@ export default function App() {
                         onClick={setGlobalBroadcast}
                         className="w-full py-3 rounded-xl bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest shadow-lg shadow-mc-gold/20"
                       >
-                        Broadcast Pinnen
+                        Warnung / Broadcast
                       </button>
                       <p className="text-[9px] text-neutral-500 italic text-center px-4">
                         Shift + Alt + S zum schnellen Öffnen/Schließen
@@ -4817,6 +4853,7 @@ export default function App() {
             <button 
               onClick={() => { 
                 setLeaderboardOpen(!leaderboardOpen);
+                if (!leaderboardOpen) fetchLeaderboard();
                 setShopOpen(false);
                 setNewsOpen(false); 
                 setPollsOpen(false); 
@@ -5879,6 +5916,32 @@ export default function App() {
       </AnimatePresence>
 
       <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${isAnyOverlayOpen ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+        {/* Quota Exceeded Warning */}
+        {isQuotaExceeded && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="mb-12 mc-card border-red-500/50 bg-red-500/10 p-6 flex flex-col md:flex-row items-center justify-between gap-6"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-red-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-red-500/20">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-red-500 uppercase">System-Limit Erreicht (Quota)</h3>
+                <p className="text-neutral-400 text-sm">Das tägliche Daten-Limit von Google Cloud wurde erreicht. Die Synchronisation ist pausiert und setzt sich morgen automatisch zurück.</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mc-button mc-button-secondary border-red-500/30 text-red-500"
+            >
+              <RefreshCw size={18} />
+              Neu laden
+            </button>
+          </motion.div>
+        )}
+
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
           <motion.div
