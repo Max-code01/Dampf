@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Gamepad2, 
@@ -101,7 +101,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { db, auth, OperationType, handleFirestoreError, testFirestoreConnection } from './firebase-lib';
+import { db, auth, OperationType, handleFirestoreError, testFirestoreConnection, setQuotaListener } from './firebase-lib';
 import ReactGA from "react-ga4";
 
 if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
@@ -186,6 +186,7 @@ interface ChatMessage {
   isStaffOnly?: boolean;
   tempId?: string;
   purchasedRank?: string;
+  localTimestamp?: number;
 }
 
 interface NewsItem {
@@ -355,9 +356,9 @@ const FloatingParticles = () => {
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-      {particles.map(p => (
+      {particles.map((p, i) => (
         <motion.div
-          key={p.id}
+          key={`particle-${p.id || i}-${i}`}
           initial={{ y: '110vh', opacity: 0 }}
           animate={{ 
             y: '-10vh', 
@@ -419,6 +420,31 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+
+  const combinedMessages = useMemo(() => {
+    const combined = [...chatMessages];
+    // Add local messages that aren't confirmed yet
+    localMessages.forEach(lm => {
+      if (lm.isLocal && lm.userId === 'system') {
+        combined.push(lm);
+      } else if (lm.tempId && !chatMessages.some(cm => cm.tempId === lm.tempId)) {
+        combined.push(lm);
+      }
+    });
+
+    return combined.sort((a, b) => {
+      const getTime = (ca: any, localTs?: number) => {
+        if (!ca) return localTs || Date.now();
+        if (ca.seconds) return ca.seconds * 1000;
+        if (ca instanceof Date) return ca.getTime();
+        if (typeof ca === 'string') return new Date(ca).getTime();
+        if (typeof ca === 'number') return ca;
+        try { if (ca.toDate) return ca.toDate().getTime(); } catch (e) {}
+        return localTs || 0;
+      };
+      return getTime(a.createdAt, a.localTimestamp) - getTime(b.createdAt, b.localTimestamp);
+    });
+  }, [chatMessages, localMessages]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -431,6 +457,17 @@ export default function App() {
   const [showMiningModal, setShowMiningModal] = useState(false);
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    setQuotaListener(() => {
+      setIsQuotaExceeded(prev => {
+        if (!prev) {
+          console.error("GLOBAL QUOTA LIMIT REACHED - Stopping database listeners");
+        }
+        return true;
+      });
+    });
+  }, []);
   const [floatingRewards, setFloatingRewards] = useState<{ id: number, text: string, x: number, y: number, color: string }[]>([]);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<UserProfile[]>([]);
@@ -572,7 +609,7 @@ export default function App() {
 
   // Mining Game State
   const [miningBlock, setMiningBlock] = useState<{ type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest', health: number, maxHealth: number }>({ type: 'Stone', health: 10, maxHealth: 10 });
-  const [miningParticles, setMiningParticles] = useState<{ id: number; x: number; y: number; color: string; vx: number; vy: number }[]>([]);
+  const [miningParticles, setMiningParticles] = useState<{ id: string; x: number; y: number; color: string; vx: number; vy: number }[]>([]);
   const [pickaxeSwing, setPickaxeSwing] = useState(false);
   const [miningLevel, setMiningLevel] = useState(1);
   const [miningStats, setMiningStats] = useState({ totalBroken: 0, diamondsFound: 0 });
@@ -953,8 +990,13 @@ export default function App() {
 
         if (!snapshot.exists()) {
           // New User Registration
+          // Extract Discord ID if logging in via Discord OIDC
+          const discordProvider = user.providerData.find(p => p.providerId.includes('discord'));
+          const discordId = discordProvider?.uid;
+
           const newProfile = {
             userId: user.uid,
+            discordId: discordId || null,
             displayName: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
             minecraftUsername: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
             coins: 100,
@@ -1000,7 +1042,11 @@ export default function App() {
             return;
           }
 
-          const lastData = { 
+          // Sync Discord ID if missing
+          const discordProvider = user.providerData.find(p => p.providerId.includes('discord'));
+          const discordId = discordProvider?.uid;
+
+          const lastData: any = { 
             isOnline: true, 
             lastLoginIp: visitorInfo?.ip || 'N/A',
             lastLoginCity: visitorInfo?.city || 'N/A',
@@ -1008,6 +1054,11 @@ export default function App() {
             lastLoginAsn: visitorInfo?.asn || 'N/A',
             updatedAt: serverTimestamp() 
           };
+          
+          if (discordId) {
+            lastData.discordId = discordId;
+          }
+
           await setDoc(profileRef, lastData, { merge: true });
 
           notifyDiscord(
@@ -2198,8 +2249,9 @@ export default function App() {
     };
 
     const particleCount = miningBlock.type === 'TNT' ? 40 : 8;
-    const particles = Array.from({ length: particleCount }).map(() => ({
-      id: Math.random(),
+    const now = Date.now();
+    const particles = Array.from({ length: particleCount }).map((_, i) => ({
+      id: `p-${now}-${i}-${Math.random()}`,
       x: centerX,
       y: centerY,
       color: colors[miningBlock.type] || '#ffffff',
@@ -2930,14 +2982,16 @@ export default function App() {
 
     // Helper to send local system message (Only visible to current user)
     const sendSystemMsg = (text: string, title: string = 'SYSTEM') => {
+      const now = Date.now();
       const newLocalMsg: ChatMessage = {
-        id: `local-${Date.now()}-${Math.random()}`,
+        id: `local-${now}-${Math.random()}`,
         text: text,
         userId: 'system',
         displayName: title,
         role: 'System',
-        createdAt: new Date(),
-        isLocal: true
+        createdAt: new Date(now),
+        isLocal: true,
+        localTimestamp: now
       };
       setLocalMessages(prev => [...prev, newLocalMsg]);
     };
@@ -3235,6 +3289,38 @@ export default function App() {
             setLocalMessages([]);
             sendSystemMsg("§7Dein lokaler Chat-Verlauf wurde bereinigt.§r");
             break;
+          case 'ban': {
+            if (!isAdmin) { sendSystemMsg("§cBerechtigungs-Level unzureichend!§r"); break; }
+            const target = args[0];
+            if (!target) { sendSystemMsg("§cVerwendung: /ban [Account-ID/DiscordId/Name]§r"); break; }
+            const targetProf = userProfiles.find(p => 
+              p.minecraftUsername?.toLowerCase() === target.toLowerCase() || 
+              p.displayName?.toLowerCase() === target.toLowerCase() || 
+              p.userId === target || 
+              (p as any).discordId === target
+            );
+            if (!targetProf) { sendSystemMsg("§cZielsubjekt im System nicht auffindbar.§r"); break; }
+            if ((targetProf.role === 'Owner' || targetProf.role === 'Admin' || targetProf.role === 'Root') && !isOwner) {
+              sendSystemMsg("§cFehler: Teammitglieder können nur vom Sektor-Lead gebannt werden.§r");
+              break;
+            }
+            if (confirm(`Soll ${targetProf.displayName} wirklich permanent aus dem System entfernt werden?`)) {
+              deleteProfile(targetProf.userId);
+              sendSystemMsg(`§4Spieler ${targetProf.displayName} wurde erfolgreich terminiert.§r`);
+            }
+            break;
+          }
+          case 'root.ban': {
+            if (!isAdmin) { sendSystemMsg("§cZugriff verweigert!§r"); break; }
+            const target = args[0];
+            if (!target) break;
+            const targetProf = userProfiles.find(p => p.minecraftUsername?.toLowerCase() === target.toLowerCase() || p.displayName?.toLowerCase() === target.toLowerCase() || p.userId === target || (p as any).discordId === target);
+            if (targetProf) {
+              deleteProfile(targetProf.userId);
+              sendSystemMsg(`§6§lROOT:§r Bann für ${targetProf.displayName} initiiert.`);
+            }
+            break;
+          }
           default:
             if (command.startsWith('root.')) {
               if (!isAdmin) {
@@ -3343,6 +3429,7 @@ export default function App() {
     }
 
     const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+    const localTimestamp = Date.now();
     const tempMsg: ChatMessage = {
       id: tempId,
       text: inputToSend,
@@ -3351,12 +3438,13 @@ export default function App() {
       role: (myProfile?.role || 'Member').substring(0, 64),
       purchasedRank: myProfile?.purchasedRank,
       createdAt: null,
-      tempId: tempId
+      tempId: tempId,
+      localTimestamp: localTimestamp
     };
     
     setLocalMessages(prev => {
       // Prevent duplicates in local state
-      if (prev.some(m => m.text === inputToSend && (Date.now() - parseInt(m.id.split('-')[1]) < 1000))) {
+      if (prev.some(m => m.text === inputToSend && (Date.now() - (m.localTimestamp || 0) < 1000))) {
         return prev;
       }
       return [...prev, tempMsg];
@@ -3610,12 +3698,20 @@ export default function App() {
 
   const deleteProfile = async (profileId: string) => {
     if (!isOwner && !isSuperAdmin) return;
-    if (!confirm('☢️ EXTREM-LÖSCHUNG: Diesen Account permanent aus der Datenbank vernichten?')) return;
+    
+    // Look up profile to find username for online_players cleanup
+    const profile = userProfiles.find(p => p.userId === profileId);
+    const discordId = (profile as any)?.discordId;
+    
+    let alsoDiscord = false;
+    if (discordId) {
+      alsoDiscord = confirm(`☢️ EXTREM-LÖSCHUNG: Diesen Account vernichten?\n\nSoll der User auch auf Discord (${discordId}) gebannt werden?`);
+    } else {
+      if (!confirm('☢️ EXTREM-LÖSCHUNG: Diesen Account permanent aus der Datenbank vernichten?')) return;
+    }
+
     try {
       const batch = writeBatch(db);
-      
-      // Look up profile to find username for online_players cleanup
-      const profile = userProfiles.find(p => p.userId === profileId);
       
       // 1. Delete Profile document
       batch.delete(doc(db, 'user_profiles', profileId));
@@ -3628,9 +3724,31 @@ export default function App() {
       
       await batch.commit();
 
+      // DISCORD SYNC BAN
+      if (alsoDiscord && discordId) {
+        try {
+          const res = await fetch('/api/discord/ban', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              discordUserId: discordId, 
+              reason: `Gebannt via Admin-Panel durch ${myProfile?.displayName || user?.displayName}`
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            console.log("Discord-Bann erfolgreich durchgeführt.");
+          } else {
+            alert(`Discord-Bann fehlgeschlagen: ${data.error}`);
+          }
+        } catch (discordErr) {
+          console.error("Fehler bei Discord API Call:", discordErr);
+        }
+      }
+
       notifyDiscord(
         "💀 ACCOUNT TERMINIERT",
-        `**User:** ${profile?.displayName}\n**Email:** ${profile?.userId}\n**Admin:** ${myProfile?.displayName || user?.displayName}`,
+        `**User:** ${profile?.displayName}\n**Email:** ${profile?.userId}\n**Discord-Bann:** ${alsoDiscord ? '✅ Ja' : '❌ Nein'}\n**Admin:** ${myProfile?.displayName || user?.displayName}`,
         0 // Black
       );
 
@@ -4012,9 +4130,9 @@ export default function App() {
 
                 {/* Floating Reward Labels (One place only) */}
                 <AnimatePresence>
-                  {floatingRewards.map((reward) => (
+                  {floatingRewards.map((reward, i) => (
                     <motion.div
-                      key={reward.id}
+                      key={`reward-${reward.id || i}-${i}`}
                       initial={{ opacity: 1, y: reward.y, scale: 0.5 }}
                       animate={{ opacity: 0, y: reward.y - 150, scale: 2 }}
                       exit={{ opacity: 0 }}
@@ -4245,34 +4363,8 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      <AnimatePresence>
-        {isQuotaExceeded && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-[90%] max-w-md pointer-events-none"
-          >
-            <div className="bg-orange-500/90 border border-white/20 backdrop-blur-xl rounded-2xl p-4 flex items-center gap-4 shadow-[0_0_50px_rgba(249,115,22,0.4)] pointer-events-auto">
-              <div className="p-2 bg-white/20 text-white rounded-xl">
-                <ShieldAlert size={24} />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-black text-white italic uppercase tracking-wider">System im Ruhemodus</h4>
-                <p className="text-[10px] text-white/80 leading-relaxed uppercase font-bold tracking-widest mt-0.5">
-                  Das Firebase-Limit wurde erreicht. Echtzeit-Updates sind bis morgen pausiert.
-                </p>
-              </div>
-              <button 
-                onClick={() => setIsQuotaExceeded(false)}
-                className="p-1 hover:bg-white/10 rounded-lg text-white/50 hover:text-white"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </motion.div>
-        )}
 
+      <AnimatePresence>
         {openingBox.isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -4743,8 +4835,8 @@ export default function App() {
                            <tr>
                              <td colSpan={6} className="px-8 py-20 text-center text-neutral-600 text-xs font-mono uppercase tracking-[0.3em]">No valid entities detected in perimeter</td>
                            </tr>
-                        ) : [...userProfiles].sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0)).map((p) => (
-                           <tr key={p.userId} className="hover:bg-mc-red/[0.04] transition-all duration-300 group">
+                        ) : [...userProfiles].sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0)).map((p, i) => (
+                           <tr key={`${p.userId}-${i}`} className="hover:bg-mc-red/[0.04] transition-all duration-300 group">
                              <td className="px-8 py-5">
                                <div className="flex items-center gap-4">
                                  <div className="relative group/avatar">
@@ -5051,11 +5143,11 @@ export default function App() {
                       {!poll.isActive && <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">Beendet</p>}
                       
                       <div className="space-y-2">
-                        {poll.options.map((opt, idx) => (
+                        {poll.options.map((opt, optIdx) => (
                           <button 
-                            key={idx}
+                            key={`poll-opt-${poll.id}-${optIdx}`}
                             disabled={!poll.isActive}
-                            onClick={() => votePoll(poll.id, idx)}
+                            onClick={() => votePoll(poll.id, optIdx)}
                             className={`w-full bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-left text-xs hover:border-mc-red/50 transition-all relative overflow-hidden group ${!poll.isActive ? 'cursor-default' : ''}`}
                           >
                             <div className="relative z-10 flex justify-between">
@@ -5170,8 +5262,8 @@ export default function App() {
                     <Package size={14} className="text-mc-blue" />
                   </div>
                   <div className="grid grid-cols-1 gap-3">
-                    {myPurchases.map((p) => (
-                      <div key={p.id} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
+                    {myPurchases.map((p, i) => (
+                      <div key={`purchase-${p.id || i}-${i}`} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-mc-blue/20 flex items-center justify-center border border-mc-blue/20">
                              <Check size={16} className="text-mc-blue" />
@@ -5201,8 +5293,8 @@ export default function App() {
                     <Activity size={14} className="text-mc-red animate-pulse" />
                   </div>
                   <div className="space-y-2">
-                    {shopLogs.map((log) => (
-                      <div key={log.id} className="p-3 bg-neutral-900/50 rounded-lg border border-neutral-800 flex justify-between items-center group">
+                    {shopLogs.map((log, i) => (
+                      <div key={`shop-log-${log.id || i}-${i}`} className="p-3 bg-neutral-900/50 rounded-lg border border-neutral-800 flex justify-between items-center group">
                         <div>
                           <div className="text-xs font-bold text-white group-hover:text-mc-gold transition-colors">{log.userName}</div>
                           <div className="text-[10px] text-neutral-500">{log.itemName}</div>
@@ -5596,7 +5688,7 @@ export default function App() {
                   ) : (
                     leaderboardData.map((profile, idx) => (
                       <motion.div 
-                        key={`leaderboard-${profile.userId || profile.id || idx}-${idx}`}
+                        key={`leaderboard-item-${profile.userId || 'plr'}-${idx}`}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
@@ -5700,45 +5792,26 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar scroll-smooth">
-              {(() => {
-                const combined = [...chatMessages];
-                // Add local messages that aren't confirmed yet
-                localMessages.forEach(lm => {
-                  if (lm.isLocal && lm.userId === 'system') {
-                    combined.push(lm);
-                  } else if (lm.tempId && !chatMessages.some(cm => cm.tempId === lm.tempId)) {
-                    combined.push(lm);
-                  }
-                });
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {combinedMessages.map((msg, idx, arr) => {
+                      const prevMsg = arr[idx - 1];
+                      const isSameSender = prevMsg && prevMsg.userId === msg.userId && !msg.isAction && !prevMsg.isAction;
+                      const isSystem = msg.userId === 'system';
+                      const isMe = msg.userId === user?.uid;
+                      const displayRole = STAFF_OVERWRITES[msg.displayName] || msg.role;
 
-                return combined
-                  .sort((a, b) => {
-                    const getTime = (ca: any) => {
-                      if (!ca) return Date.now() + 60000; // Local pending messages at the end
-                      if (ca.seconds) return ca.seconds * 1000;
-                      if (ca instanceof Date) return ca.getTime();
-                      if (typeof ca === 'string') return new Date(ca).getTime();
-                      if (typeof ca === 'number') return ca;
-                      try { if (ca.toDate) return ca.toDate().getTime(); } catch (e) {}
-                      return 0;
-                    };
-                    return getTime(a.createdAt) - getTime(b.createdAt);
-                  })
-                  .map((msg, idx, arr) => {
-                    const prevMsg = arr[idx - 1];
-                    const isSameSender = prevMsg && prevMsg.userId === msg.userId && !msg.isAction && !prevMsg.isAction;
-                    const isSystem = msg.userId === 'system';
-                    const isMe = msg.userId === user?.uid;
-                    const displayRole = STAFF_OVERWRITES[msg.displayName] || msg.role;
+                      // Use a composite key that is guaranteed to be unique within this render block
+                      const uniqueKey = `chat-row-${msg.id || 'idx'}-${msg.tempId || 'tp'}-${msg.localTimestamp || 'no-ts'}-${idx}`;
 
-                    return (
-                      <motion.div 
-                        layout
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        key={msg.id} 
-                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isSameSender ? '-mt-2' : ''}`}
-                      >
+                      return (
+                        <motion.div 
+                          layout
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          key={uniqueKey} 
+                          className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${isSameSender ? '-mt-2' : ''}`}
+                        >
                         {!isSameSender && (
                           <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : ''}`}>
                             <span className={`text-[10px] font-bold uppercase tracking-wider ${
@@ -5823,8 +5896,8 @@ export default function App() {
                         </div>
                       </motion.div>
                     );
-                  })
-              })()}
+                  })}
+                </AnimatePresence>
               <div ref={chatEndRef} className="h-4" />
               {chatMessages.length === 0 && localMessages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
@@ -5853,9 +5926,9 @@ export default function App() {
                       { icon: MessageSquare, label: 'Status', cmd: '/me ' },
                       { icon: Scroll, label: 'Regeln', cmd: '/rules' },
                       { icon: Globe, label: 'Discord', cmd: '/discord' },
-                    ].map((item, idx) => (
+                    ].map((item, itemIdx) => (
                       <button
-                        key={idx}
+                        key={`cmd-menu-${itemIdx}-${item.cmd}`}
                         onClick={() => {
                           setChatInput(item.cmd);
                           setShowCommandMenu(false);
@@ -5916,31 +5989,6 @@ export default function App() {
       </AnimatePresence>
 
       <main className={`relative z-10 max-w-7xl mx-auto px-6 py-12 md:py-24 transition-all duration-500 ${isAnyOverlayOpen ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
-        {/* Quota Exceeded Warning */}
-        {isQuotaExceeded && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="mb-12 mc-card border-red-500/50 bg-red-500/10 p-6 flex flex-col md:flex-row items-center justify-between gap-6"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-red-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-red-500/20">
-                <AlertTriangle size={24} />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-red-500 uppercase">System-Limit Erreicht (Quota)</h3>
-                <p className="text-neutral-400 text-sm">Das tägliche Daten-Limit von Google Cloud wurde erreicht. Die Synchronisation ist pausiert und setzt sich morgen automatisch zurück.</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => window.location.reload()}
-              className="mc-button mc-button-secondary border-red-500/30 text-red-500"
-            >
-              <RefreshCw size={18} />
-              Neu laden
-            </button>
-          </motion.div>
-        )}
 
         {/* Hero Section */}
         <div className="max-w-3xl mb-20 text-center mx-auto md:text-left md:mx-0">
@@ -6060,7 +6108,7 @@ export default function App() {
             <div className="flex -space-x-4">
               {(combinedOnline || []).map((p: any, i: number) => (
                 <motion.div 
-                  key={`online-avatar-${p?.userId || p?.username || i}-${i}`}
+                  key={`online-avatar-${p?.userId || 'no-id'}-${p?.username || 'no-name'}-${p?.type || 'unknown'}-${i}`}
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
@@ -6114,7 +6162,7 @@ export default function App() {
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-4">
                     {staffList.map((p: any, i) => (
                       <motion.div 
-                        key={`staff-member-${p.userId || p.id || i}-${i}`}
+                        key={`staff-member-${p.userId || 'staff'}-${p.username || 'user'}-${i}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
@@ -6384,7 +6432,7 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
               {communityDisplayList.map((p: any, i) => (
                 <motion.div 
-                  key={`community-profile-${p.userId || p.id || p.username || i}-${i}`}
+                  key={`community-profile-${p.userId || 'prof'}-${p.username || 'user'}-${i}`}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
@@ -6749,12 +6797,12 @@ export default function App() {
                                   if (roleRank[a.role] !== roleRank[b.role]) return roleRank[a.role] - roleRank[b.role];
                                   return (b.xpContribution || 0) - (a.xpContribution || 0);
                                 })
-                                .map(member => {
+                                .map((member, i) => {
                                 const prof = userProfiles.find(p => p.userId === member.userId);
                                 const isLeader = clans.find(c => c.id === activeClanId)?.leaderId === user?.uid;
                                 
                                 return (
-                                  <div key={member.userId} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                                  <div key={`clan-member-${member.userId || i}-${i}`} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                     <div className="flex items-center gap-2">
                                       <img 
                                         src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
@@ -6806,11 +6854,11 @@ export default function App() {
                                           Geister-Modus Aktiv (Nur Admins)
                                        </div>
                                     )}
-                                    {clanChatMessages.map((msg) => {
+                                    {clanChatMessages.map((msg, idx) => {
                                       const isOwn = msg.userId === user?.uid;
                                       const profile = userProfiles.find(p => p.userId === msg.userId);
                                       return (
-                                        <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                        <div key={`clan-msg-${msg.id || idx}-${idx}`} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                           <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
                                             isOwn ? 'bg-mc-gold text-black rounded-tr-none' : 'bg-neutral-800 text-white rounded-tl-none'
                                           }`}>
@@ -6843,8 +6891,8 @@ export default function App() {
                           {clanTab === 'quests' && (
                             <div className="space-y-4">
                               <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Clan-Quests</h4>
-                              {clanQuests.map((quest) => (
-                                <div key={quest.id} className={`p-4 rounded-xl border ${quest.completed ? 'bg-green-500/10 border-green-500/30' : 'bg-neutral-900/50 border-neutral-800'}`}>
+                              {clanQuests.map((quest, i) => (
+                                <div key={`quest-${quest.id || i}-${i}`} className={`p-4 rounded-xl border ${quest.completed ? 'bg-green-500/10 border-green-500/30' : 'bg-neutral-900/50 border-neutral-800'}`}>
                                   <div className="flex justify-between items-start mb-2">
                                     <p className={`text-xs font-bold ${quest.completed ? 'text-green-400' : 'text-white'}`}>{quest.title}</p>
                                     <span className="text-[10px] text-mc-gold font-bold">+{quest.rewardXp} XP</span>
@@ -6893,7 +6941,7 @@ export default function App() {
                                     .map((m, i) => {
                                       const p = userProfiles.find(up => up.userId === m.userId);
                                       return (
-                                        <div key={m.userId} className="flex items-center justify-between text-xs">
+                                        <div key={`clan-top-${activeClanId}-${m.userId}-${i}`} className="flex items-center justify-between text-xs">
                                           <div className="flex items-center gap-2">
                                             <span className="text-neutral-600 font-mono">#{i+1}</span>
                                             <span className="font-bold">{p?.displayName || 'Spieler'}</span>
@@ -6911,8 +6959,8 @@ export default function App() {
                           {clanTab === 'requests' && (
                             <div className="space-y-4">
                               <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Beitrittsanfragen</h4>
-                              {clanRequests.map((req) => (
-                                <div key={req.id} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                              {clanRequests.map((req, i) => (
+                                <div key={`req-${req.id || i}-${i}`} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                   <div className="flex items-center gap-3 mb-2">
                                     <img 
                                       src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
@@ -7764,6 +7812,72 @@ export default function App() {
                 </form>
               </div>
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isQuotaExceeded && (
+          <div className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6 text-center animate-in fade-in duration-700">
+            <div className="max-w-md w-full bg-[#050505] border border-mc-red/20 rounded-[2.5rem] p-10 shadow-[0_0_100px_rgba(255,59,59,0.1)] space-y-10 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-mc-red to-transparent opacity-40" />
+              
+              <div className="flex justify-center">
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-mc-red blur-3xl opacity-10 group-hover:opacity-30 transition-opacity animate-pulse" />
+                  <div className="w-24 h-24 bg-mc-red/5 rounded-full flex items-center justify-center border border-mc-red/10 group-hover:border-mc-red/30 transition-colors">
+                    <Unplug className="w-12 h-12 text-mc-red" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-4xl font-black text-white tracking-widest uppercase italic">System Limit</h2>
+                <div className="h-0.5 w-12 bg-white/10 mx-auto" />
+                <p className="text-neutral-500 leading-relaxed text-sm font-medium">
+                  Die tägliche Datenbank-Quote der Gratis-Stufe wurde ausgeschöpft. 
+                  Alle Funktionen sind vorübergehend pausiert.
+                </p>
+              </div>
+
+              <div className="space-y-4 pt-2">
+                <div className="bg-neutral-900/30 rounded-3xl p-5 border border-white/5 backdrop-blur-sm">
+                  <div className="flex items-center gap-4 text-left">
+                    <div className="w-10 h-10 rounded-2xl bg-mc-gold/10 flex items-center justify-center border border-mc-gold/20">
+                      <Clock className="w-5 h-5 text-mc-gold" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-mc-gold uppercase tracking-[0.2em] mb-0.5">Reset Timer</p>
+                      <p className="text-xs text-neutral-400 font-semibold font-mono">ca. 12-24h (Täglicher Reset)</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <button 
+                    onClick={() => window.location.reload()}
+                    className="w-full py-5 bg-white text-black hover:bg-neutral-200 font-bold rounded-2xl transition-all active:scale-[0.97] flex items-center justify-center gap-3 shadow-xl"
+                  >
+                    <RefreshCw className="w-4 h-4 animate-[spin_3s_linear_infinite]" />
+                    Status prüfen
+                  </button>
+                  <a 
+                    href={DISCORD_URL}
+                    target="_blank"
+                    className="w-full py-5 bg-neutral-900/50 text-white hover:bg-neutral-800 font-bold rounded-2xl border border-white/5 transition-all active:scale-[0.97] flex items-center justify-center gap-3 backdrop-blur-sm"
+                  >
+                    Community Discord
+                  </a>
+                </div>
+              </div>
+
+              <div className="pt-4 opacity-30 flex items-center justify-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-mc-red" />
+                <p className="text-[9px] text-neutral-400 font-mono tracking-widest uppercase">
+                  Error Code: RESOURCE_EXHAUSTED
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </AnimatePresence>

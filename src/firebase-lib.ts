@@ -33,9 +33,21 @@ interface FirestoreErrorInfo {
   }
 }
 
+let quotaListener: (() => void) | null = null;
+
+export function setQuotaListener(listener: () => void) {
+  quotaListener = listener;
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const message = error instanceof Error ? error.message : String(error);
+  
+  if (message.toLowerCase().includes('quota') || message.toLowerCase().includes('resource-exhausted')) {
+    if (quotaListener) quotaListener();
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: message,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
