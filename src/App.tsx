@@ -109,11 +109,11 @@ if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
 }
 
 const REALM_CODES = {
-  PVP: 'w3PHnwq-5_kcfoE',
-  SURVIVAL: 'JwMPYn9KpsVnRFo'
+  PVP: 'https://discord.gg/zHSUGu5X',
+  SURVIVAL: 'https://discord.gg/zHSUGu5X'
 };
 
-const DISCORD_URL = 'https://discord.com/invite/AeYN6Yut';
+const DISCORD_URL = 'https://discord.gg/zHSUGu5X';
 
 interface Player {
   id: string;
@@ -181,6 +181,7 @@ interface ChatMessage {
   displayName: string;
   role?: string;
   createdAt: any;
+  timestamp?: any;
   isAction?: boolean;
   isLocal?: boolean;
   isStaffOnly?: boolean;
@@ -387,9 +388,12 @@ const FloatingParticles = () => {
 };
 
 export default function App() {
+  // Quota state
+  const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
+
   const [realmCodes, setRealmCodes] = useState({
-    PVP: 'w3PHnwq-5_kcfoE',
-    SURVIVAL: 'JwMPYn9KpsVnRFo'
+    PVP: 'https://discord.gg/zHSUGu5X',
+    SURVIVAL: 'https://discord.gg/zHSUGu5X'
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
@@ -422,15 +426,35 @@ export default function App() {
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
 
   const combinedMessages = useMemo(() => {
-    const combined = [...chatMessages];
-    // Add local messages that aren't confirmed yet
-    localMessages.forEach(lm => {
-      if (lm.isLocal && lm.userId === 'system') {
-        combined.push(lm);
-      } else if (lm.tempId && !chatMessages.some(cm => cm.tempId === lm.tempId)) {
-        combined.push(lm);
+    if (hasQuotaExceeded && chatMessages.length === 0) return localMessages;
+    
+    // Create a Map to track unique messages by tempId and fallback to id
+    // This handles duplicates produced by Firestore retries and ensures stable keys
+    const messageMap = new Map<string, ChatMessage>();
+    
+    // Process server messages first (they take priority)
+    chatMessages.forEach(msg => {
+      // Use tempId specifically for deduplication if it exists (for send-to-confirmed transition)
+      // Otherwise use the unique Firestore document ID
+      const key = msg.tempId || msg.id;
+      if (key) {
+        const existing = messageMap.get(key);
+        // Only overwrite if the new message has a proper server timestamp (is more authoritative)
+        if (!existing || (!existing.createdAt && msg.createdAt)) {
+          messageMap.set(key, msg);
+        }
       }
     });
+    
+    // Add local messages that aren't confirmed/synced yet
+    localMessages.forEach(lm => {
+      const key = lm.tempId || lm.id;
+      if (key && !messageMap.has(key)) {
+        messageMap.set(key, lm);
+      }
+    });
+
+    const combined = Array.from(messageMap.values());
 
     return combined.sort((a, b) => {
       const getTime = (ca: any, localTs?: number) => {
@@ -444,7 +468,7 @@ export default function App() {
       };
       return getTime(a.createdAt, a.localTimestamp) - getTime(b.createdAt, b.localTimestamp);
     });
-  }, [chatMessages, localMessages]);
+  }, [chatMessages, localMessages, hasQuotaExceeded]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -456,11 +480,10 @@ export default function App() {
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
-  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
 
   useEffect(() => {
     setQuotaListener(() => {
-      setIsQuotaExceeded(prev => {
+      setHasQuotaExceeded(prev => {
         if (!prev) {
           console.error("GLOBAL QUOTA LIMIT REACHED - Stopping database listeners");
         }
@@ -468,7 +491,7 @@ export default function App() {
       });
     });
   }, []);
-  const [floatingRewards, setFloatingRewards] = useState<{ id: number, text: string, x: number, y: number, color: string }[]>([]);
+  const [floatingRewards, setFloatingRewards] = useState<{ id: string | number, text: string, x: number, y: number, color: string }[]>([]);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<UserProfile[]>([]);
   const [lastLeaderboardFetch, setLastLeaderboardFetch] = useState<number>(0);
@@ -499,7 +522,7 @@ export default function App() {
       setLeaderboardData(dedupedData);
       setLastLeaderboardFetch(Date.now());
     } catch (err: any) {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
       console.error("Leaderboard fetch error:", err);
     }
   };
@@ -513,7 +536,7 @@ export default function App() {
       const survivalSnap = await getDoc(doc(db, 'server_status', 'survival'));
       if (survivalSnap.exists()) setSurvivalStatus(survivalSnap.data() as any);
     } catch (err: any) {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'server_status');
     }
   };
@@ -524,7 +547,7 @@ export default function App() {
       const snapshot = await getDocs(playersQuery);
       setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
     } catch (err: any) {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'online_players');
     }
   };
@@ -534,14 +557,14 @@ export default function App() {
       const snap = await getDoc(doc(db, 'app_config', 'realm_codes'));
       if (snap.exists()) setRealmCodes(snap.data() as any);
     } catch (err: any) {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'app_config/realm_codes');
     }
   };
 
   // Optimization: Fetch profiles manually to save quota
   const fetchProfiles = async () => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
     setIsRefreshingProfiles(true);
     try {
       const profilesQuery = query(collection(db, 'user_profiles'), orderBy('updatedAt', 'desc'), limit(50));
@@ -550,7 +573,7 @@ export default function App() {
       setUserProfiles(profiles);
       // Cache profiles briefly in memory (already in state)
     } catch (err: any) {
-      if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'user_profiles');
     } finally {
       setIsRefreshingProfiles(false);
@@ -558,42 +581,42 @@ export default function App() {
   };
 
   const fetchClans = async () => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
     try {
       const clansSnap = await getDocs(collection(db, 'clans'));
       setClans(clansSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Clan)));
     } catch (err: any) {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     }
   };
 
   const fetchNews = async () => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
     try {
       const newsSnap = await getDocs(query(collection(db, 'news'), orderBy('createdAt', 'desc'), limit(5)));
       setNews(newsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem)));
     } catch (err: any) {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     }
   };
 
   const fetchPolls = async () => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
     try {
       const pollsSnap = await getDocs(query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(5)));
       setPolls(pollsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Poll)));
     } catch (err: any) {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     }
   };
 
   const fetchShop = async () => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
     try {
       const shopSnap = await getDocs(query(collection(db, 'shop'), orderBy('price', 'asc')));
       setShopItems(shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
     } catch (err: any) {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     }
   };
 
@@ -608,7 +631,7 @@ export default function App() {
   }, [myProfile?.mining?.cps]);
 
   // Mining Game State
-  const [miningBlock, setMiningBlock] = useState<{ type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest', health: number, maxHealth: number }>({ type: 'Stone', health: 10, maxHealth: 10 });
+  const [miningBlock, setMiningBlock] = useState<{ id: string, type: 'Stone' | 'Coal' | 'Iron' | 'Gold' | 'Diamond' | 'Emerald' | 'TNT' | 'Chest', health: number, maxHealth: number }>({ id: 'initial', type: 'Stone', health: 10, maxHealth: 10 });
   const [miningParticles, setMiningParticles] = useState<{ id: string; x: number; y: number; color: string; vx: number; vy: number }[]>([]);
   const [pickaxeSwing, setPickaxeSwing] = useState(false);
   const [miningLevel, setMiningLevel] = useState(1);
@@ -1115,7 +1138,7 @@ export default function App() {
 
   // Sync Profile, Online Status & Hardcoded Roles in Firestore
   useEffect(() => {
-    if (!user) return;
+    if (!user || hasQuotaExceeded) return;
     const profileRef = doc(db, 'user_profiles', user.uid);
     
     // 1. Initial Sync (Online + Assigned Role)
@@ -1157,7 +1180,7 @@ export default function App() {
           updatedAt: serverTimestamp() 
         }, { merge: true }).catch(err => {
             // Silently fail if persistent quota issues, but log internally
-            if (err.message?.includes('Quota')) setIsQuotaExceeded(true);
+            if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
         });
       }
     }, 120000); // 2 minutes heartbeat to save quota
@@ -1170,7 +1193,7 @@ export default function App() {
 
     // 4. Reactive Profile Listener for State
     let unsubscribe = () => {};
-    if (!isQuotaExceeded) {
+    if (!hasQuotaExceeded) {
       unsubscribe = onSnapshot(profileRef, (snap) => {
         if (snap.exists()) {
           const data = snap.data() as UserProfile;
@@ -1220,7 +1243,7 @@ export default function App() {
     // 5. Global Listener for Online Stat (Real-time count)
     const onlineQuery = query(collection(db, 'user_profiles'), where('isOnline', '==', true), limit(50));
     const unsubscribeOnline = onSnapshot(onlineQuery, (snap) => {
-      if (isQuotaExceeded) return;
+      if (hasQuotaExceeded) return;
       // Merge online users into local userProfiles state if not already there or updated
       const fetchedProfiles = snap.docs.map(doc => doc.data() as UserProfile);
       setUserProfiles(prev => {
@@ -1256,11 +1279,11 @@ export default function App() {
       unsubscribe();
       unsubscribeOnline();
     };
-  }, [user, isQuotaExceeded]);
+  }, [user, hasQuotaExceeded]);
 
   // Firebase Listeners
   useEffect(() => {
-    if (isQuotaExceeded) return;
+    if (hasQuotaExceeded) return;
 
     // Initial fetch for EVERYTHING automatically as requested
     fetchOnlinePlayers();
@@ -1282,13 +1305,13 @@ export default function App() {
         if (data.realmColors) setRealmColors(prev => ({ ...prev, ...data.realmColors }));
       }
     }, (err) => {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     });
 
     // Chat listener only active when chat is actually open
     let unsubscribeChat = () => {};
-    if (chatOpen && !isQuotaExceeded) {
-      const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(20));
+    if (chatOpen && !hasQuotaExceeded) {
+      const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
       unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
         const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
         setChatMessages(msgs);
@@ -1300,7 +1323,7 @@ export default function App() {
           }, 300);
         }
       }, (err) => {
-        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+        if (err.message.includes('Quota')) setHasQuotaExceeded(true);
         handleFirestoreError(err, OperationType.GET, 'chat_messages');
       });
     }
@@ -1309,7 +1332,7 @@ export default function App() {
       unsubscribeAppConfig();
       unsubscribeChat();
     };
-  }, [user, showAdmin, surveillanceExpanded, isQuotaExceeded, chatOpen]);
+  }, [user, showAdmin, surveillanceExpanded, hasQuotaExceeded, chatOpen]);
 
   // Auto-Update for Discord Status Webhook
   useEffect(() => {
@@ -1325,7 +1348,7 @@ export default function App() {
 
   // Separate effect for admin logs
   useEffect(() => {
-    if (!isAdmin || !user || isQuotaExceeded) return;
+    if (!isAdmin || !user || hasQuotaExceeded) return;
     
     const fetchLogs = async () => {
       try {
@@ -1333,27 +1356,27 @@ export default function App() {
         const snap = await getDocs(q);
         setShopLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (err: any) {
-        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+        if (err.message.includes('Quota')) setHasQuotaExceeded(true);
       }
     };
     
     fetchLogs();
-  }, [isAdmin, user, isQuotaExceeded]);
+  }, [isAdmin, user, hasQuotaExceeded]);
 
   useEffect(() => {
-    if (!user || isQuotaExceeded) return;
+    if (!user || hasQuotaExceeded) return;
     
     const fetchPurchases = async () => {
       try {
         const snap = await getDocs(collection(db, 'users', user.uid, 'purchases'));
         setMyPurchases(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (err: any) {
-        if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+        if (err.message.includes('Quota')) setHasQuotaExceeded(true);
       }
     };
     
     fetchPurchases();
-  }, [user, isQuotaExceeded]);
+  }, [user, hasQuotaExceeded]);
 
   // Update my profile when user object changes
   useEffect(() => {
@@ -2149,7 +2172,7 @@ export default function App() {
 
     const factor = 1 + Math.floor((myProfile?.xp || 0) / 10000) * 0.2;
     const finalHealth = Math.ceil(maxHealth * factor);
-    setMiningBlock({ type, health: finalHealth, maxHealth: finalHealth });
+    setMiningBlock({ id: `block-${Date.now()}-${Math.random()}`, type, health: finalHealth, maxHealth: finalHealth });
   };
 
   useEffect(() => {
@@ -2173,7 +2196,7 @@ export default function App() {
       });
       // Also update xp if needed, but xp is usually updated on block break
     } catch (err: any) {
-      if (err.message.includes('Quota')) setIsQuotaExceeded(true);
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
       // Put back if it failed? No, usually quota errors mean we should stop.
     }
   };
@@ -2221,7 +2244,7 @@ export default function App() {
     
     // 🔥 Optimistic Sync: UI Updates immediately
     const coinsStr = `+${coinsPerClick} 🪙`;
-    const rewardId = Math.random();
+    const rewardId = `reward-${Date.now()}-${Math.random()}`;
     setFloatingRewards(prev => [...prev, {
       id: rewardId,
       text: coinsStr,
@@ -2298,7 +2321,7 @@ export default function App() {
     const finalCoins = Math.floor(coins * miningMultiplier);
     
     // Floating reward for block destruction
-    const blockRewardId = Math.random();
+    const blockRewardId = `block-reward-${Date.now()}-${Math.random()}`;
     setFloatingRewards(prev => [...prev, {
       id: blockRewardId,
       text: `+${finalCoins} 🪙`,
@@ -2514,6 +2537,11 @@ export default function App() {
 
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (hasQuotaExceeded) {
+      alert("Server-Limit erreicht: Profiländerungen aktuell nicht möglich.");
+      setShowProfileModal(false);
+      return;
+    }
     const targetId = editingProfileId || user?.uid;
     if (!targetId || !user) return; // Must be logged in
 
@@ -2605,7 +2633,7 @@ export default function App() {
 
   // Listen to clan members when user is in a clan or viewing one
   useEffect(() => {
-    if (!activeClanId || isQuotaExceeded) return;
+    if (!activeClanId || hasQuotaExceeded) return;
     const unsubscribeMembers = onSnapshot(collection(db, 'clans', activeClanId, 'members'), (snapshot) => {
       const members = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ClanMember));
       setClanMembers(members);
@@ -2638,7 +2666,7 @@ export default function App() {
       unsubscribeQuests();
       unsubscribeChat();
     };
-  }, [activeClanId, user, isQuotaExceeded]);
+  }, [activeClanId, user, hasQuotaExceeded]);
 
   const sendClanMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2977,8 +3005,7 @@ export default function App() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !chatInput.trim()) return;
-    const input = chatInput.trim();
+    if (!user) return;
 
     // Helper to send local system message (Only visible to current user)
     const sendSystemMsg = (text: string, title: string = 'SYSTEM') => {
@@ -2995,6 +3022,15 @@ export default function App() {
       };
       setLocalMessages(prev => [...prev, newLocalMsg]);
     };
+    
+    if (hasQuotaExceeded) {
+      sendSystemMsg("§cDie Server-Kapazität ist aktuell erschöpft. Nachrichten können nicht gesendet werden.§r");
+      setChatInput('');
+      return;
+    }
+
+    if (!chatInput.trim()) return;
+    const input = chatInput.trim();
 
     const getLevel = (xp: number = 0) => Math.floor(Math.sqrt(xp / 100)) + 1;
     const getXPForLevel = (level: number) => Math.pow(level - 1, 2) * 100;
@@ -3455,7 +3491,10 @@ export default function App() {
 
     const executeSend = async () => {
       try {
-        await addDoc(collection(db, 'chat_messages'), {
+        // Use setDoc with the specific tempId as document ID to prevent duplicate messages
+        // in Firestore if the client retries the same operation.
+        const msgRef = doc(db, 'chat_messages', tempId);
+        await setDoc(msgRef, {
           text: inputToSend,
           userId: user.uid,
           displayName: (myProfile?.displayName || user.displayName || 'Unbekannt').substring(0, 64),
@@ -3826,7 +3865,7 @@ export default function App() {
   );
 
   // Combined online players from both manual list and user profiles
-  const combinedOnline = [
+  const combinedOnline = useMemo(() => [
     ...players.map(p => ({
       username: p.username,
       server: p.server,
@@ -3844,11 +3883,11 @@ export default function App() {
   ].filter((player, index, self) => 
     index === self.findIndex((t) => (t.username || '').toLowerCase() === (player.username || '').toLowerCase())
     && (!userProfiles.find(up => (up.minecraftUsername || up.displayName || '').toLowerCase() === (player.username || '').toLowerCase())?.isInvisible || isAdmin)
-  );
+  ), [players, userProfiles, isAdmin]);
 
   // Final Unified Community Status List (Synced with Firebase) - Deduped by lowercase username
   // Filter out any duplicates and invalid entries
-  const communityDisplayList = Array.from(new Map(
+  const communityDisplayList = useMemo(() => Array.from(new Map(
     userProfiles
       .filter(p => p.userId && (p.displayName || p.minecraftUsername)) 
       .sort((a,b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
@@ -3883,9 +3922,9 @@ export default function App() {
           lastLoginCity: p.lastLoginCity
         }];
       })
-  ).values()).slice(0, 60);
+  ).values()).slice(0, 60), [userProfiles, isAdmin]);
 
-  const staffList = Array.from(new Map(
+  const staffList = useMemo(() => Array.from(new Map(
     userProfiles
       .filter(p => {
         const name = (p.minecraftUsername || p.displayName || p.userId || '').trim();
@@ -3920,7 +3959,7 @@ export default function App() {
     if (rankValueA !== rankValueB) return rankValueA - rankValueB;
     if (a.isOnline !== b.isOnline) return b.isOnline ? 1 : -1;
     return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
-  });
+  }), [userProfiles]);
 
   const totalOnline = combinedOnline.length;
 
@@ -4014,9 +4053,9 @@ export default function App() {
             </div>
 
             {/* Particle Layer */}
-            {miningParticles.map(p => (
+            {miningParticles.map((p, i) => (
               <div 
-                key={p.id}
+                key={`mining-p-${p.id}-${i}`}
                 className="absolute w-2 h-2 rounded-sm z-[200] pointer-events-none shadow-sm"
                 style={{ 
                   left: p.x, 
@@ -4132,7 +4171,7 @@ export default function App() {
                 <AnimatePresence>
                   {floatingRewards.map((reward, i) => (
                     <motion.div
-                      key={`reward-${reward.id || i}-${i}`}
+                      key={`floating-reward-${reward.id || `reward-${i}`}-${i}`}
                       initial={{ opacity: 1, y: reward.y, scale: 0.5 }}
                       animate={{ opacity: 0, y: reward.y - 150, scale: 2 }}
                       exit={{ opacity: 0 }}
@@ -4161,7 +4200,7 @@ export default function App() {
 
                     <AnimatePresence mode="wait">
                       <motion.div
-                        key={miningBlock.type}
+                        key={`${miningBlock.type}-${miningBlock.id}`}
                         initial={{ scale: 0.3, rotate: -30, opacity: 0, y: 50 }}
                         animate={{ scale: 0.8, rotate: 0, opacity: 1, y: 0 }} 
                         whileInView={{ scale: window.innerWidth < 768 ? 0.7 : 1 }}
@@ -4214,7 +4253,7 @@ export default function App() {
                                 <div className="absolute inset-0 p-8 grid grid-cols-4 grid-rows-4 gap-4">
                                   {[...Array(16)].map((_, i) => (
                                     (i % 3 === 0) && (
-                                      <div key={i} className={`rounded-xl ${
+                                      <div key={`mining-grid-bg-${i}`} className={`rounded-xl ${
                                         miningBlock.type === 'Diamond' ? 'bg-blue-300' :
                                         miningBlock.type === 'Gold' ? 'bg-mc-amber' :
                                         miningBlock.type === 'Emerald' ? 'bg-emerald-300' :
@@ -5060,8 +5099,8 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {news.length === 0 ? (
                 <div className="text-center py-10 opacity-30 text-xs uppercase tracking-widest">Keine News verfügbar</div>
-              ) : news.map((item) => (
-                <div key={item.id} className="mc-card p-4 border-neutral-800 hover:border-mc-red/30 transition-colors group">
+              ) : news.map((item, idx) => (
+                <div key={`news-item-${item.id || idx}-${idx}`} className="mc-card p-4 border-neutral-800 hover:border-mc-red/30 transition-colors group">
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-sm text-mc-red">{item.title}</h4>
                     <div className="flex items-center gap-2">
@@ -5121,10 +5160,10 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
               {polls.length === 0 ? (
                 <div className="text-center py-10 opacity-30 text-xs uppercase tracking-widest">Keine Umfragen verfügbar</div>
-              ) : polls.map((poll) => {
+              ) : polls.map((poll, pIdx) => {
                 const totalVotes = poll.options.reduce((acc, opt) => acc + opt.votes, 0);
                 return (
-                  <div key={poll.id} className="space-y-4 relative group">
+                  <div key={`poll-item-${poll.id || pIdx}-${pIdx}`} className="space-y-4 relative group">
                     <div className={`p-4 rounded-xl border transition-all ${poll.isActive ? 'bg-mc-red/10 border-mc-red/20' : 'bg-neutral-900 border-neutral-800 opacity-80'}`}>
                       <div className="flex justify-between items-start mb-3">
                         <h4 className="font-bold text-sm">{poll.question}</h4>
@@ -5145,7 +5184,7 @@ export default function App() {
                       <div className="space-y-2">
                         {poll.options.map((opt, optIdx) => (
                           <button 
-                            key={`poll-opt-${poll.id}-${optIdx}`}
+                            key={`poll-opt-${poll.id || `p-${pIdx}`}-${opt.label}-${optIdx}`}
                             disabled={!poll.isActive}
                             onClick={() => votePoll(poll.id, optIdx)}
                             className={`w-full bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-left text-xs hover:border-mc-red/50 transition-all relative overflow-hidden group ${!poll.isActive ? 'cursor-default' : ''}`}
@@ -5263,7 +5302,7 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-1 gap-3">
                     {myPurchases.map((p, i) => (
-                      <div key={`purchase-${p.id || i}-${i}`} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
+                      <div key={`purchase-${p.id || `pur-${i}`}-${i}`} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-mc-blue/20 flex items-center justify-center border border-mc-blue/20">
                              <Check size={16} className="text-mc-blue" />
@@ -5294,7 +5333,7 @@ export default function App() {
                   </div>
                   <div className="space-y-2">
                     {shopLogs.map((log, i) => (
-                      <div key={`shop-log-${log.id || i}-${i}`} className="p-3 bg-neutral-900/50 rounded-lg border border-neutral-800 flex justify-between items-center group">
+                      <div key={`shop-log-${log.id || `log-${i}`}-${i}`} className="p-3 bg-neutral-900/50 rounded-lg border border-neutral-800 flex justify-between items-center group">
                         <div>
                           <div className="text-xs font-bold text-white group-hover:text-mc-gold transition-colors">{log.userName}</div>
                           <div className="text-[10px] text-neutral-500">{log.itemName}</div>
@@ -5393,12 +5432,12 @@ export default function App() {
                     </div>
                   )}
 
-                  {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat) => {
+                  {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat, catIdx) => {
                     const items = shopItems.filter(i => i.category === cat);
                     if (items.length === 0 && !isAdmin) return null;
                     
                     return (
-                      <div key={cat} className="space-y-5">
+                      <div key={`shop-cat-${cat}-${catIdx}`} className="space-y-5">
                         <div className="flex items-center gap-3">
                           <div className="p-1.5 bg-mc-gold/10 rounded-lg border border-mc-gold/20">
                             {cat === 'Ränge' && <Award size={16} className="text-mc-gold" />}
@@ -5420,12 +5459,12 @@ export default function App() {
                               Beispiel-Items generieren
                             </button>
                           )}
-                          {items.map((item) => {
+                          {items.map((item, itemIdx) => {
                             const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
                             
                             return (
                               <motion.div 
-                                key={item.id} 
+                                key={`shop-item-${item.id || itemIdx}-${itemIdx}`} 
                                 whileHover={{ y: -4, scale: 1.01 }}
                                 className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''} ${isOwnRank ? 'opacity-70 grayscale-[0.5]' : ''}`}
                               >
@@ -5565,7 +5604,7 @@ export default function App() {
                 )}
                 {aiHistory.map((msg, i) => (
                   <motion.div 
-                    key={i}
+                    key={`ai-chat-${i}-${msg.role}`}
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -5688,7 +5727,7 @@ export default function App() {
                   ) : (
                     leaderboardData.map((profile, idx) => (
                       <motion.div 
-                        key={`leaderboard-item-${profile.userId || 'plr'}-${idx}`}
+                        key={`leaderboard-item-${profile.userId || profile.minecraftUsername || `idx-${idx}`}-${idx}`}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
@@ -5800,8 +5839,8 @@ export default function App() {
                       const isMe = msg.userId === user?.uid;
                       const displayRole = STAFF_OVERWRITES[msg.displayName] || msg.role;
 
-                      // Use a composite key that is guaranteed to be unique within this render block
-                      const uniqueKey = `chat-row-${msg.id || 'idx'}-${msg.tempId || 'tp'}-${msg.localTimestamp || 'no-ts'}-${idx}`;
+                      // Use tempId primarily as the key for stable transitions from local message to server-confirmed message
+                      const uniqueKey = msg.tempId || msg.id || `msg-${idx}`;
 
                       return (
                         <motion.div 
@@ -5865,7 +5904,7 @@ export default function App() {
                           <div className={`relative px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap transition-all ${
                             msg.isAction ? 'italic text-neutral-400 bg-transparent py-1 px-0 shadow-none border-0' :
                             msg.userId === 'system' ? 'bg-mc-gold/10 border border-mc-gold/20 text-mc-gold' :
-                            msg.id.startsWith('temp-') ? 'bg-neutral-800 text-neutral-400 opacity-60 border border-neutral-700 border-dashed' :
+                            msg.isLocal ? 'bg-neutral-800 text-neutral-400 opacity-60 border border-neutral-700 border-dashed' :
                             isMe ? 'bg-mc-red text-white shadow-lg shadow-mc-red/15 rounded-tr-sm' : 
                             'bg-neutral-800 text-neutral-100 rounded-tl-sm'
                           }`}>
@@ -5881,7 +5920,7 @@ export default function App() {
                               }
                               return cleanText;
                             })()}
-                            {msg.id.startsWith('temp-') && (
+                            {msg.isLocal && (
                               <motion.div 
                                 animate={{ rotate: 360 }}
                                 transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
@@ -6108,7 +6147,7 @@ export default function App() {
             <div className="flex -space-x-4">
               {(combinedOnline || []).map((p: any, i: number) => (
                 <motion.div 
-                  key={`online-avatar-${p?.userId || 'no-id'}-${p?.username || 'no-name'}-${p?.type || 'unknown'}-${i}`}
+                  key={`online-avatar-${p?.userId || p?.username || `v-${i}`}-${p?.type || 'unknown'}-${i}`}
                   initial={{ x: 20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
@@ -6160,9 +6199,9 @@ export default function App() {
                   className="overflow-hidden"
                 >
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-4">
-                    {staffList.map((p: any, i) => (
+                    {staffList.map((p: any, i: number) => (
                       <motion.div 
-                        key={`staff-member-${p.userId || 'staff'}-${p.username || 'user'}-${i}`}
+                        key={`staff-member-${p.userId || p.username || `v-${i}`}-${i}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
@@ -6263,8 +6302,8 @@ export default function App() {
                   <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map((p, i) => (
-                        <div key={`pvp-player-${p.id || p.username || i}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                      {combinedPvpPlayers.length > 0 ? combinedPvpPlayers.map((p, i: number) => (
+                        <div key={`pvp-player-${p.id || p.username || `v-${i}`}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.pvp, boxShadow: `0 0 5px ${realmColors.pvp}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -6353,8 +6392,8 @@ export default function App() {
                    <div className="mb-8 min-h-[40px]">
                     <p className="text-[10px] uppercase font-bold text-neutral-500 mb-2 tracking-widest">Aktive Spieler</p>
                     <div className="flex flex-wrap gap-2">
-                      {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map((p, i) => (
-                        <div key={`survival-player-${p.id || p.username || i}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
+                      {combinedSurvivalPlayers.length > 0 ? combinedSurvivalPlayers.map((p, i: number) => (
+                        <div key={`survival-player-${p.id || p.username || `v-${i}`}-${i}`} className="flex items-center gap-2 px-2 py-1 bg-black/40 rounded-lg border border-neutral-800 text-xs group/item relative overflow-hidden">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: realmColors.survival, boxShadow: `0 0 5px ${realmColors.survival}80` }} />
                           <span className="flex items-center gap-1.5">
                             {p.username}
@@ -6430,9 +6469,9 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {communityDisplayList.map((p: any, i) => (
-                <motion.div 
-                  key={`community-profile-${p.userId || 'prof'}-${p.username || 'user'}-${i}`}
+                  {communityDisplayList.map((p: any, i: number) => (
+                    <motion.div 
+                      key={`community-profile-${p.userId || p.username || `v-${i}`}-${i}`}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
@@ -6609,7 +6648,7 @@ export default function App() {
                   .sort((a,b) => (b.level||0) - (a.level||0))
                   .slice(0, 3)
                   .map((c, i) => (
-                    <span key={c.id} className="text-[10px] font-bold px-2 py-1 bg-black/40 rounded border border-neutral-800">
+                    <span key={`top-clan-tag-${c.id || i}-${i}`} className="text-[10px] font-bold px-2 py-1 bg-black/40 rounded border border-neutral-800">
                       <span className="text-mc-gold mr-1">#{i+1}</span> {c.tag}
                     </span>
                   ))
@@ -6644,9 +6683,9 @@ export default function App() {
                         if ((b.level || 1) !== (a.level || 1)) return (b.level || 1) - (a.level || 1);
                         return (b.xp || 0) - (a.xp || 0);
                       })
-                      .map(clan => (
+                      .map((clan, clanIdx) => (
                       <motion.div 
-                        key={clan.id}
+                        key={`clan-card-${clan.id || clanIdx}-${clanIdx}`}
                         layout
                         className={`mc-card p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-colors cursor-pointer ${activeClanId === clan.id ? 'border-mc-gold bg-mc-gold/[0.02]' : 'border-neutral-800 hover:border-neutral-700'}`}
                         onClick={() => setActiveClanId(clan.id)}
@@ -6716,14 +6755,14 @@ export default function App() {
                   {/* Clan Specific Info (Right Sidebar) */}
                   <div className="mc-card border-neutral-800 bg-black/40 overflow-hidden self-start sticky top-24">
                     <div className="border-b border-neutral-800 flex bg-neutral-900/50 overflow-x-auto scrollbar-hide">
-                      {(['members', 'chat', 'quests', 'stats', 'requests', 'perks'] as const).map((tab) => {
+                      {(['members', 'chat', 'quests', 'stats', 'requests', 'perks'] as const).map((tab, tabIdx) => {
                         const myMemberData = clanMembers.find(m => m.userId === user?.uid);
                         const isLeaderOrOfficer = myMemberData?.role === 'Leader' || myMemberData?.role === 'Officer';
                         if (tab === 'requests' && !isLeaderOrOfficer) return null;
                         
                         return (
                           <button
-                            key={tab}
+                            key={`clan-tab-${tab}-${tabIdx}`}
                             onClick={() => setClanTab(tab)}
                             className={`flex-1 min-w-[80px] py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
                               clanTab === tab 
@@ -6797,12 +6836,12 @@ export default function App() {
                                   if (roleRank[a.role] !== roleRank[b.role]) return roleRank[a.role] - roleRank[b.role];
                                   return (b.xpContribution || 0) - (a.xpContribution || 0);
                                 })
-                                .map((member, i) => {
+                                .map((member, i: number) => {
                                 const prof = userProfiles.find(p => p.userId === member.userId);
                                 const isLeader = clans.find(c => c.id === activeClanId)?.leaderId === user?.uid;
                                 
                                 return (
-                                  <div key={`clan-member-${member.userId || i}-${i}`} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                                  <div key={`clan-member-${member.userId || `idx-${i}`}-${i}`} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                     <div className="flex items-center gap-2">
                                       <img 
                                         src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
@@ -6858,7 +6897,7 @@ export default function App() {
                                       const isOwn = msg.userId === user?.uid;
                                       const profile = userProfiles.find(p => p.userId === msg.userId);
                                       return (
-                                        <div key={`clan-msg-${msg.id || idx}-${idx}`} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                        <div key={msg.id || `clan-${msg.timestamp?.seconds || idx}-${idx}`} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                           <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
                                             isOwn ? 'bg-mc-gold text-black rounded-tr-none' : 'bg-neutral-800 text-white rounded-tl-none'
                                           }`}>
@@ -6891,8 +6930,8 @@ export default function App() {
                           {clanTab === 'quests' && (
                             <div className="space-y-4">
                               <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Clan-Quests</h4>
-                              {clanQuests.map((quest, i) => (
-                                <div key={`quest-${quest.id || i}-${i}`} className={`p-4 rounded-xl border ${quest.completed ? 'bg-green-500/10 border-green-500/30' : 'bg-neutral-900/50 border-neutral-800'}`}>
+                              {clanQuests.map((quest, i: number) => (
+                                <div key={`clan-quest-${quest.id || `q-${i}`}-${i}`} className={`p-4 rounded-xl border ${quest.completed ? 'bg-green-500/10 border-green-500/30' : 'bg-neutral-900/50 border-neutral-800'}`}>
                                   <div className="flex justify-between items-start mb-2">
                                     <p className={`text-xs font-bold ${quest.completed ? 'text-green-400' : 'text-white'}`}>{quest.title}</p>
                                     <span className="text-[10px] text-mc-gold font-bold">+{quest.rewardXp} XP</span>
@@ -6959,8 +6998,8 @@ export default function App() {
                           {clanTab === 'requests' && (
                             <div className="space-y-4">
                               <h4 className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-4">Beitrittsanfragen</h4>
-                              {clanRequests.map((req, i) => (
-                                <div key={`req-${req.id || i}-${i}`} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
+                              {clanRequests.map((req, i: number) => (
+                                <div key={`clan-req-${req.id || `req-${i}`}-${i}`} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                   <div className="flex items-center gap-3 mb-2">
                                     <img 
                                       src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
@@ -7007,7 +7046,7 @@ export default function App() {
                               ].map((perk, i) => {
                                 const isUnlocked = (clans.find(c => c.id === activeClanId)?.level || 1) >= perk.lvl;
                                 return (
-                                  <div key={i} className={`p-3 rounded-xl border transition-all ${
+                                  <div key={`clan-perk-${perk.title}-${i}`} className={`p-3 rounded-xl border transition-all ${
                                     isUnlocked ? 'bg-mc-gold/10 border-mc-gold/30' : 'bg-neutral-900/50 border-neutral-800 opacity-50'
                                   }`}>
                                     <div className="flex items-start gap-3">
@@ -7141,8 +7180,8 @@ export default function App() {
             {/* Discord Online List */}
             <div className="mb-6 max-h-[140px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
               {discordData?.members && discordData.members.length > 0 ? (
-                discordData.members.slice(0, 15).map((member) => (
-                  <div key={member.id} className="flex items-center gap-3 text-sm group/member">
+                discordData.members.slice(0, 15).map((member, idx) => (
+                  <div key={`discord-member-${member.id || idx}-${idx}`} className="flex items-center gap-3 text-sm group/member">
                     <div className="relative">
                       <img src={member.avatar_url} alt={`${member.username} Discord`} className="w-6 h-6 rounded-full border border-purple-500/20 group-hover/member:border-purple-500/50 transition-colors" />
                       <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
@@ -7514,7 +7553,7 @@ export default function App() {
                           <div className="grid grid-cols-8 gap-0.5 aspect-square w-full max-w-[160px] mx-auto border border-neutral-800 bg-black/40">
                             {pixelGrid.map((color, i) => (
                               <div 
-                                key={i} 
+                                key={`pixel-${i}`} 
                                 onClick={() => handlePixelClick(i)}
                                 style={{ backgroundColor: color }}
                                 className="w-full h-full cursor-crosshair hover:opacity-80 transition-opacity"
@@ -7817,7 +7856,7 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {isQuotaExceeded && (
+        {hasQuotaExceeded && (
           <div className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6 text-center animate-in fade-in duration-700">
             <div className="max-w-md w-full bg-[#050505] border border-mc-red/20 rounded-[2.5rem] p-10 shadow-[0_0_100px_rgba(255,59,59,0.1)] space-y-10 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-mc-red to-transparent opacity-40" />
