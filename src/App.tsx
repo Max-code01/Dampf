@@ -63,6 +63,10 @@ import {
   RefreshCw,
   Image as ImageIcon,
   Play,
+  Pause,
+  Volume2,
+  Music,
+  Disc,
   Flame,
   Castle,
   Shield,
@@ -411,6 +415,388 @@ export default function App() {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [tempSkin, setTempSkin] = useState<string | null>(null);
   const [mcUsernameInput, setMcUsernameInput] = useState<string>('');
+  
+  // Retro Jukebox states & audio references
+  const [unlockedDiscs, setUnlockedDiscs] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('mc_unlocked_discs');
+      return saved ? JSON.parse(saved) : ['cat'];
+    } catch {
+      return ['cat'];
+    }
+  });
+  const [activeDisc, setActiveDisc] = useState<string | null>(null);
+  const [isJukeboxPlaying, setIsJukeboxPlaying] = useState<boolean>(false);
+  const [jukeboxVolume, setJukeboxVolume] = useState<number>(0.4);
+  const [activeNotes, setActiveNotes] = useState<{ id: number; x: number; char: string; color: string }[]>([]);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const filterNodeRef = useRef<BiquadFilterNode | null>(null);
+  const synthIntervalRef = useRef<any>(null);
+
+  const unlockDisc = (discId: string) => {
+    setUnlockedDiscs(prev => {
+      if (prev.includes(discId)) return prev;
+      const next = [...prev, discId];
+      localStorage.setItem('mc_unlocked_discs', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const initAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      const AudioCtxClass = (window.AudioContext || (window as any).webkitAudioContext);
+      if (AudioCtxClass) {
+        audioCtxRef.current = new AudioCtxClass();
+      }
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+  };
+
+  const playSynthNote = (freq: number, type: OscillatorType, duration: number, gainVal: number, detuneVal: number = 0) => {
+    if (!audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'closed') return;
+
+    try {
+      const osc = ctx.createOscillator();
+      const noteGain = ctx.createGain();
+      
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      if (detuneVal) {
+        osc.detune.setValueAtTime(detuneVal, ctx.currentTime);
+      }
+      
+      noteGain.gain.setValueAtTime(0, ctx.currentTime);
+      noteGain.gain.linearRampToValueAtTime(gainVal, ctx.currentTime + 0.04);
+      noteGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      
+      osc.connect(noteGain);
+      if (filterNodeRef.current) {
+        noteGain.connect(filterNodeRef.current);
+      } else if (masterGainRef.current) {
+        noteGain.connect(masterGainRef.current);
+      } else {
+        noteGain.connect(ctx.destination);
+      }
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {
+      console.warn("Error playing note:", e);
+    }
+  };
+
+  const playSnareHiss = (duration: number, gainVal: number) => {
+    if (!audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'closed') return;
+
+    try {
+      const bufferSize = ctx.sampleRate * duration;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      
+      const noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = buffer;
+      
+      const snFilter = ctx.createBiquadFilter();
+      snFilter.type = 'highpass';
+      snFilter.frequency.setValueAtTime(1200, ctx.currentTime);
+      
+      const snGain = ctx.createGain();
+      snGain.gain.setValueAtTime(gainVal, ctx.currentTime);
+      snGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      
+      noiseSource.connect(snFilter);
+      snFilter.connect(snGain);
+      
+      if (masterGainRef.current) {
+        snGain.connect(masterGainRef.current);
+      } else {
+        snGain.connect(ctx.destination);
+      }
+      
+      noiseSource.start(ctx.currentTime);
+      noiseSource.stop(ctx.currentTime + duration);
+    } catch (e) {
+      console.warn("Error playing snare hiss:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (synthIntervalRef.current) {
+      clearInterval(synthIntervalRef.current);
+      synthIntervalRef.current = null;
+    }
+
+    if (!isJukeboxPlaying || !activeDisc) {
+      if (audioCtxRef.current && audioCtxRef.current.state === 'running') {
+        audioCtxRef.current.suspend();
+      }
+      return;
+    }
+
+    initAudioCtx();
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+
+    if (!masterGainRef.current) {
+      masterGainRef.current = ctx.createGain();
+      masterGainRef.current.connect(ctx.destination);
+    }
+    masterGainRef.current.gain.setValueAtTime(jukeboxVolume, ctx.currentTime);
+
+    if (!filterNodeRef.current) {
+      filterNodeRef.current = ctx.createBiquadFilter();
+      filterNodeRef.current.type = 'lowpass';
+      filterNodeRef.current.frequency.setValueAtTime(900, ctx.currentTime);
+      filterNodeRef.current.Q.setValueAtTime(1.0, ctx.currentTime);
+      filterNodeRef.current.connect(masterGainRef.current);
+    }
+
+    let intervalMs = 260; 
+    if (activeDisc === 'pigstep') intervalMs = 319; 
+    if (activeDisc === 'chirp') intervalMs = 288; 
+
+    const stepRef = { current: 0 };
+    const diskColor = activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981';
+    const noteChars = ['♩', '♪', '♫', '♬'];
+
+    const tick = () => {
+      const step = stepRef.current;
+      stepRef.current = (step + 1) % 16;
+
+      if (step % 2 === 0) {
+        setActiveNotes(prev => [
+          ...prev, 
+          {
+            id: Date.now() + Math.random(),
+            x: (Math.random() - 0.5) * 80, 
+            char: noteChars[Math.floor(Math.random() * noteChars.length)],
+            color: diskColor
+          }
+        ].slice(-10));
+      }
+
+      if (activeDisc === 'cat') {
+        if (step === 0 || step === 1) playSynthNote(110.00, 'triangle', 0.25, 0.4); 
+        if (step === 4 || step === 5) playSynthNote(130.81, 'triangle', 0.25, 0.4); 
+        if (step === 8 || step === 9) playSynthNote(98.00, 'triangle', 0.25, 0.4);  
+        if (step === 12 || step === 13) playSynthNote(87.31, 'triangle', 0.25, 0.4); 
+
+        if (step === 0 || step === 8) {
+          playSynthNote(60, 'sine', 0.08, 0.5); 
+        }
+        if (step === 4 || step === 12) {
+          playSnareHiss(0.06, 0.12);
+        }
+
+        const melodyNotes: Record<number, number> = {
+          0: 523.25,  
+          2: 659.25,  
+          4: 783.99,  
+          6: 880.00,  
+          8: 783.99,  
+          10: 659.25, 
+          12: 587.33, 
+          14: 523.25  
+        };
+        if (melodyNotes[step]) {
+          playSynthNote(melodyNotes[step], 'sine', 0.2, 0.3);
+          setTimeout(() => {
+            if (activeDisc === 'cat') {
+              playSynthNote(melodyNotes[step], 'sine', 0.15, 0.1, -10);
+            }
+          }, 150);
+        }
+      } 
+      else if (activeDisc === 'pigstep') {
+        if (step === 0 || step === 2) {
+          playSynthNote(73.42, 'sawtooth', 0.35, 0.35, 5); 
+          playSynthNote(73.42, 'triangle', 0.35, 0.5);
+        }
+        if (step === 4 || step === 6) {
+          playSynthNote(58.27, 'sawtooth', 0.35, 0.35, 5); 
+          playSynthNote(58.27, 'triangle', 0.35, 0.5);
+        }
+        if (step === 8 || step === 10) {
+          playSynthNote(65.41, 'sawtooth', 0.35, 0.35, 5); 
+          playSynthNote(65.41, 'triangle', 0.35, 0.5);
+        }
+        if (step === 12 || step === 14) {
+          playSynthNote(49.00, 'sawtooth', 0.35, 0.35, 5); 
+          playSynthNote(49.00, 'triangle', 0.35, 0.5);
+        }
+
+        if (step === 0 || step === 2 || step === 8 || step === 10) {
+          playSynthNote(50, 'sine', 0.15, 0.6); 
+        }
+        if (step === 4 || step === 12) {
+          playSnareHiss(0.12, 0.25); 
+        }
+
+        const melodyNotes: Record<number, number> = {
+          0: 392.00,  
+          3: 466.16,  
+          6: 587.33,  
+          8: 554.37,  
+          11: 466.16, 
+          14: 392.00  
+        };
+        if (melodyNotes[step]) {
+          playSynthNote(melodyNotes[step], 'triangle', 0.22, 0.4);
+          playSynthNote(melodyNotes[step] * 2, 'sine', 0.1, 0.15);
+        }
+      } 
+      else if (activeDisc === 'chirp') {
+        const bassFreqs = [130.81, 196.00, 130.81, 196.00, 110.00, 164.81, 110.00, 164.81]; 
+        const bassNode = bassFreqs[Math.floor(step / 2) % bassFreqs.length];
+        if (step % 2 === 0) {
+          playSynthNote(bassNode, 'triangle', 0.15, 0.5);
+        }
+
+        if (step % 4 === 0) {
+          playSynthNote(75, 'sine', 0.05, 0.4); 
+        }
+        if (step % 4 === 2) {
+          playSnareHiss(0.04, 0.1); 
+        }
+
+        if (step === 0) {
+          playSynthNote(261.63, 'sine', 0.5, 0.2);
+          playSynthNote(329.63, 'sine', 0.5, 0.2);
+          playSynthNote(392.00, 'sine', 0.5, 0.2);
+        }
+        if (step === 4) {
+          playSynthNote(196.00, 'sine', 0.5, 0.2);
+          playSynthNote(246.94, 'sine', 0.5, 0.2);
+          playSynthNote(293.66, 'sine', 0.5, 0.2);
+        }
+        if (step === 8) {
+          playSynthNote(220.00, 'sine', 0.5, 0.2);
+          playSynthNote(261.63, 'sine', 0.5, 0.2);
+          playSynthNote(329.63, 'sine', 0.5, 0.2);
+        }
+        if (step === 12) {
+          playSynthNote(174.61, 'sine', 0.5, 0.2);
+          playSynthNote(220.00, 'sine', 0.5, 0.2);
+          playSynthNote(261.63, 'sine', 0.5, 0.2);
+        }
+
+        const melodyNotes: Record<number, number> = {
+          2: 523.25,   
+          6: 659.25,   
+          10: 783.99,  
+          14: 1046.50  
+        };
+        if (melodyNotes[step]) {
+          playSynthNote(melodyNotes[step], 'sine', 0.1, 0.25);
+          setTimeout(() => {
+            if (activeDisc === 'chirp') {
+              playSynthNote(melodyNotes[step] * 1.5, 'sine', 0.08, 0.12);
+            }
+          }, 80);
+        }
+      }
+    };
+
+    tick();
+    synthIntervalRef.current = setInterval(tick, intervalMs);
+
+    return () => {
+      if (synthIntervalRef.current) {
+        clearInterval(synthIntervalRef.current);
+      }
+    };
+  }, [isJukeboxPlaying, activeDisc]);
+
+  useEffect(() => {
+    if (masterGainRef.current && audioCtxRef.current) {
+      try {
+        masterGainRef.current.gain.setValueAtTime(jukeboxVolume, audioCtxRef.current.currentTime);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [jukeboxVolume]);
+
+  useEffect(() => {
+    if (activeNotes.length === 0) return;
+    const timer = setTimeout(() => {
+      setActiveNotes(prev => prev.slice(1));
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [activeNotes]);
+
+  useEffect(() => {
+    return () => {
+      if (synthIntervalRef.current) clearInterval(synthIntervalRef.current);
+      if (audioCtxRef.current) {
+        try {
+          audioCtxRef.current.close();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
+  const handlePotentialDiscDrop = (blockType: string) => {
+    const currentUnlocked = [...unlockedDiscs];
+    const allDiscs = ['cat', 'pigstep', 'chirp'];
+    const locked = allDiscs.filter(d => !currentUnlocked.includes(d));
+    if (locked.length === 0) return; 
+
+    let chance = 0.02;
+    if (blockType === 'Chest') chance = 0.35; 
+    if (blockType === 'Emerald') chance = 0.20;
+    if (blockType === 'Diamond') chance = 0.15;
+    if (blockType === 'Gold') chance = 0.08;
+
+    if (Math.random() < chance) {
+      const chosen = locked[Math.floor(Math.random() * locked.length)];
+      const niceName = chosen === 'pigstep' ? 'Pigstep' : 'Chirp';
+      unlockDisc(chosen);
+      
+      const sendSystemMsg = (text: string, title: string = 'SYSTEM') => {
+        const now = Date.now();
+        const sysMsg: ChatMessage = {
+          id: `local-disc-${now}-${Math.random()}`,
+          text: text,
+          userId: 'system',
+          displayName: title,
+          role: 'System',
+          createdAt: new Date(now),
+          isLocal: true,
+          localTimestamp: now
+        };
+        setLocalMessages(prev => [...prev, sysMsg]);
+      };
+
+      sendSystemMsg(`§6§l[SCHALLPLATTE]§r Glückwunsch! Du hast die seltene Schallplatte §e"${niceName}"§r beim Minen gefunden! 🎵`, 'JUKEBOX');
+      
+      const discRewardId = `disc-reward-${Date.now()}`;
+      setFloatingRewards(prev => [...prev, {
+        id: discRewardId,
+        text: `🎵 ${niceName} GEFUNDEN!`,
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2 - 100,
+        color: chosen === 'pigstep' ? '#ef4444' : '#22d3ee'
+      }]);
+      setTimeout(() => {
+        setFloatingRewards(prev => prev.filter(r => r.id !== discRewardId));
+      }, 4000);
+    }
+  };
+
   const [pixelGrid, setPixelGrid] = useState<string[]>(Array(64).fill('#000000'));
   const [brushColor, setBrushColor] = useState('#ff0000');
   const [pvpStatus, setPvpStatus] = useState<ServerStatus>({ online: true, playerCount: 0, maxPlayers: 10 });
@@ -2416,6 +2802,7 @@ export default function App() {
 
     // Visual pause before respawn
     setTimeout(() => {
+      handlePotentialDiscDrop(miningBlock.type);
       spawnNextBlock();
     }, 200);
   };
@@ -7299,6 +7686,267 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {/* Retro Jukebox Section */}
+      <section className="relative z-10 border-t border-neutral-800/40 py-12 bg-black/40 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-6 sm:p-8 flex flex-col lg:flex-row gap-8 items-center justify-between relative">
+            
+            {/* Absolute element for floating note particles */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-2xl">
+              <AnimatePresence>
+                {activeNotes.map(n => (
+                  <motion.span
+                    key={n.id}
+                    initial={{ y: 60, x: n.x, scale: 0.5, opacity: 1, rotate: 0 }}
+                    animate={{ y: -160, scale: 1.5, opacity: 0, rotate: [0, -15, 15, -15, 30] }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 1.8, ease: "easeOut" }}
+                    className="absolute pointer-events-none text-xl select-none bottom-8"
+                    style={{ color: n.color, left: '50%' }}
+                  >
+                    {n.char}
+                  </motion.span>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            {/* Part 1: Visual representation of the Minecraft Jukebox Block */}
+            <div className="flex items-center gap-6 z-10">
+              <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-xl bg-[#4e3621] border-4 border-[#331c0e] shadow-[inset_0_4px_0_rgba(255,255,255,0.1),0_12px_24px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center group overflow-hidden">
+                {/* Visual slot for vinyl at the top */}
+                <div className="absolute top-2 w-14 h-2 bg-[#211107] rounded border-b border-[#5e432c]">
+                  {/* If disc inside, draw it! */}
+                  {activeDisc && (
+                    <motion.div
+                      animate={isJukeboxPlaying ? { rotate: 360 } : {}}
+                      transition={isJukeboxPlaying ? { repeat: Infinity, duration: 4, ease: "linear" } : {}}
+                      className="absolute -top-1 left-2 w-10 h-10 rounded-full border-2 border-black flex items-center justify-center opacity-80"
+                      style={{
+                        backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981',
+                      }}
+                    >
+                      <div className="w-3 h-3 rounded-full bg-[#fbbf24]" />
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* Main Jukebox Texture & Grille */}
+                <div className="mt-8 flex flex-col items-center justify-center">
+                  <div className={`w-8 h-8 rounded-full border-4 flex items-center justify-center transition-all duration-500 shadow-lg ${
+                    isJukeboxPlaying ? 'animate-pulse scale-105 border-mc-gold/40' : 'border-neutral-800'
+                  }`}
+                  style={{
+                    backgroundColor: activeDisc ? (activeDisc === 'pigstep' ? 'rgba(239, 68, 68, 0.2)' : activeDisc === 'chirp' ? 'rgba(34, 211, 238, 0.2)' : 'rgba(16, 185, 129, 0.2)') : '#1a1008'
+                  }}>
+                    <Disc className={`w-4 h-4 transition-all duration-500 ${
+                      isJukeboxPlaying ? 'text-mc-gold animate-spin' : 'text-neutral-500'
+                    }`} />
+                  </div>
+                  <span className="text-[9px] font-black tracking-widest text-[#9c7b5d] uppercase mt-2 select-none">Jukebox</span>
+                </div>
+
+                {/* Animated active lights */}
+                {isJukeboxPlaying && (
+                  <>
+                    <span className="absolute bottom-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-ping delay-75" />
+                    <span className="absolute bottom-2 right-2 w-2 h-2 rounded-full bg-green-500 animate-ping" />
+                  </>
+                )}
+              </div>
+
+              {/* Status and title info */}
+              <div>
+                <span className="px-2 py-0.5 bg-mc-gold/10 border border-mc-gold/30 text-mc-gold text-[8px] font-bold tracking-[0.2em] uppercase rounded-full">Atmospherisch</span>
+                <h3 className="text-xl font-black text-white tracking-tight mt-1 flex items-center gap-2">
+                  Retro Jukebox
+                  <Sparkles size={16} className="text-mc-gold" />
+                </h3>
+                <p className="text-neutral-400 text-xs mt-1 max-w-sm">
+                  {activeDisc ? (
+                    isJukeboxPlaying ? (
+                      <>Spielt gerade: <span className="font-bold text-white capitalize">{activeDisc === 'cat' ? 'Cat 🐈 (Cozy Lofi Loop)' : activeDisc === 'pigstep' ? 'Pigstep 🔥 (Retro Hip-Hop)' : 'Chirp 🛸 (Space Lounge)'}</span></>
+                    ) : (
+                      <>Platte eingelegt: <span className="font-bold text-neutral-300 capitalize">{activeDisc}</span>. Klicke auf Play!</>
+                    )
+                  ) : (
+                    "Lege eine Schallplatte ein, um lofi chiptune Beats abzuspielen!"
+                  )}
+                </p>
+
+                {/* Simple responsive visualizer bars */}
+                {isJukeboxPlaying && (
+                  <div className="flex items-end gap-1 h-5 mt-3">
+                    {[...Array(6)].map((_, i) => (
+                      <motion.div 
+                        key={`bar-${i}`}
+                        animate={{ height: [4, 16, 6, 20, 8, 4][(i + Math.floor(Math.random() * 5)) % 6] }}
+                        transition={{ duration: 0.6 + i * 0.1, repeat: Infinity, repeatType: "reverse" }}
+                        className="w-1.5 rounded-full"
+                        style={{
+                          backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981'
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Part 2: Playback Controls and Volume */}
+            <div className="flex flex-col gap-4 items-center sm:items-end w-full lg:w-auto z-10">
+              <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-xl border border-neutral-800">
+                <button
+                  type="button"
+                  disabled={!activeDisc}
+                  onClick={() => {
+                    initAudioCtx();
+                    setIsJukeboxPlaying(!isJukeboxPlaying);
+                  }}
+                  className={`p-3 rounded-lg transition-all ${
+                    !activeDisc 
+                      ? 'text-neutral-600 cursor-not-allowed' 
+                      : isJukeboxPlaying 
+                        ? 'bg-mc-red/10 text-mc-red border border-mc-red/30' 
+                        : 'bg-mc-green/10 text-mc-green border border-mc-green/30 hover:bg-mc-green/20'
+                  }`}
+                  title={isJukeboxPlaying ? "Pausieren" : "Abspielen"}
+                >
+                  {isJukeboxPlaying ? <Pause size={18} /> : <Play size={18} />}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!activeDisc}
+                  onClick={() => {
+                    setIsJukeboxPlaying(false);
+                    setActiveDisc(null);
+                  }}
+                  className={`p-3 rounded-lg border transition-all ${
+                    !activeDisc 
+                      ? 'text-neutral-600 border-transparent cursor-not-allowed' 
+                      : 'border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800/40'
+                  }`}
+                  title="Platte auswerfen"
+                >
+                  <LogOut size={18} />
+                </button>
+
+                <div className="h-6 w-[1px] bg-neutral-800 mx-2" />
+
+                {/* Volume slider */}
+                <div className="flex items-center gap-2 px-2">
+                  <Volume2 size={16} className="text-neutral-400" />
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={jukeboxVolume}
+                    onChange={(e) => setJukeboxVolume(parseFloat(e.target.value))}
+                    className="w-16 sm:w-20 accent-mc-gold cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Vinyl Records Collection Deck */}
+              <div className="space-y-2 w-full max-w-sm">
+                <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest text-center sm:text-right">Deine Schallplatten:</div>
+                <div className="grid grid-cols-3 gap-2">
+                  
+                  {/* CAT RECORD */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeDisc === 'cat') {
+                        setIsJukeboxPlaying(!isJukeboxPlaying);
+                      } else {
+                        setActiveDisc('cat');
+                        setIsJukeboxPlaying(true);
+                      }
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
+                      activeDisc === 'cat'
+                        ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                        : 'bg-black/30 border-neutral-800 hover:border-emerald-500/30'
+                    }`}
+                  >
+                    <Disc className={`w-8 h-8 text-emerald-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'cat' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                    <span className="text-[10px] font-bold text-white">Cat</span>
+                    <span className="text-[8px] text-neutral-400">Cozy Classic</span>
+                    <span className="absolute top-1 right-1 text-[7px] text-emerald-400 font-black">START</span>
+                  </button>
+
+                  {/* PIGSTEP RECORD */}
+                  {unlockedDiscs.includes('pigstep') ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeDisc === 'pigstep') {
+                          setIsJukeboxPlaying(!isJukeboxPlaying);
+                        } else {
+                          setActiveDisc('pigstep');
+                          setIsJukeboxPlaying(true);
+                        }
+                      }}
+                      className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
+                        activeDisc === 'pigstep'
+                          ? 'bg-red-500/10 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                          : 'bg-black/30 border-neutral-800 hover:border-red-500/30'
+                      }`}
+                    >
+                      <Disc className={`w-8 h-8 text-red-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'pigstep' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                      <span className="text-[10px] font-bold text-white">Pigstep</span>
+                      <span className="text-[8px] text-neutral-400">Hip-hop lofi</span>
+                      <span className="absolute top-1 right-1 text-[7px] text-red-400 font-black">GEFUNDEN</span>
+                    </button>
+                  ) : (
+                    <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60">
+                      <Lock size={16} className="text-neutral-500 mb-1" />
+                      <span className="text-[10px] font-bold text-neutral-400">Locked</span>
+                      <span className="text-[7px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen finden</span>
+                    </div>
+                  )}
+
+                  {/* CHIRP RECORD */}
+                  {unlockedDiscs.includes('chirp') ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeDisc === 'chirp') {
+                          setIsJukeboxPlaying(!isJukeboxPlaying);
+                        } else {
+                          setActiveDisc('chirp');
+                          setIsJukeboxPlaying(true);
+                        }
+                      }}
+                      className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
+                        activeDisc === 'chirp'
+                          ? 'bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.15)]'
+                          : 'bg-black/30 border-neutral-800 hover:border-cyan-500/30'
+                      }`}
+                    >
+                      <Disc className={`w-8 h-8 text-cyan-400 group-hover/record:rotate-45 transition-transform ${activeDisc === 'chirp' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                      <span className="text-[10px] font-bold text-white">Chirp</span>
+                      <span className="text-[8px] text-neutral-400">Synth lounge</span>
+                      <span className="absolute top-1 right-1 text-[7px] text-cyan-400 font-black">GEFUNDEN</span>
+                    </button>
+                  ) : (
+                    <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60">
+                      <Lock size={16} className="text-neutral-500 mb-1" />
+                      <span className="text-[10px] font-bold text-neutral-400">Locked</span>
+                      <span className="text-[7px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen finden</span>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      </section>
 
       <footer className="relative z-10 border-t border-neutral-800/50 py-12 bg-black/20">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
