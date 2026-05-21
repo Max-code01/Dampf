@@ -1490,7 +1490,12 @@ export default function App() {
           displayName: result.user.displayName || 'Unbekannt',
           minecraftUsername: result.user.displayName || '',
           role: 'Member',
+          coins: 100,
+          xp: 0,
           isOnline: true,
+          currentServer: 'none',
+          isShadowMuted: false,
+          isInvisible: false,
           updatedAt: serverTimestamp(),
           createdAt: serverTimestamp()
         }, { merge: true });
@@ -1556,9 +1561,12 @@ export default function App() {
           displayName: username,
           minecraftUsername: username,
           role: 'Member',
-          coins: 50,
+          coins: 100, // Make it consistent with Discord 100 coin setup
           xp: 0,
           isOnline: true,
+          currentServer: 'none',
+          isShadowMuted: false,
+          isInvisible: false,
           updatedAt: serverTimestamp(),
           createdAt: serverTimestamp()
         }, { merge: true });
@@ -5858,8 +5866,8 @@ export default function App() {
                       const isMe = msg.userId === user?.uid;
                       const displayRole = STAFF_OVERWRITES[msg.displayName] || msg.role;
 
-                      // Use tempId primarily as the key for stable transitions from local message to server-confirmed message
-                      const uniqueKey = msg.tempId || msg.id || `msg-${idx}`;
+                      // Use a robust, guaranteed unique key combining id, tempId, and index
+                      const uniqueKey = `chat-msg-${msg.id || 'msg'}-${msg.tempId || 'temp'}-${idx}`;
 
                       return (
                         <motion.div 
@@ -6916,7 +6924,7 @@ export default function App() {
                                       const isOwn = msg.userId === user?.uid;
                                       const profile = userProfiles.find(p => p.userId === msg.userId);
                                       return (
-                                        <div key={msg.id || `clan-${msg.timestamp?.seconds || idx}-${idx}`} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                                        <div key={`clan-msg-${msg.id || 'msg'}-${idx}`} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                           <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
                                             isOwn ? 'bg-mc-gold text-black rounded-tr-none' : 'bg-neutral-800 text-white rounded-tl-none'
                                           }`}>
