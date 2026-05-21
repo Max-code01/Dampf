@@ -109,11 +109,11 @@ if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
 }
 
 const REALM_CODES = {
-  PVP: 'https://discord.gg/zHSUGu5X',
-  SURVIVAL: 'https://discord.gg/zHSUGu5X'
+  PVP: 'https://discord.gg/UeMM36cJf',
+  SURVIVAL: 'https://discord.gg/UeMM36cJf'
 };
 
-const DISCORD_URL = 'https://discord.gg/zHSUGu5X';
+const DISCORD_URL = 'https://discord.gg/UeMM36cJf';
 
 interface Player {
   id: string;
@@ -392,8 +392,8 @@ export default function App() {
   const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
 
   const [realmCodes, setRealmCodes] = useState({
-    PVP: 'https://discord.gg/zHSUGu5X',
-    SURVIVAL: 'https://discord.gg/zHSUGu5X'
+    PVP: 'https://discord.gg/UeMM36cJf',
+    SURVIVAL: 'https://discord.gg/UeMM36cJf'
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
@@ -1065,6 +1065,8 @@ export default function App() {
             return;
           }
 
+          const existingData = profileSnapshot.exists() ? profileSnapshot.data() : {};
+
           // Sync Discord ID if missing
           const discordProvider = user.providerData.find(p => p.providerId.includes('discord'));
           const discordId = discordProvider?.uid;
@@ -1080,6 +1082,23 @@ export default function App() {
           
           if (discordId) {
             lastData.discordId = discordId;
+          }
+
+          // Heal missing fields for users registered via Discord or other pathways
+          if (existingData.coins === undefined) {
+            lastData.coins = 100;
+          }
+          if (existingData.xp === undefined) {
+            lastData.xp = 0;
+          }
+          if (existingData.isShadowMuted === undefined) {
+            lastData.isShadowMuted = false;
+          }
+          if (existingData.isInvisible === undefined) {
+            lastData.isInvisible = false;
+          }
+          if (existingData.currentServer === undefined) {
+            lastData.currentServer = 'none';
           }
 
           await setDoc(profileRef, lastData, { merge: true });
