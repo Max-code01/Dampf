@@ -410,6 +410,7 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [tempSkin, setTempSkin] = useState<string | null>(null);
+  const [mcUsernameInput, setMcUsernameInput] = useState<string>('');
   const [pixelGrid, setPixelGrid] = useState<string[]>(Array(64).fill('#000000'));
   const [brushColor, setBrushColor] = useState('#ff0000');
   const [pvpStatus, setPvpStatus] = useState<ServerStatus>({ online: true, playerCount: 0, maxPlayers: 10 });
@@ -1173,15 +1174,25 @@ export default function App() {
         assignedRole = 'Admin';
       }
 
+      const uName = user.displayName || user.email?.split('@')[0] || 'Unbekannt';
+
       // If we already have a profile, don't overwrite role unless it's a promotion
       // This prevents "downgrading" manually set roles by accident
       await setDoc(profileRef, { 
         isOnline: true, 
+        currentServer: 'none',
         updatedAt: serverTimestamp(),
         role: assignedRole, // Enforce assigned role for founders
         userId: user.uid,
-        minecraftUsername: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
-        displayName: user.displayName || user.email?.split('@')[0] || 'Unbekannt'
+        minecraftUsername: uName,
+        displayName: uName
+      }, { merge: true });
+
+      // Add to online_players too
+      await setDoc(doc(db, 'online_players', user.uid), {
+        username: uName,
+        server: 'none',
+        lastSeen: new Date().toISOString()
       }, { merge: true });
     };
 
@@ -1201,6 +1212,16 @@ export default function App() {
             // Silently fail if persistent quota issues, but log internally
             if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
         });
+
+        // Also update online_players heartbeat
+        const uName = myProfile?.minecraftUsername || myProfile?.displayName || user.displayName || user.email?.split('@')[0] || 'Unbekannt';
+        setDoc(doc(db, 'online_players', user.uid), {
+          username: uName,
+          server: myProfile?.currentServer || 'none',
+          lastSeen: new Date().toISOString()
+        }, { merge: true }).catch(err => {});
+      } else {
+        deleteDoc(doc(db, 'online_players', user.uid)).catch(err => {});
       }
     }, 120000); // 2 minutes heartbeat to save quota
 
@@ -1208,6 +1229,7 @@ export default function App() {
     const handleUnload = () => {
       // We can't await here but fire-and-forget
       setDoc(profileRef, { isOnline: false, updatedAt: serverTimestamp() }, { merge: true });
+      deleteDoc(doc(db, 'online_players', user.uid));
     };
 
     // 4. Reactive Profile Listener for State
@@ -1314,6 +1336,14 @@ export default function App() {
     fetchShop();
     fetchClans();
 
+    // Real-time listener for online_players to keep synchronization instantaneous
+    const onlinePlayersQuery = query(collection(db, 'online_players'), limit(50));
+    const unsubscribeOnlinePlayers = onSnapshot(onlinePlayersQuery, (snapshot) => {
+      setPlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, (err) => {
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
+    });
+
     // Listen to maintenance/broadcast config (Small payload, keep real-time)
     const unsubscribeAppConfig = onSnapshot(doc(db, 'app_config', 'system'), (snapshot) => {
       if (snapshot.exists()) {
@@ -1348,6 +1378,7 @@ export default function App() {
     }
 
     return () => {
+      unsubscribeOnlinePlayers();
       unsubscribeAppConfig();
       unsubscribeChat();
     };
@@ -1416,8 +1447,10 @@ export default function App() {
     const profileToEdit = userProfiles.find(p => p.userId === targetId);
     if (profileToEdit) {
       setTempSkin(profileToEdit.customSkin || null);
+      setMcUsernameInput(profileToEdit.minecraftUsername || '');
     } else {
       setTempSkin(null);
+      setMcUsernameInput('');
     }
     
     setShowProfileModal(true);
@@ -2526,6 +2559,7 @@ export default function App() {
       // Update online status in Firestore before actual logout
       try {
         await setDoc(doc(db, 'user_profiles', user.uid), { isOnline: false, updatedAt: serverTimestamp() }, { merge: true });
+        await deleteDoc(doc(db, 'online_players', user.uid));
       } catch (e) {
         console.error("Logout status update failed", e);
       }
@@ -2627,6 +2661,17 @@ export default function App() {
       }
 
       await setDoc(doc(db, 'user_profiles', targetId), updates, { merge: true });
+      
+      // Update online_players as well. If online, add/overwrite; otherwise, delete.
+      if (isOnline) {
+        await setDoc(doc(db, 'online_players', targetId), {
+          username: minecraftUsername || displayName || targetId,
+          server: currentServer,
+          lastSeen: new Date().toISOString()
+        }, { merge: true });
+      } else {
+        await deleteDoc(doc(db, 'online_players', targetId));
+      }
       
       // Update local state immediately for better UX
       if (targetId === user.uid) {
@@ -4024,6 +4069,7 @@ export default function App() {
       <AnimatePresence>
         {isMaintenanceMode && !isSuperAdmin && (
           <motion.div 
+            key="maintenance-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -4068,6 +4114,7 @@ export default function App() {
       <AnimatePresence>
         {showMiningModal && (
           <motion.div
+            key="mining-modal"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -4111,6 +4158,7 @@ export default function App() {
               <AnimatePresence>
                 {miningShake > 10 && (
                    <motion.div 
+                     key="explosion-kaboom-overlay"
                      initial={{ opacity: 0 }}
                      animate={{ opacity: 1 }}
                      exit={{ opacity: 0 }}
@@ -4139,6 +4187,7 @@ export default function App() {
                       <AnimatePresence>
                         {miningCombo > 2 && (
                           <motion.span 
+                            key={`combo-badge-${miningCombo}`}
                             initial={{ scale: 0, rotate: -20 }}
                             animate={{ scale: 1, rotate: 0 }}
                             exit={{ scale: 0 }}
@@ -4278,16 +4327,16 @@ export default function App() {
 
                               {miningBlock.type !== 'Stone' && miningBlock.type !== 'TNT' && miningBlock.type !== 'Chest' && (
                                 <div className="absolute inset-0 p-8 grid grid-cols-4 grid-rows-4 gap-4">
-                                  {[...Array(16)].map((_, i) => (
-                                    (i % 3 === 0) && (
+                                  {[...Array(16)].map((_, i) => 
+                                    i % 3 === 0 ? (
                                       <div key={`mining-grid-bg-${i}`} className={`rounded-xl ${
                                         miningBlock.type === 'Diamond' ? 'bg-blue-300' :
                                         miningBlock.type === 'Gold' ? 'bg-mc-amber' :
                                         miningBlock.type === 'Emerald' ? 'bg-emerald-300' :
                                         miningBlock.type === 'Iron' ? 'bg-slate-100' : 'bg-black'
                                       }`} />
-                                    )
-                                  ))}
+                                    ) : null
+                                  )}
                                 </div>
                               )}
                               
@@ -4433,6 +4482,7 @@ export default function App() {
       <AnimatePresence>
         {openingBox.isOpen && (
           <motion.div
+            key="case-opening-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -4581,6 +4631,7 @@ export default function App() {
       <AnimatePresence>
         {broadcastMessage && !isAnyOverlayOpen && (
           <motion.div 
+            key="global-broadcast-banner"
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -50, opacity: 0 }}
@@ -4667,6 +4718,7 @@ export default function App() {
       <AnimatePresence>
         {showAdmin && isAdmin && (
           <motion.div
+            key="admin-simulation-panel"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -4991,6 +5043,7 @@ export default function App() {
       <AnimatePresence>
         {!isAnyOverlayOpen && (
           <motion.div 
+            key="floating-action-group"
             initial={{ opacity: 0, scale: 0.8, y: 50 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 50 }}
@@ -5095,6 +5148,7 @@ export default function App() {
       <AnimatePresence>
         {newsOpen && (
           <motion.div 
+            key="news-drawer-panel"
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
@@ -5156,6 +5210,7 @@ export default function App() {
       <AnimatePresence>
         {pollsOpen && (
           <motion.div 
+            key="polls-drawer-panel"
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
@@ -5238,6 +5293,7 @@ export default function App() {
       <AnimatePresence>
         {shopOpen && (
           <motion.div 
+            key="shop-drawer-panel"
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
@@ -5588,7 +5644,7 @@ export default function App() {
       {/* AI Oracle Drawer */}
       <AnimatePresence>
         {isAiOpen && (
-          <div className="fixed inset-0 z-[120] flex justify-end">
+          <div key="ai-oracle-wrapper" className="fixed inset-0 z-[120] flex justify-end">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -5707,18 +5763,17 @@ export default function App() {
         </motion.button>
       )}
 
-      {/* Chat Drawer */}
+      {/* Leaderboard Modal */}
       <AnimatePresence>
-        {/* Leaderboard Modal */}
-        <AnimatePresence>
-          {leaderboardOpen && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-              onClick={(e) => { if (e.target === e.currentTarget) setLeaderboardOpen(false); }}
-            >
+        {leaderboardOpen && (
+          <motion.div 
+            key="leaderboard-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+            onClick={(e) => { if (e.target === e.currentTarget) setLeaderboardOpen(false); }}
+          >
               <motion.div 
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
@@ -5833,8 +5888,11 @@ export default function App() {
           )}
         </AnimatePresence>
 
+      {/* Chat Drawer */}
+      <AnimatePresence>
         {chatOpen && (
           <motion.div 
+            key="chat-drawer"
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
@@ -5980,6 +6038,7 @@ export default function App() {
               <AnimatePresence>
                 {showCommandMenu && (
                   <motion.div 
+                    key="command-menu-quick"
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -6220,6 +6279,7 @@ export default function App() {
             <AnimatePresence>
               {showStaffSection && (
                 <motion.div 
+                  key="staff-section"
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
@@ -6697,6 +6757,7 @@ export default function App() {
           <AnimatePresence>
             {isClansOpen && (
               <motion.div 
+                key="clans-section"
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
@@ -7256,8 +7317,9 @@ export default function App() {
       {/* Create Clan Modal */}
       <AnimatePresence>
         {showCreateClan && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <div key="create-clan-modal-container" className="fixed inset-0 z-[110] flex items-center justify-center p-6">
             <motion.div 
+              key="create-clan-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -7265,6 +7327,7 @@ export default function App() {
               className="absolute inset-0 bg-black/90 backdrop-blur-md"
             />
             <motion.div 
+              key="create-clan-content"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -7332,6 +7395,7 @@ export default function App() {
       <AnimatePresence>
         {copied && (
           <motion.div
+            key="copied-notification"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
@@ -7346,8 +7410,9 @@ export default function App() {
       {/* Login Modal */}
       <AnimatePresence>
         {showLoginModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div key="login-modal-container" className="fixed inset-0 z-[100] flex items-center justify-center p-6">
             <motion.div 
+              key="login-modal-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -7355,6 +7420,7 @@ export default function App() {
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div 
+              key="login-modal-content"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -7453,8 +7519,9 @@ export default function App() {
       {/* Profile Modal */}
       <AnimatePresence>
         {showProfileModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div key="profile-modal-container" className="fixed inset-0 z-[100] flex items-center justify-center p-6">
             <motion.div 
+              key="profile-modal-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -7462,6 +7529,7 @@ export default function App() {
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div 
+              key="profile-modal-content"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -7523,13 +7591,14 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Minecraft Username</label>
                         <input 
                           name="minecraftUsername"
-                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.minecraftUsername || ''}
+                          value={mcUsernameInput}
+                          onChange={(e) => setMcUsernameInput(e.target.value)}
                           placeholder="Dein In-Game Name"
                           required
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
                         />
                       </div>
-
+                      
                       <div>
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Aktueller Server</label>
                         <select 
@@ -7552,9 +7621,12 @@ export default function App() {
                           {tempSkin ? (
                             <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Minecraft Skin Vorschau - Dein Charakter" />
                           ) : (
-                            <div className="w-24 h-24 rounded-lg bg-neutral-900 border-2 border-dashed border-neutral-800 flex items-center justify-center text-neutral-600">
-                              <UserIcon size={32} />
-                            </div>
+                            <img 
+                              src={`https://mc-heads.net/avatar/${mcUsernameInput.trim() || 'Steve'}`} 
+                              className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover shadow-[0_0_20px_rgba(251,191,36,0.15)]" 
+                              alt="Minecraft Skin/Head-Vorschau"
+                              referrerPolicy="no-referrer"
+                            />
                           )}
                           <button 
                             type="button" 
@@ -7566,11 +7638,15 @@ export default function App() {
                         </div>
                         
                         <div className="grid grid-cols-2 gap-2 w-full">
-                          <label className="mc-button mc-button-secondary py-2 text-[10px] cursor-pointer text-center">
+                          <label className={`mc-button py-2 text-[10px] cursor-pointer text-center transition-all duration-300 ${tempSkin ? 'border-mc-gold text-mc-gold bg-mc-gold/10' : 'border-neutral-800 text-neutral-400 hover:text-white'}`}>
                             Upload
                             <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
                           </label>
-                          <button type="button" onClick={() => setTempSkin(null)} className="mc-button border-neutral-800 py-2 text-[10px]">
+                          <button 
+                            type="button" 
+                            onClick={() => setTempSkin(null)} 
+                            className={`mc-button py-2 text-[10px] transition-all duration-300 ${!tempSkin ? 'border-mc-gold text-mc-gold bg-mc-gold/10 font-bold' : 'border-neutral-800 text-neutral-400 hover:text-white'}`}
+                          >
                             MC Head
                           </button>
                         </div>
@@ -7884,7 +7960,7 @@ export default function App() {
 
       <AnimatePresence>
         {hasQuotaExceeded && (
-          <div className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6 text-center animate-in fade-in duration-700">
+          <div key="quota-exceeded-container" className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6 text-center animate-in fade-in duration-700">
             <div className="max-w-md w-full bg-[#050505] border border-mc-red/20 rounded-[2.5rem] p-10 shadow-[0_0_100px_rgba(255,59,59,0.1)] space-y-10 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-mc-red to-transparent opacity-40" />
               

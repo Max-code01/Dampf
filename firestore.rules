@@ -79,8 +79,8 @@ service cloud.firestore {
     function isValidPlayer(data) {
       return data.keys().hasAll(['username', 'server', 'lastSeen']) &&
              data.keys().size() == 3 &&
-             data.username is string && data.username.size() <= 16 &&
-             data.server in ['pvp', 'survival'] &&
+             data.username is string && data.username.size() <= 64 &&
+             data.server in ['none', 'pvp', 'survival'] &&
              data.lastSeen is string;
     }
 
@@ -95,16 +95,14 @@ service cloud.firestore {
 
     // UserProfile Validation
     function isValidUserProfile(data, docId) {
-      return data.keys().hasAll(['displayName', 'minecraftUsername', 'isOnline', 'currentServer', 'updatedAt', 'userId']) &&
-             data.keys().size() >= 6 &&
-             data.displayName is string &&
-             data.minecraftUsername is string &&
-             data.isOnline is bool &&
-             data.currentServer in ['none', 'pvp', 'survival'] &&
+      return (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 64)) &&
+             (!('minecraftUsername' in data) || (data.minecraftUsername is string && data.minecraftUsername.size() <= 64)) &&
+             (!('isOnline' in data) || data.isOnline is bool) &&
+             (!('currentServer' in data) || data.currentServer in ['none', 'pvp', 'survival']) &&
              // Role Security: Setting staff roles (Admin/Owner/Root) requires isOwner()
-             (!data.keys().hasAll(['role']) || !(data.role in ['Admin', 'Owner', 'Root']) || isOwner()) &&
-             data.updatedAt is timestamp &&
-             data.userId == docId;
+             (!('role' in data) || !(data.role in ['Admin', 'Owner', 'Root']) || isOwner()) &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp || data.updatedAt is string)) &&
+             (!('userId' in data) || data.userId == docId);
     }
 
     // Clan Validation
@@ -217,8 +215,8 @@ service cloud.firestore {
     // Online Players Collection
     match /online_players/{playerId} {
       allow read: if true;
-      allow create, update: if isAdmin() && isValidId(playerId) && isValidPlayer(incoming());
-      allow delete: if isAdmin();
+      allow create, update: if (isAdmin() || (isSignedIn() && playerId == request.auth.uid)) && isValidId(playerId) && isValidPlayer(incoming());
+      allow delete: if isAdmin() || (isSignedIn() && playerId == request.auth.uid);
     }
 
     // Server Status Collection

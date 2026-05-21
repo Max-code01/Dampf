@@ -94,14 +94,28 @@ async function startServer() {
           Routes.applicationCommands(client.user!.id),
           { body: commands }
         );
-        // Also register guild-specific for instant updates on main server
-        await rest.put(
-          Routes.applicationGuildCommands(client.user!.id, guildId),
-          { body: commands }
-        );
-        console.log('[DISCORD] Slash Commands (Global & Guild) registriert.');
+        console.log('[DISCORD] Globale Slash Commands registriert.');
       } catch (err) {
-        console.error('[DISCORD] Fehler beim Registrieren der Commands:', err);
+        console.error('[DISCORD] Fehler beim Registrieren der globalen Commands:', err);
+      }
+
+      try {
+        if (guildId) {
+          // Also register guild-specific for instant updates on main server
+          await rest.put(
+            Routes.applicationGuildCommands(client.user!.id, guildId),
+            { body: commands }
+          );
+          console.log(`[DISCORD] Gilden-spezifische Slash Commands für Guild ID ${guildId} registriert.`);
+        }
+      } catch (err: any) {
+        const errStr = String(err);
+        if (err.code === 50001 || err.status === 403 || errStr.includes('50001') || errStr.includes('Missing Access')) {
+          console.warn(`[DISCORD] Hinweis: Gilden-Befehle konnten für Guild ID ${guildId} nicht registriert werden (Missing Access / Code 50001).`);
+          console.warn(`           Das ist normal, wenn der Bot nicht auf diesem Server existiert oder ohne die 'applications.commands' Berechtigung eingeladen wurde.`);
+        } else {
+          console.error('[DISCORD] Fehler beim Registrieren der Gilden-spezifischen Commands:', err);
+        }
       }
     });
 
