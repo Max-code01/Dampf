@@ -429,11 +429,20 @@ export default function App() {
   const [isJukeboxPlaying, setIsJukeboxPlaying] = useState<boolean>(false);
   const [jukeboxVolume, setJukeboxVolume] = useState<number>(0.4);
   const [activeNotes, setActiveNotes] = useState<{ id: number; x: number; char: string; color: string }[]>([]);
+  const [customSongUrl, setCustomSongUrl] = useState<string>('');
+  const [activeStreamTitle, setActiveStreamTitle] = useState<string>('');
+  const [streamLoading, setStreamLoading] = useState<boolean>(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string>('');
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const [ytReady, setYtReady] = useState<boolean>(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const filterNodeRef = useRef<BiquadFilterNode | null>(null);
   const synthIntervalRef = useRef<any>(null);
+  const streamAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ytPlayerRef = useRef<any>(null);
 
   const unlockDisc = (discId: string) => {
     setUnlockedDiscs(prev => {
@@ -529,9 +538,7 @@ export default function App() {
     } catch (e) {
       console.warn("Error playing snare hiss:", e);
     }
-  };
-
-  useEffect(() => {
+  };  useEffect(() => {
     if (synthIntervalRef.current) {
       clearInterval(synthIntervalRef.current);
       synthIntervalRef.current = null;
@@ -544,30 +551,36 @@ export default function App() {
       return;
     }
 
-    initAudioCtx();
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
+    const isStreamOption = activeDisc.startsWith('http') || activeDisc.startsWith('preset:');
 
-    if (!masterGainRef.current) {
-      masterGainRef.current = ctx.createGain();
-      masterGainRef.current.connect(ctx.destination);
-    }
-    masterGainRef.current.gain.setValueAtTime(jukeboxVolume, ctx.currentTime);
+    // Only init synth nodes if not a full audio stream
+    if (!isStreamOption) {
+      initAudioCtx();
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        if (!masterGainRef.current) {
+          masterGainRef.current = ctx.createGain();
+          masterGainRef.current.connect(ctx.destination);
+        }
+        masterGainRef.current.gain.setValueAtTime(jukeboxVolume, ctx.currentTime);
 
-    if (!filterNodeRef.current) {
-      filterNodeRef.current = ctx.createBiquadFilter();
-      filterNodeRef.current.type = 'lowpass';
-      filterNodeRef.current.frequency.setValueAtTime(900, ctx.currentTime);
-      filterNodeRef.current.Q.setValueAtTime(1.0, ctx.currentTime);
-      filterNodeRef.current.connect(masterGainRef.current);
+        if (!filterNodeRef.current) {
+          filterNodeRef.current = ctx.createBiquadFilter();
+          filterNodeRef.current.type = 'lowpass';
+          filterNodeRef.current.frequency.setValueAtTime(900, ctx.currentTime);
+          filterNodeRef.current.Q.setValueAtTime(1.0, ctx.currentTime);
+          filterNodeRef.current.connect(masterGainRef.current);
+        }
+      }
     }
 
     let intervalMs = 260; 
     if (activeDisc === 'pigstep') intervalMs = 319; 
     if (activeDisc === 'chirp') intervalMs = 288; 
+    if (isStreamOption) intervalMs = 380; // Gentle visualizer drops for online streams
 
     const stepRef = { current: 0 };
-    const diskColor = activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981';
+    const diskColor = activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : activeDisc === 'cat' ? '#10b981' : '#a855f7';
     const noteChars = ['♩', '♪', '♫', '♬'];
 
     const tick = () => {
@@ -718,6 +731,324 @@ export default function App() {
     };
   }, [isJukeboxPlaying, activeDisc]);
 
+  // YouTube video extraction and stream player helper
+  const getYoutubeId = (url: string): string | null => {
+    if (!url) return null;
+    try {
+      // 1. Parse using standard URL constructor if valid
+      const urlObj = new URL(url);
+      if (urlObj.hostname.includes('youtube.com') || urlObj.hostname.includes('youtube-nocookie.com')) {
+        const v = urlObj.searchParams.get('v');
+        if (v && v.length === 11) return v;
+      }
+      if (urlObj.hostname.includes('youtu.be')) {
+        const path = urlObj.pathname.substring(1);
+        if (path.length === 11) return path;
+      }
+    } catch (e) {
+      // Ignore URL parsing errors and try regex fallback
+    }
+
+    // 2. Fallback regex match for typical YouTube formats (including music/watch)
+    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/i;
+    const match = url.match(regExp);
+    if (match && match[2] && match[2].length === 11) {
+      return match[2];
+    }
+    return null;
+  };
+
+  // Dynamically load the YouTube Iframe Player API script
+  useEffect(() => {
+    if ((window as any).YT) return;
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    if (firstScriptTag && firstScriptTag.parentNode) {
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    } else {
+      document.head.appendChild(tag);
+    }
+  }, []);
+
+  // Sync YouTube Video ID from the active disc URL
+  useEffect(() => {
+    if (!activeDisc) {
+      setYoutubeVideoId(null);
+      return;
+    }
+    const rawUrl = activeDisc.startsWith('preset:') ? activeDisc.replace('preset:', '') : activeDisc;
+    const ytId = getYoutubeId(rawUrl);
+    setYoutubeVideoId(ytId);
+  }, [activeDisc]);
+
+  // Main YouTube Player Controller Effect
+  useEffect(() => {
+    if (!youtubeVideoId) {
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch (e) {
+          // ignore
+        }
+      }
+      return;
+    }
+
+    const initOrLoadPlayer = () => {
+      const YTGlobal = (window as any).YT;
+      // If the API hasn't loaded yet, wait slightly and retry
+      if (!YTGlobal || !YTGlobal.Player) {
+        const retryTimer = setTimeout(initOrLoadPlayer, 200);
+        return () => clearTimeout(retryTimer);
+      }
+
+      setStreamLoading(true);
+      setStreamError(null);
+
+      if (!ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current = new YTGlobal.Player('youtube-player-element', {
+            height: '1',
+            width: '1',
+            videoId: youtubeVideoId,
+            playerVars: {
+              autoplay: isJukeboxPlaying ? 1 : 0,
+              controls: 0,
+              disablekb: 1,
+              fs: 0,
+              modestbranding: 1,
+              rel: 0,
+              showinfo: 0,
+              origin: window.location.origin
+            },
+            events: {
+              onReady: (event: any) => {
+                setStreamLoading(false);
+                setYtReady(true);
+                event.target.setVolume(Math.round(jukeboxVolume * 100));
+                if (isJukeboxPlaying) {
+                  event.target.playVideo();
+                }
+              },
+              onStateChange: (event: any) => {
+                const state = event.data;
+                if (state === YTGlobal.PlayerState.PLAYING) {
+                  setStreamLoading(false);
+                  setStreamError(null);
+                } else if (state === YTGlobal.PlayerState.BUFFERING) {
+                  setStreamLoading(true);
+                }
+              },
+              onError: (event: any) => {
+                setStreamLoading(false);
+                setStreamError("YouTube-Wiedergabefehler (GEMA/Urheberrecht oder Einbetten blockiert)");
+                console.error("YouTube Player Error Code:", event.data);
+              }
+            }
+          });
+        } catch (err) {
+          console.error("Failed to construct YouTube player instance:", err);
+          setStreamLoading(false);
+          setStreamError("Konnte YouTube-Player nicht initialisieren.");
+        }
+      } else {
+        // Player already instantiated, load or cue the video
+        try {
+          if (isJukeboxPlaying) {
+            ytPlayerRef.current.loadVideoById(youtubeVideoId);
+          } else {
+            ytPlayerRef.current.cueVideoById(youtubeVideoId);
+          }
+          ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
+        } catch (e) {
+          console.warn("YouTube player instance stale. Resetting and re-injecting iframe.", e);
+          const elem = document.getElementById('youtube-player-element');
+          if (elem) elem.innerHTML = '';
+          ytPlayerRef.current = null;
+          initOrLoadPlayer();
+        }
+      }
+    };
+
+    initOrLoadPlayer();
+  }, [youtubeVideoId]);
+
+  // Synchronize Play/Pause states for YouTube playback
+  useEffect(() => {
+    if (!ytPlayerRef.current || !youtubeVideoId) return;
+    try {
+      if (isJukeboxPlaying) {
+        ytPlayerRef.current.playVideo();
+      } else {
+        ytPlayerRef.current.pauseVideo();
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isJukeboxPlaying, youtubeVideoId]);
+
+  // Synchronize Jukebox volume with the YouTube player
+  useEffect(() => {
+    if (!ytPlayerRef.current) return;
+    try {
+      ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
+    } catch (e) {
+      // ignore
+    }
+  }, [jukeboxVolume]);
+
+  // Resolve or parse playlist/stream URLs dynamically (.m3u, .pls fallback support)
+  useEffect(() => {
+    let active = true;
+    const resolveUrl = async () => {
+      if (!activeDisc) {
+        setResolvedStreamUrl('');
+        setStreamLoading(false);
+        setStreamError(null);
+        return;
+      }
+
+      const rawUrl = activeDisc.startsWith('preset:') ? activeDisc.replace('preset:', '') : activeDisc;
+      
+      // If it's a YouTube / YouTube Music URL, let the YouTube system handle it
+      if (getYoutubeId(rawUrl) !== null) {
+        setResolvedStreamUrl('');
+        setStreamError(null); // Clear errors, YouTube handles its own loading states
+        return;
+      }
+
+      const isWebStream = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
+
+      if (!isWebStream) {
+        setResolvedStreamUrl('');
+        setStreamError(null);
+        setStreamLoading(false);
+        return;
+      }
+
+      setStreamLoading(true);
+      setStreamError(null);
+
+      const normalized = rawUrl.toLowerCase();
+      
+      // Attempt parsing .m3u, .m3u8, .pls files
+      if (normalized.endsWith('.m3u') || normalized.endsWith('.m3u8') || normalized.endsWith('.pls') || normalized.includes('m3u') || normalized.includes('pls')) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          
+          const res = await fetch(rawUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          
+          if (res.ok) {
+            const text = await res.text();
+            if (normalized.includes('pls')) {
+              const match = text.match(/File\d+=(https?:\/\/[^\s\r\n]+)/i);
+              if (match && match[1]) {
+                if (active) {
+                  setResolvedStreamUrl(match[1]);
+                }
+                return;
+              }
+            } else {
+              const lines = text.split('\n');
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#') && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+                  if (active) {
+                    setResolvedStreamUrl(trimmed);
+                  }
+                  return;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("M3U/PLS fetch failed or blocked (CORS). Falling back to direct URL play.", err);
+        }
+      }
+
+      if (active) {
+        setResolvedStreamUrl(rawUrl);
+      }
+    };
+
+    resolveUrl();
+
+    return () => {
+      active = false;
+    };
+  }, [activeDisc]);
+
+  // Real-time audio stream controller (HTMLAudioElement) with loading and error events
+  useEffect(() => {
+    if (!streamAudioRef.current) {
+      streamAudioRef.current = new Audio();
+    }
+    
+    const audio = streamAudioRef.current;
+    
+    try {
+      audio.setAttribute("referrerpolicy", "no-referrer");
+    } catch (e) {
+      // ignore
+    }
+    
+    const handleLoadStart = () => {
+      setStreamLoading(true);
+      setStreamError(null);
+    };
+    const handleCanPlay = () => {
+      setStreamLoading(false);
+    };
+    const handlePlaying = () => {
+      setStreamLoading(false);
+      setStreamError(null);
+    };
+    const handleError = () => {
+      setStreamLoading(false);
+      let errMsg = "Stream-Fehler (CORS, mixed content oder ungültiges Format)";
+      if (audio.error) {
+        if (audio.error.code === 1) errMsg = "Wiedergabe abgebrochen.";
+        else if (audio.error.code === 2) errMsg = "Netzwerkfehler (Stream offline?).";
+        else if (audio.error.code === 3) errMsg = "Audio-Dekodierung fehlgeschlagen.";
+        else if (audio.error.code === 4) {
+          errMsg = "Format nicht unterstützt oder CORS/Blockade (HTTPS erforderlich).";
+        }
+      }
+      setStreamError(errMsg);
+    };
+
+    audio.addEventListener('loadstart', handleLoadStart);
+    audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('playing', handlePlaying);
+    audio.addEventListener('error', handleError);
+
+    if (isJukeboxPlaying && resolvedStreamUrl) {
+      if (audio.src !== resolvedStreamUrl) {
+        audio.pause();
+        audio.src = resolvedStreamUrl;
+        audio.load();
+      }
+      audio.volume = jukeboxVolume;
+      audio.play().catch(err => {
+        console.warn("Audio play failed, retrying on user interaction:", err);
+        setStreamError("Fehler bei Wiedergabe. Klicke Play!");
+      });
+    } else {
+      audio.pause();
+      setStreamLoading(false);
+    }
+
+    return () => {
+      audio.removeEventListener('loadstart', handleLoadStart);
+      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('playing', handlePlaying);
+      audio.removeEventListener('error', handleError);
+    };
+  }, [isJukeboxPlaying, resolvedStreamUrl]);
+
   useEffect(() => {
     if (masterGainRef.current && audioCtxRef.current) {
       try {
@@ -725,6 +1056,9 @@ export default function App() {
       } catch (e) {
         // ignore
       }
+    }
+    if (streamAudioRef.current) {
+      streamAudioRef.current.volume = jukeboxVolume;
     }
   }, [jukeboxVolume]);
 
@@ -739,6 +1073,10 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (synthIntervalRef.current) clearInterval(synthIntervalRef.current);
+      if (streamAudioRef.current) {
+        streamAudioRef.current.pause();
+        streamAudioRef.current = null;
+      }
       if (audioCtxRef.current) {
         try {
           audioCtxRef.current.close();
@@ -1024,13 +1362,10 @@ export default function App() {
   const [miningLevel, setMiningLevel] = useState(1);
   const [miningStats, setMiningStats] = useState({ totalBroken: 0, diamondsFound: 0 });
   const [optimisticCoins, setOptimisticCoins] = useState<number | null>(null);
+  const [optimisticXp, setOptimisticXp] = useState<number | null>(null);
 
-  // Sync optimistic coins to real coins when modal closes
-  useEffect(() => {
-    if (!showMiningModal && optimisticCoins !== null) {
-      setOptimisticCoins(null);
-    }
-  }, [showMiningModal, optimisticCoins]);
+  const pendingCpsCoinsRef = useRef<number>(0);
+  const pendingCpsXpRef = useRef<number>(0);
 
   const [miningCombo, setMiningCombo] = useState(0);
   const [miningMultiplier, setMiningMultiplier] = useState(1);
@@ -1708,7 +2043,7 @@ export default function App() {
     };
   }, [user, hasQuotaExceeded]);
 
-  // Firebase Listeners
+  // Group 1: One-time/Initial Fetches (Run on user state change/init)
   useEffect(() => {
     if (hasQuotaExceeded) return;
 
@@ -1721,6 +2056,11 @@ export default function App() {
     fetchPolls();
     fetchShop();
     fetchClans();
+  }, [user, hasQuotaExceeded]);
+
+  // Group 2: Persistent Real-time configuration & active player subscriptions
+  useEffect(() => {
+    if (hasQuotaExceeded) return;
 
     // Real-time listener for online_players to keep synchronization instantaneous
     const onlinePlayersQuery = query(collection(db, 'online_players'), limit(50));
@@ -1743,32 +2083,36 @@ export default function App() {
       if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     });
 
-    // Chat listener only active when chat is actually open
-    let unsubscribeChat = () => {};
-    if (chatOpen && !hasQuotaExceeded) {
-      const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
-      unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
-        setChatMessages(msgs);
-        
-        const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
-        if (confirmedTempIds.length > 0) {
-          setTimeout(() => {
-            setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
-          }, 300);
-        }
-      }, (err) => {
-        if (err.message.includes('Quota')) setHasQuotaExceeded(true);
-        handleFirestoreError(err, OperationType.GET, 'chat_messages');
-      });
-    }
-
     return () => {
       unsubscribeOnlinePlayers();
       unsubscribeAppConfig();
+    };
+  }, [hasQuotaExceeded]);
+
+  // Group 3: Isolated Chat Listener (only active when chat is actually open)
+  useEffect(() => {
+    if (hasQuotaExceeded || !chatOpen) return;
+
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
+      setChatMessages(msgs);
+      
+      const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
+      if (confirmedTempIds.length > 0) {
+        setTimeout(() => {
+          setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
+        }, 300);
+      }
+    }, (err) => {
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.GET, 'chat_messages');
+    });
+
+    return () => {
       unsubscribeChat();
     };
-  }, [user, showAdmin, surveillanceExpanded, hasQuotaExceeded, chatOpen]);
+  }, [chatOpen, hasQuotaExceeded]);
 
   // Auto-Update for Discord Status Webhook
   useEffect(() => {
@@ -2578,28 +2922,25 @@ export default function App() {
     }
   };
 
-  // Auto-Mining Logic (CPS)
+  // Auto-Mining Logic (CPS) - Updates UI in real-time locally, does NOT write to DB every second
   useEffect(() => {
     if (!user || coinsPerSecond <= 0) return;
 
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => {
       // Auto-mining logic without floating rewards to save space
       const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
       
-      // Update DB
-      await updateDoc(doc(db, 'user_profiles', user.uid), {
-        coins: increment(coinsPerSecond),
-        xp: increment(xpReward)
-      });
+      // Update local pending refs
+      pendingCpsCoinsRef.current += coinsPerSecond;
+      pendingCpsXpRef.current += xpReward;
 
-      // 🔥 Sync with Optimistic UI if mining modal is open
-      if (showMiningModal) {
-        setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
-      }
+      // 🔥 Sync with Optimistic UI locally
+      setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
+      setOptimisticXp(prev => (prev !== null ? prev + xpReward : (myProfile?.xp || 0) + xpReward));
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [user, coinsPerSecond, showMiningModal, myProfile?.coins]);
+  }, [user, coinsPerSecond]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -2630,28 +2971,57 @@ export default function App() {
   const pendingCoinUpdateRef = useRef<number>(0);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const syncCoinsToDb = async () => {
-    if (!user || pendingCoinUpdateRef.current <= 0) return;
-    
-    const amountToSync = pendingCoinUpdateRef.current;
-    pendingCoinUpdateRef.current = 0; // Reset early to avoid race conditions
-    
+  const flushCoinsAndXp = async () => {
+    if (!user || hasQuotaExceeded) return;
+    const coinsToSync = pendingCpsCoinsRef.current + pendingCoinUpdateRef.current;
+    const xpToSync = pendingCpsXpRef.current;
+
+    if (coinsToSync <= 0 && xpToSync <= 0) return;
+
+    // Reset early to avoid race conditions/double increments
+    pendingCpsCoinsRef.current = 0;
+    pendingCpsXpRef.current = 0;
+    pendingCoinUpdateRef.current = 0;
+
     try {
       await updateDoc(doc(db, 'user_profiles', user.uid), {
-        coins: increment(amountToSync)
+        coins: increment(coinsToSync),
+        xp: increment(xpToSync)
       });
-      // Also update xp if needed, but xp is usually updated on block break
     } catch (err: any) {
-      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
-      // Put back if it failed? No, usually quota errors mean we should stop.
+      if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
     }
+  };
+
+  // Periodic persistence for auto-mined progress (runs every 15 seconds)
+  useEffect(() => {
+    if (!user || hasQuotaExceeded) return;
+
+    const syncInterval = setInterval(() => {
+      flushCoinsAndXp();
+    }, 15000);
+
+    return () => clearInterval(syncInterval);
+  }, [user, hasQuotaExceeded]);
+
+  // Sync optimistic states and flush pending values when mining modal closes
+  useEffect(() => {
+    if (!showMiningModal) {
+      flushCoinsAndXp();
+      if (optimisticCoins !== null) setOptimisticCoins(null);
+      if (optimisticXp !== null) setOptimisticXp(null);
+    }
+  }, [showMiningModal]);
+
+  const syncCoinsToDb = async () => {
+    await flushCoinsAndXp();
   };
 
   const queueCoinUpdate = (amount: number) => {
     pendingCoinUpdateRef.current += amount;
     
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(syncCoinsToDb, 3000); // Sync every 3 seconds of inactivity
+    syncTimeoutRef.current = setTimeout(syncCoinsToDb, 3000); // Sync active click coins after 3 seconds of inactivity
   };
 
   const mineBlock = async (e: React.MouseEvent) => {
@@ -2791,13 +3161,24 @@ export default function App() {
     }));
 
     if (user) {
-      // Syncing XP is still okay on block break as it's less frequent than per-click
-      await updateDoc(doc(db, 'user_profiles', user.uid), {
-        xp: increment(finalXp),
-        coins: increment(finalCoins + pendingCoinUpdateRef.current)
-      });
-      pendingCoinUpdateRef.current = 0; // Clear pending since we just synced
+      const totalCoinsToSync = finalCoins + pendingCoinUpdateRef.current + pendingCpsCoinsRef.current;
+      const totalXpToSync = finalXp + pendingCpsXpRef.current;
+
+      // Clear all pending refs
+      pendingCoinUpdateRef.current = 0;
+      pendingCpsCoinsRef.current = 0;
+      pendingCpsXpRef.current = 0;
+
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+
+      try {
+        await updateDoc(doc(db, 'user_profiles', user.uid), {
+          xp: increment(totalXpToSync),
+          coins: increment(totalCoinsToSync)
+        });
+      } catch (err: any) {
+        if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
+      }
     }
 
     // Visual pause before respawn
@@ -4586,7 +4967,7 @@ export default function App() {
                       </AnimatePresence>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[10px] bg-mc-gold/20 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((myProfile?.xp || 0) / 5000) + 1}</span>
+                      <span className="text-[10px] bg-mc-gold/20 text-mc-gold px-2 py-0.5 rounded-full font-black border border-mc-gold/20">LEVEL {Math.floor((optimisticXp !== null ? optimisticXp : (myProfile?.xp || 0)) / 5000) + 1}</span>
                       <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.2em]">Mult: {miningMultiplier}x {myProfile?.inventory?.xpMultiplier && `(+50% Bonus)`}</p>
                       {myProfile?.inventory?.luck && (
                         <span className="text-[10px] text-mc-gold animate-pulse">LUCK +{myProfile?.inventory?.luck}%</span>
@@ -7690,7 +8071,7 @@ export default function App() {
       {/* Retro Jukebox Section */}
       <section className="relative z-10 border-t border-neutral-800/40 py-12 bg-black/40 overflow-hidden">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-6 sm:p-8 flex flex-col lg:flex-row gap-8 items-center justify-between relative">
+          <div className="bg-neutral-900/60 border border-neutral-800/80 rounded-2xl p-6 sm:p-8 flex flex-col lg:flex-row gap-8 items-stretch justify-between relative">
             
             {/* Absolute element for floating note particles */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-2xl">
@@ -7703,7 +8084,7 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 1.8, ease: "easeOut" }}
                     className="absolute pointer-events-none text-xl select-none bottom-8"
-                    style={{ color: n.color, left: '50%' }}
+                    style={{ color: n.color, left: '25%' }}
                   >
                     {n.char}
                   </motion.span>
@@ -7711,9 +8092,9 @@ export default function App() {
               </AnimatePresence>
             </div>
 
-            {/* Part 1: Visual representation of the Minecraft Jukebox Block */}
-            <div className="flex items-center gap-6 z-10">
-              <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-xl bg-[#4e3621] border-4 border-[#331c0e] shadow-[inset_0_4px_0_rgba(255,255,255,0.1),0_12px_24px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center group overflow-hidden">
+            {/* Column 1: Jukebox visual and status */}
+            <div className="flex flex-col sm:flex-row items-center gap-6 z-10 lg:w-1/2">
+              <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-xl bg-[#4e3621] border-4 border-[#331c0e] shadow-[inset_0_4px_0_rgba(255,255,255,0.1),0_12px_24px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center group overflow-hidden shrink-0">
                 {/* Visual slot for vinyl at the top */}
                 <div className="absolute top-2 w-14 h-2 bg-[#211107] rounded border-b border-[#5e432c]">
                   {/* If disc inside, draw it! */}
@@ -7723,7 +8104,7 @@ export default function App() {
                       transition={isJukeboxPlaying ? { repeat: Infinity, duration: 4, ease: "linear" } : {}}
                       className="absolute -top-1 left-2 w-10 h-10 rounded-full border-2 border-black flex items-center justify-center opacity-80"
                       style={{
-                        backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981',
+                        backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : activeDisc === 'cat' ? '#10b981' : '#a855f7',
                       }}
                     >
                       <div className="w-3 h-3 rounded-full bg-[#fbbf24]" />
@@ -7737,7 +8118,7 @@ export default function App() {
                     isJukeboxPlaying ? 'animate-pulse scale-105 border-mc-gold/40' : 'border-neutral-800'
                   }`}
                   style={{
-                    backgroundColor: activeDisc ? (activeDisc === 'pigstep' ? 'rgba(239, 68, 68, 0.2)' : activeDisc === 'chirp' ? 'rgba(34, 211, 238, 0.2)' : 'rgba(16, 185, 129, 0.2)') : '#1a1008'
+                    backgroundColor: activeDisc ? (activeDisc === 'pigstep' ? 'rgba(239, 68, 68, 0.2)' : activeDisc === 'chirp' ? 'rgba(34, 211, 238, 0.2)' : activeDisc === 'cat' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(168, 85, 247, 0.2)') : '#1a1008'
                   }}>
                     <Disc className={`w-4 h-4 transition-all duration-500 ${
                       isJukeboxPlaying ? 'text-mc-gold animate-spin' : 'text-neutral-500'
@@ -7765,26 +8146,54 @@ export default function App() {
                 <p className="text-neutral-400 text-xs mt-1 max-w-sm">
                   {activeDisc ? (
                     isJukeboxPlaying ? (
-                      <>Spielt gerade: <span className="font-bold text-white capitalize">{activeDisc === 'cat' ? 'Cat 🐈 (Cozy Lofi Loop)' : activeDisc === 'pigstep' ? 'Pigstep 🔥 (Retro Hip-Hop)' : 'Chirp 🛸 (Space Lounge)'}</span></>
+                      <>Spielt gerade: <span className="font-bold text-white capitalize">
+                        {activeDisc === 'cat' ? 'Cat 🐈 (Cozy Lofi Loop)' : 
+                         activeDisc === 'pigstep' ? 'Pigstep 🔥 (Retro Hip-Hop)' : 
+                         activeDisc === 'chirp' ? 'Chirp 🛸 (Space Lounge)' : 
+                         (activeStreamTitle || "Eigenen Audio-Stream 📻")}
+                      </span></>
                     ) : (
-                      <>Platte eingelegt: <span className="font-bold text-neutral-300 capitalize">{activeDisc}</span>. Klicke auf Play!</>
+                      <>Schallplatte / Stream eingelegt: <span className="font-bold text-neutral-300 capitalize">
+                        {activeDisc === 'cat' ? 'Cat 🐈' : 
+                         activeDisc === 'pigstep' ? 'Pigstep 🔥' : 
+                         activeDisc === 'chirp' ? 'Chirp 🛸' : 
+                         (activeStreamTitle || "Eigener Web-Stream")}
+                      </span>. Klicke auf Play!</>
                     )
                   ) : (
-                    "Lege eine Schallplatte ein, um lofi chiptune Beats abzuspielen!"
+                    "Wähle eine klassische Chiptune-Schallplatte oder füge einen Online-Stream ein!"
                   )}
                 </p>
+                
+                {/* Stream buffer indicator and error messages */}
+                {(streamLoading || streamError) && (
+                  <div className="mt-3 py-1.5 px-3 bg-black/45 border border-neutral-800 rounded-xl flex flex-col gap-1 max-w-sm">
+                    {streamLoading && (
+                      <div className="flex items-center gap-2 text-[10px] text-mc-gold font-bold">
+                        <span className="w-2.5 h-2.5 rounded-full border-2 border-mc-gold border-t-transparent animate-spin shrink-0" />
+                        <span>Verbinde mit Stream / Buffer lädt...</span>
+                      </div>
+                    )}
+                    {streamError && (
+                      <div className="flex items-center gap-2 text-[10px] text-red-400 font-bold font-sans">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping shrink-0" />
+                        <span className="leading-tight">{streamError}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Simple responsive visualizer bars */}
                 {isJukeboxPlaying && (
                   <div className="flex items-end gap-1 h-5 mt-3">
-                    {[...Array(6)].map((_, i) => (
+                    {[...Array(8)].map((_, i) => (
                       <motion.div 
                         key={`bar-${i}`}
-                        animate={{ height: [4, 16, 6, 20, 8, 4][(i + Math.floor(Math.random() * 5)) % 6] }}
-                        transition={{ duration: 0.6 + i * 0.1, repeat: Infinity, repeatType: "reverse" }}
+                        animate={{ height: [4, 18, 6, 22, 10, 5, 14, 4][(i + Math.floor(Math.random() * 5)) % 8] }}
+                        transition={{ duration: 0.5 + i * 0.08, repeat: Infinity, repeatType: "reverse" }}
                         className="w-1.5 rounded-full"
                         style={{
-                          backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : '#10b981'
+                          backgroundColor: activeDisc === 'pigstep' ? '#ef4444' : activeDisc === 'chirp' ? '#22d3ee' : activeDisc === 'cat' ? '#10b981' : '#a855f7'
                         }}
                       />
                     ))}
@@ -7793,46 +8202,49 @@ export default function App() {
               </div>
             </div>
 
-            {/* Part 2: Playback Controls and Volume */}
-            <div className="flex flex-col gap-4 items-center sm:items-end w-full lg:w-auto z-10">
-              <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-xl border border-neutral-800">
-                <button
-                  type="button"
-                  disabled={!activeDisc}
-                  onClick={() => {
-                    initAudioCtx();
-                    setIsJukeboxPlaying(!isJukeboxPlaying);
-                  }}
-                  className={`p-3 rounded-lg transition-all ${
-                    !activeDisc 
-                      ? 'text-neutral-600 cursor-not-allowed' 
-                      : isJukeboxPlaying 
-                        ? 'bg-mc-red/10 text-mc-red border border-mc-red/30' 
-                        : 'bg-mc-green/10 text-mc-green border border-mc-green/30 hover:bg-mc-green/20'
-                  }`}
-                  title={isJukeboxPlaying ? "Pausieren" : "Abspielen"}
-                >
-                  {isJukeboxPlaying ? <Pause size={18} /> : <Play size={18} />}
-                </button>
+            {/* Column 2: Controls, Presets & Custom URL Input */}
+            <div className="flex flex-col gap-4 justify-between w-full lg:w-1/2 z-10">
+              
+              {/* Media Controls bar */}
+              <div className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!activeDisc}
+                    onClick={() => {
+                      initAudioCtx();
+                      setIsJukeboxPlaying(!isJukeboxPlaying);
+                    }}
+                    className={`p-3 rounded-lg transition-all ${
+                      !activeDisc 
+                        ? 'text-neutral-600 cursor-not-allowed' 
+                        : isJukeboxPlaying 
+                          ? 'bg-mc-red/10 text-mc-red border border-mc-red/30' 
+                          : 'bg-mc-green/10 text-mc-green border border-mc-green/30 hover:bg-mc-green/20'
+                    }`}
+                    title={isJukeboxPlaying ? "Pausieren" : "Abspielen"}
+                  >
+                    {isJukeboxPlaying ? <Pause size={18} /> : <Play size={18} />}
+                  </button>
 
-                <button
-                  type="button"
-                  disabled={!activeDisc}
-                  onClick={() => {
-                    setIsJukeboxPlaying(false);
-                    setActiveDisc(null);
-                  }}
-                  className={`p-3 rounded-lg border transition-all ${
-                    !activeDisc 
-                      ? 'text-neutral-600 border-transparent cursor-not-allowed' 
-                      : 'border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800/40'
-                  }`}
-                  title="Platte auswerfen"
-                >
-                  <LogOut size={18} />
-                </button>
-
-                <div className="h-6 w-[1px] bg-neutral-800 mx-2" />
+                  <button
+                    type="button"
+                    disabled={!activeDisc}
+                    onClick={() => {
+                      setIsJukeboxPlaying(false);
+                      setActiveDisc(null);
+                      setActiveStreamTitle('');
+                    }}
+                    className={`p-3 rounded-lg border transition-all ${
+                      !activeDisc 
+                        ? 'text-neutral-600 border-transparent cursor-not-allowed' 
+                        : 'border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800/40'
+                    }`}
+                    title="Platte auswerfen"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </div>
 
                 {/* Volume slider */}
                 <div className="flex items-center gap-2 px-2">
@@ -7844,109 +8256,213 @@ export default function App() {
                     step="0.05"
                     value={jukeboxVolume}
                     onChange={(e) => setJukeboxVolume(parseFloat(e.target.value))}
-                    className="w-16 sm:w-20 accent-mc-gold cursor-pointer"
+                    className="w-24 sm:w-32 accent-mc-gold cursor-pointer"
                   />
                 </div>
               </div>
 
-              {/* Vinyl Records Collection Deck */}
-              <div className="space-y-2 w-full max-w-sm">
-                <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest text-center sm:text-right">Deine Schallplatten:</div>
-                <div className="grid grid-cols-3 gap-2">
-                  
-                  {/* CAT RECORD */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeDisc === 'cat') {
-                        setIsJukeboxPlaying(!isJukeboxPlaying);
-                      } else {
-                        setActiveDisc('cat');
-                        setIsJukeboxPlaying(true);
-                      }
-                    }}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
-                      activeDisc === 'cat'
-                        ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                        : 'bg-black/30 border-neutral-800 hover:border-emerald-500/30'
-                    }`}
-                  >
-                    <Disc className={`w-8 h-8 text-emerald-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'cat' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
-                    <span className="text-[10px] font-bold text-white">Cat</span>
-                    <span className="text-[8px] text-neutral-400">Cozy Classic</span>
-                    <span className="absolute top-1 right-1 text-[7px] text-emerald-400 font-black">START</span>
-                  </button>
-
-                  {/* PIGSTEP RECORD */}
-                  {unlockedDiscs.includes('pigstep') ? (
+              {/* Deck container dividing Vinyls and Streams */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Panel A: Minecraft Vinyl Classics */}
+                <div className="space-y-2">
+                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">In-Game Schallplatten (Funde):</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    
+                    {/* CAT RECORD */}
                     <button
                       type="button"
                       onClick={() => {
-                        if (activeDisc === 'pigstep') {
+                        setActiveStreamTitle('');
+                        if (activeDisc === 'cat') {
                           setIsJukeboxPlaying(!isJukeboxPlaying);
                         } else {
-                          setActiveDisc('pigstep');
+                          setActiveDisc('cat');
                           setIsJukeboxPlaying(true);
                         }
                       }}
-                      className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
-                        activeDisc === 'pigstep'
-                          ? 'bg-red-500/10 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
-                          : 'bg-black/30 border-neutral-800 hover:border-red-500/30'
+                      className={`p-2 rounded-xl border flex flex-col items-center justify-between text-center min-h-[76px] transition-all relative overflow-hidden group/record ${
+                        activeDisc === 'cat'
+                          ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                          : 'bg-black/30 border-neutral-800 hover:border-emerald-500/30'
                       }`}
                     >
-                      <Disc className={`w-8 h-8 text-red-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'pigstep' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
-                      <span className="text-[10px] font-bold text-white">Pigstep</span>
-                      <span className="text-[8px] text-neutral-400">Hip-hop lofi</span>
-                      <span className="absolute top-1 right-1 text-[7px] text-red-400 font-black">GEFUNDEN</span>
+                      <Disc className={`w-6 h-6 text-emerald-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'cat' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                      <div className="flex flex-col items-center mt-1">
+                        <span className="text-[10px] font-bold text-white">Cat</span>
+                        <span className="text-[7px] text-neutral-400">Cozy Classic</span>
+                      </div>
+                      <span className="absolute top-1 right-1 text-[6px] text-emerald-400 font-black">START</span>
                     </button>
-                  ) : (
-                    <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60">
-                      <Lock size={16} className="text-neutral-500 mb-1" />
-                      <span className="text-[10px] font-bold text-neutral-400">Locked</span>
-                      <span className="text-[7px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen finden</span>
-                    </div>
-                  )}
 
-                  {/* CHIRP RECORD */}
-                  {unlockedDiscs.includes('chirp') ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (activeDisc === 'chirp') {
-                          setIsJukeboxPlaying(!isJukeboxPlaying);
-                        } else {
-                          setActiveDisc('chirp');
-                          setIsJukeboxPlaying(true);
-                        }
-                      }}
-                      className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all relative overflow-hidden group/record ${
-                        activeDisc === 'chirp'
-                          ? 'bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.15)]'
-                          : 'bg-black/30 border-neutral-800 hover:border-cyan-500/30'
-                      }`}
-                    >
-                      <Disc className={`w-8 h-8 text-cyan-400 group-hover/record:rotate-45 transition-transform ${activeDisc === 'chirp' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
-                      <span className="text-[10px] font-bold text-white">Chirp</span>
-                      <span className="text-[8px] text-neutral-400">Synth lounge</span>
-                      <span className="absolute top-1 right-1 text-[7px] text-cyan-400 font-black">GEFUNDEN</span>
-                    </button>
-                  ) : (
-                    <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60">
-                      <Lock size={16} className="text-neutral-500 mb-1" />
-                      <span className="text-[10px] font-bold text-neutral-400">Locked</span>
-                      <span className="text-[7px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen finden</span>
-                    </div>
-                  )}
+                    {/* PIGSTEP RECORD */}
+                    {unlockedDiscs.includes('pigstep') ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveStreamTitle('');
+                          if (activeDisc === 'pigstep') {
+                            setIsJukeboxPlaying(!isJukeboxPlaying);
+                          } else {
+                            setActiveDisc('pigstep');
+                            setIsJukeboxPlaying(true);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border flex flex-col items-center justify-between text-center min-h-[76px] transition-all relative overflow-hidden group/record ${
+                          activeDisc === 'pigstep'
+                            ? 'bg-red-500/10 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.15)]'
+                            : 'bg-black/30 border-neutral-800 hover:border-red-500/30'
+                        }`}
+                      >
+                        <Disc className={`w-6 h-6 text-red-500 group-hover/record:rotate-45 transition-transform ${activeDisc === 'pigstep' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                        <div className="flex flex-col items-center mt-1">
+                          <span className="text-[10px] font-bold text-white">Pigstep</span>
+                          <span className="text-[7px] text-neutral-400">Retro Loop</span>
+                        </div>
+                        <span className="absolute top-1 right-1 text-[6px] text-red-400 font-black font-mono">OK</span>
+                      </button>
+                    ) : (
+                      <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60 min-h-[76px]">
+                        <Lock size={12} className="text-neutral-500 mb-1" />
+                        <span className="text-[9px] font-bold text-neutral-400">Locked</span>
+                        <span className="text-[6px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen</span>
+                      </div>
+                    )}
 
+                    {/* CHIRP RECORD */}
+                    {unlockedDiscs.includes('chirp') ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveStreamTitle('');
+                          if (activeDisc === 'chirp') {
+                            setIsJukeboxPlaying(!isJukeboxPlaying);
+                          } else {
+                            setActiveDisc('chirp');
+                            setIsJukeboxPlaying(true);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border flex flex-col items-center justify-between text-center min-h-[76px] transition-all relative overflow-hidden group/record ${
+                          activeDisc === 'chirp'
+                            ? 'bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.15)]'
+                            : 'bg-black/30 border-neutral-800 hover:border-cyan-500/30'
+                        }`}
+                      >
+                        <Disc className={`w-6 h-6 text-cyan-400 group-hover/record:rotate-45 transition-transform ${activeDisc === 'chirp' && isJukeboxPlaying ? 'animate-spin' : ''}`} />
+                        <div className="flex flex-col items-center mt-1">
+                          <span className="text-[10px] font-bold text-white">Chirp</span>
+                          <span className="text-[7px] text-neutral-400">Synth Retro</span>
+                        </div>
+                        <span className="absolute top-1 right-1 text-[6px] text-cyan-400 font-black font-mono">OK</span>
+                      </button>
+                    ) : (
+                      <div className="p-2 rounded-xl border border-neutral-800/60 bg-black/10 flex flex-col items-center justify-center text-center opacity-60 min-h-[76px]">
+                        <Lock size={12} className="text-neutral-500 mb-1" />
+                        <span className="text-[9px] font-bold text-neutral-400">Locked</span>
+                        <span className="text-[6px] text-neutral-600 uppercase tracking-widest leading-none mt-0.5 text-center">Beim Minen</span>
+                      </div>
+                    )}
+
+                  </div>
                 </div>
-              </div>
 
+                {/* Panel B: Radio & Custom URLs */}
+                <div className="space-y-2">
+                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">Echte Musik & Radio Streams:</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = "preset:https://streaming.radio.co/s812836261/listen";
+                        setActiveStreamTitle("Minecraft Lofi Beats 📻");
+                        if (activeDisc === url) {
+                          setIsJukeboxPlaying(!isJukeboxPlaying);
+                        } else {
+                          setActiveDisc(url);
+                          setIsJukeboxPlaying(true);
+                        }
+                      }}
+                      className={`p-2 rounded-xl border text-left flex flex-col justify-between h-[36px] transition-all relative overflow-hidden group/preset ${
+                        activeDisc === 'preset:https://streaming.radio.co/s812836261/listen'
+                          ? 'bg-purple-500/10 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.1)]'
+                          : 'bg-black/30 border-neutral-800 hover:border-purple-500/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Music size={12} className="text-purple-400 shrink-0" />
+                        <span className="text-[10px] font-bold text-white truncate">Minecraft Lofi ☕</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = "preset:https://nightride.fm/stream/nightride.128.mp3";
+                        setActiveStreamTitle("Synthwave Space FM 🌌");
+                        if (activeDisc === url) {
+                          setIsJukeboxPlaying(!isJukeboxPlaying);
+                        } else {
+                          setActiveDisc(url);
+                          setIsJukeboxPlaying(true);
+                        }
+                      }}
+                      className={`p-2 rounded-xl border text-left flex flex-col justify-between h-[36px] transition-all relative overflow-hidden group/preset ${
+                        activeDisc === 'preset:https://nightride.fm/stream/nightride.128.mp3'
+                          ? 'bg-purple-500/10 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.1)]'
+                          : 'bg-black/30 border-neutral-800 hover:border-purple-500/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Music size={12} className="text-purple-400 shrink-0" />
+                        <span className="text-[10px] font-bold text-white truncate">Synthwave FM 🌌</span>
+                      </div>
+                    </button>
+
+                  </div>
+
+                  {/* Custom Audio Stream Input */}
+                  <div className="flex items-center gap-1.5 bg-black/40 border border-neutral-800 p-1 rounded-lg">
+                    <input
+                      type="text"
+                      placeholder="Custom MP3 / Stream URL..."
+                      value={customSongUrl}
+                      onChange={(e) => setCustomSongUrl(e.target.value)}
+                      className="bg-transparent border-none text-[10px] focus:ring-0 focus:outline-none flex-grow text-white px-2 py-0.5 truncate placeholder-neutral-600"
+                    />
+                    <button
+                      type="button"
+                      disabled={!customSongUrl.trim()}
+                      onClick={() => {
+                        if (!customSongUrl.trim()) return;
+                        const url = customSongUrl.trim();
+                        setActiveStreamTitle("Dein Web-Song 🎵");
+                        setActiveDisc(url);
+                        setIsJukeboxPlaying(true);
+                      }}
+                      className={`px-2 py-1 text-[9px] font-bold text-black rounded-md transition-all ${
+                        customSongUrl.trim() 
+                          ? 'bg-mc-gold hover:bg-yellow-400 cursor-pointer' 
+                          : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'
+                      }`}
+                    >
+                      Laden
+                    </button>
+                  </div>
+                  <div className="text-[8px] text-neutral-500 leading-tight">
+                    * Spielt jegliche direkte Audio-M3U/MP3-Adresse ab (z.B. von Discord / Audio-Dateien).
+                  </div>
+                </div>
+
+              </div>
             </div>
 
           </div>
         </div>
       </section>
+
+      {/* Hidden container anchor for the YouTube background audio player */}
+      <div id="youtube-player-element" className="absolute w-px h-px opacity-0 pointer-events-none" />
 
       <footer className="relative z-10 border-t border-neutral-800/50 py-12 bg-black/20">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
