@@ -413,6 +413,10 @@ export default function App() {
   const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const activeEditingProfId = editingProfileId || user?.uid || null;
+  const editingProfile = activeEditingProfId 
+    ? (userProfiles.find(p => p.userId === activeEditingProfId) || (activeEditingProfId === user?.uid ? myProfile : null))
+    : null;
   const [tempSkin, setTempSkin] = useState<string | null>(null);
   const [mcUsernameInput, setMcUsernameInput] = useState<string>('');
   
@@ -809,8 +813,8 @@ export default function App() {
       if (!ytPlayerRef.current) {
         try {
           ytPlayerRef.current = new YTGlobal.Player('youtube-player-element', {
-            height: '1',
-            width: '1',
+            height: '240',
+            width: '360',
             videoId: youtubeVideoId,
             playerVars: {
               autoplay: isJukeboxPlaying ? 1 : 0,
@@ -826,7 +830,12 @@ export default function App() {
               onReady: (event: any) => {
                 setStreamLoading(false);
                 setYtReady(true);
-                event.target.setVolume(Math.round(jukeboxVolume * 100));
+                try {
+                  event.target.unMute();
+                  event.target.setVolume(Math.round(jukeboxVolume * 100));
+                } catch (volErr) {
+                  console.warn("Could not set init volume/unmute", volErr);
+                }
                 if (isJukeboxPlaying) {
                   event.target.playVideo();
                 }
@@ -836,6 +845,12 @@ export default function App() {
                 if (state === YTGlobal.PlayerState.PLAYING) {
                   setStreamLoading(false);
                   setStreamError(null);
+                  try {
+                    event.target.unMute();
+                    event.target.setVolume(Math.round(jukeboxVolume * 100));
+                  } catch (volErr) {
+                    // ignore
+                  }
                 } else if (state === YTGlobal.PlayerState.BUFFERING) {
                   setStreamLoading(true);
                 }
@@ -856,15 +871,19 @@ export default function App() {
         // Player already instantiated, load or cue the video
         try {
           if (isJukeboxPlaying) {
+            ytPlayerRef.current.unMute();
+            ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
             ytPlayerRef.current.loadVideoById(youtubeVideoId);
+            ytPlayerRef.current.playVideo();
           } else {
             ytPlayerRef.current.cueVideoById(youtubeVideoId);
           }
-          ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
         } catch (e) {
           console.warn("YouTube player instance stale. Resetting and re-injecting iframe.", e);
-          const elem = document.getElementById('youtube-player-element');
-          if (elem) elem.innerHTML = '';
+          const wrapper = document.getElementById('youtube-player-wrapper');
+          if (wrapper) {
+            wrapper.innerHTML = '<div id="youtube-player-element" class="w-full h-full"></div>';
+          }
           ytPlayerRef.current = null;
           initOrLoadPlayer();
         }
@@ -879,6 +898,8 @@ export default function App() {
     if (!ytPlayerRef.current || !youtubeVideoId) return;
     try {
       if (isJukeboxPlaying) {
+        ytPlayerRef.current.unMute();
+        ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
         ytPlayerRef.current.playVideo();
       } else {
         ytPlayerRef.current.pauseVideo();
@@ -892,6 +913,7 @@ export default function App() {
   useEffect(() => {
     if (!ytPlayerRef.current) return;
     try {
+      ytPlayerRef.current.unMute();
       ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
     } catch (e) {
       // ignore
@@ -938,7 +960,9 @@ export default function App() {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 4000);
           
-          const res = await fetch(rawUrl, { signal: controller.signal });
+          // Execute playlist text content request through our backend proxy to circumvent client-side CORS policies
+          const textProxyUrl = `/api/stream-proxy?url=${encodeURIComponent(rawUrl)}`;
+          const res = await fetch(textProxyUrl, { signal: controller.signal });
           clearTimeout(timeoutId);
           
           if (res.ok) {
@@ -947,7 +971,8 @@ export default function App() {
               const match = text.match(/File\d+=(https?:\/\/[^\s\r\n]+)/i);
               if (match && match[1]) {
                 if (active) {
-                  setResolvedStreamUrl(match[1]);
+                  // Pipe audio data through stream-proxy
+                  setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(match[1])}`);
                 }
                 return;
               }
@@ -957,7 +982,8 @@ export default function App() {
                 const trimmed = line.trim();
                 if (trimmed && !trimmed.startsWith('#') && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
                   if (active) {
-                    setResolvedStreamUrl(trimmed);
+                    // Pipe audio data through stream-proxy
+                    setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(trimmed)}`);
                   }
                   return;
                 }
@@ -965,12 +991,13 @@ export default function App() {
             }
           }
         } catch (err) {
-          console.warn("M3U/PLS fetch failed or blocked (CORS). Falling back to direct URL play.", err);
+          console.warn("M3U/PLS fetch via proxy failed. Falling back to direct live audio proxy.", err);
         }
       }
 
       if (active) {
-        setResolvedStreamUrl(rawUrl);
+        // Direct stream should ALSO be proxied to resolve Mixed Content (HTTP streams on HTTPS webpage) and client-side CORS
+        setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
       }
     };
 
@@ -2923,6 +2950,11 @@ export default function App() {
   };
 
   // Auto-Mining Logic (CPS) - Updates UI in real-time locally, does NOT write to DB every second
+  const showMiningModalRef = useRef(showMiningModal);
+  useEffect(() => {
+    showMiningModalRef.current = showMiningModal;
+  }, [showMiningModal]);
+
   useEffect(() => {
     if (!user || coinsPerSecond <= 0) return;
 
@@ -2930,17 +2962,32 @@ export default function App() {
       // Auto-mining logic without floating rewards to save space
       const xpReward = Math.max(1, Math.floor(coinsPerSecond / 10));
       
-      // Update local pending refs
+      // Update local pending refs (this runs continuously in background to collect locally first)
       pendingCpsCoinsRef.current += coinsPerSecond;
       pendingCpsXpRef.current += xpReward;
 
-      // 🔥 Sync with Optimistic UI locally
-      setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
-      setOptimisticXp(prev => (prev !== null ? prev + xpReward : (myProfile?.xp || 0) + xpReward));
+      // 🔥 Sync with Optimistic UI locally (only if mining modal is actually open to save rendering performance)
+      if (showMiningModalRef.current) {
+        setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
+        setOptimisticXp(prev => (prev !== null ? prev + xpReward : (myProfile?.xp || 0) + xpReward));
+      }
     }, 1000);
 
     return () => clearInterval(interval);
   }, [user, coinsPerSecond]);
+
+  // Sync back to db and clear local optimistic state if coin count changes externally (e.g. via admins, transactions)
+  useEffect(() => {
+    if (myProfile?.coins !== undefined) {
+      setOptimisticCoins(null);
+    }
+  }, [myProfile?.coins]);
+
+  useEffect(() => {
+    if (myProfile?.xp !== undefined) {
+      setOptimisticXp(null);
+    }
+  }, [myProfile?.xp]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -3150,9 +3197,12 @@ export default function App() {
       setFloatingRewards(prev => prev.filter(r => r.id !== blockRewardId));
     }, 1500);
 
-    // Synchronize optimistic coins
+    // Synchronize optimistic coins & XP
     if (optimisticCoins !== null) {
       setOptimisticCoins(prev => (prev || 0) + finalCoins);
+    }
+    if (optimisticXp !== null) {
+      setOptimisticXp(prev => (prev || 0) + finalXp);
     }
 
     setMiningStats(prev => ({
@@ -3161,24 +3211,13 @@ export default function App() {
     }));
 
     if (user) {
-      const totalCoinsToSync = finalCoins + pendingCoinUpdateRef.current + pendingCpsCoinsRef.current;
-      const totalXpToSync = finalXp + pendingCpsXpRef.current;
+      // Queue rewards in pending accumulators to prevent excessive database writes
+      pendingCoinUpdateRef.current += finalCoins;
+      pendingCpsXpRef.current += finalXp;
 
-      // Clear all pending refs
-      pendingCoinUpdateRef.current = 0;
-      pendingCpsCoinsRef.current = 0;
-      pendingCpsXpRef.current = 0;
-
+      // Trigger 3s idle/de-bounce flush
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-
-      try {
-        await updateDoc(doc(db, 'user_profiles', user.uid), {
-          xp: increment(totalXpToSync),
-          coins: increment(totalCoinsToSync)
-        });
-      } catch (err: any) {
-        if (err.message?.includes('Quota')) setHasQuotaExceeded(true);
-      }
+      syncTimeoutRef.current = setTimeout(syncCoinsToDb, 3000);
     }
 
     // Visual pause before respawn
@@ -3442,16 +3481,53 @@ export default function App() {
       }
       
       // Update local state immediately for better UX
+      setUserProfiles(prev => {
+        const index = prev.findIndex(p => p.userId === targetId);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = { 
+            ...updated[index], 
+            ...updates,
+            updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 }
+          };
+          return updated;
+        } else {
+          return [...prev, { 
+            ...updates,
+            updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 }
+          } as UserProfile];
+        }
+      });
+
+      setLeaderboardData(prev => {
+        const index = prev.findIndex(p => (p.userId || (p as any).id) === targetId);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = { 
+            ...updated[index], 
+            ...updates,
+            updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 }
+          };
+          return updated;
+        }
+        return prev;
+      });
+
       if (targetId === user.uid) {
-        setMyProfile(prev => prev ? { ...prev, ...updates } : updates);
+        setMyProfile(prev => prev ? { 
+          ...prev, 
+          ...updates,
+          updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 }
+        } : { 
+          ...updates,
+          updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 }
+        });
       }
 
       alert("✅ Profil erfolgreich gespeichert!");
       
-      if (targetId === user.uid) {
-         setShowProfileModal(false);
-         setEditingProfileId(null);
-      }
+      setShowProfileModal(false);
+      setEditingProfileId(null);
 
       notifyDiscord(
         "🧬 PROFIL-MODIFIKATION (STAFF)",
@@ -4205,10 +4281,14 @@ export default function App() {
               }
                   const action = command.substring(5);
                   switch (action) {
-                    case 'invisible':
-                      await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: !myProfile?.isInvisible }, { merge: true });
-                      sendSystemMsg(`§6§lROOT:§r Stealth-Modus nun ${!myProfile?.isInvisible ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
+                    case 'invisible': {
+                      const newInvisible = !myProfile?.isInvisible;
+                      await setDoc(doc(db, 'user_profiles', user.uid), { isInvisible: newInvisible }, { merge: true });
+                      setUserProfiles(prev => prev.map(p => p.userId === user.uid ? { ...p, isInvisible: newInvisible } : p));
+                      setMyProfile(prev => prev ? { ...prev, isInvisible: newInvisible } : prev);
+                      sendSystemMsg(`§6§lROOT:§r Stealth-Modus nun ${newInvisible ? '§aAKTIVIERT§r' : '§cDEAKTIVIERT§r'}.`);
                       break;
+                    }
                     case 'mute': {
                       const target = args[0];
                       if (!target) { sendSystemMsg("§cVerwendung: /root.mute [Name]§r"); break; }
@@ -4219,8 +4299,13 @@ export default function App() {
                           sendSystemMsg("§cError: Du kannst keine Teammitglieder stummschalten!§r");
                           break;
                         }
-                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: !targetProf.isShadowMuted }, { merge: true });
-                        sendSystemMsg(`§6§lROOT:§r Shadowmute für ${targetProf.displayName} ${!targetProf.isShadowMuted ? '§aGESETZT§r' : '§cENTFERNT§r'}.`);
+                        const newMute = !targetProf.isShadowMuted;
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { isShadowMuted: newMute }, { merge: true });
+                        setUserProfiles(prev => prev.map(p => p.userId === targetProf.userId ? { ...p, isShadowMuted: newMute } : p));
+                        if (targetProf.userId === user.uid) {
+                          setMyProfile(prev => prev ? { ...prev, isShadowMuted: newMute } : prev);
+                        }
+                        sendSystemMsg(`§6§lROOT:§r Shadowmute für ${targetProf.displayName} ${newMute ? '§aGESETZT§r' : '§cENTFERNT§r'}.`);
                       }
                       break;
                     }
@@ -4234,7 +4319,12 @@ export default function App() {
                           sendSystemMsg("§cError: Konten von Teammitgliedern können nur von Besitzern manipuliert werden!§r");
                           break;
                         }
-                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: parseInt(args[1]) }, { merge: true });
+                        const newCoins = parseInt(args[1]);
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: newCoins }, { merge: true });
+                        setUserProfiles(prev => prev.map(p => p.userId === targetProf.userId ? { ...p, coins: newCoins } : p));
+                        if (targetProf.userId === user.uid) {
+                          setMyProfile(prev => prev ? { ...prev, coins: newCoins } : prev);
+                        }
                         sendSystemMsg(`§6§lROOT:§r Coins von ${targetProf.displayName} auf §e${args[1]}§r gesetzt.`);
                       }
                       break;
@@ -4249,7 +4339,12 @@ export default function App() {
                           sendSystemMsg("§cError: XP von Teammitgliedern können nur von Besitzern manipuliert werden!§r");
                           break;
                         }
-                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: parseInt(args[1]) }, { merge: true });
+                        const newXp = parseInt(args[1]);
+                        await setDoc(doc(db, 'user_profiles', targetProf.userId), { xp: newXp }, { merge: true });
+                        setUserProfiles(prev => prev.map(p => p.userId === targetProf.userId ? { ...p, xp: newXp } : p));
+                        if (targetProf.userId === user.uid) {
+                          setMyProfile(prev => prev ? { ...prev, xp: newXp } : prev);
+                        }
                         sendSystemMsg(`§6§lROOT:§r XP von ${targetProf.displayName} auf §b${args[1]}§r gesetzt.`);
                       }
                       break;
@@ -6518,14 +6613,14 @@ export default function App() {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           onClick={() => setIsAiOpen(true)}
-          className="fixed bottom-24 right-8 z-[90] w-16 h-16 rounded-2xl bg-black border-2 border-mc-gold flex items-center justify-center group shadow-[0_0_30px_rgba(255,170,0,0.3)] hover:scale-110 active:scale-95 transition-all"
+          className="fixed bottom-24 left-6 sm:bottom-24 sm:right-8 sm:left-auto z-[90] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-black border-2 border-mc-gold flex items-center justify-center group shadow-[0_0_30px_rgba(255,170,0,0.3)] hover:scale-110 active:scale-95 transition-all"
         >
           <div className="absolute inset-0 bg-mc-gold/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
           <div className="relative z-10 text-mc-gold">
-            <Sparkles className="group-hover:rotate-12 transition-transform" size={28} />
+            <Sparkles className="group-hover:rotate-12 transition-transform" size={24} />
           </div>
           {/* Label Tooltip */}
-          <div className="absolute right-full mr-4 px-4 py-2 bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 translate-x-4 group-hover:translate-x-0 transition-all pointer-events-none shadow-xl">
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 sm:left-auto sm:translate-x-0 sm:right-full sm:bottom-auto sm:mr-4 px-4 py-2 bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 translate-y-2 sm:translate-y-0 group-hover:translate-y-0 sm:translate-x-4 sm:group-hover:translate-x-0 transition-all pointer-events-none shadow-xl hidden sm:block">
              KI- ORAKEL FRAGEN
           </div>
         </motion.button>
@@ -8199,6 +8294,19 @@ export default function App() {
                     ))}
                   </div>
                 )}
+
+                {/* Stable YouTube Player Viewport Container */}
+                <div 
+                  className={`mt-4 overflow-hidden rounded-xl border border-neutral-800 bg-black/80 shadow-[inset_0_4px_12px_rgba(0,0,0,0.8)] transition-all duration-300 ${
+                    youtubeVideoId 
+                      ? 'w-[280px] h-[160px] opacity-100 ring-2 ring-purple-500/20' 
+                      : 'w-0 h-0 opacity-0 pointer-events-none'
+                  }`}
+                >
+                  <div id="youtube-player-wrapper" className="w-full h-full relative">
+                    <div id="youtube-player-element" className="w-full h-full" />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -8213,7 +8321,35 @@ export default function App() {
                     disabled={!activeDisc}
                     onClick={() => {
                       initAudioCtx();
-                      setIsJukeboxPlaying(!isJukeboxPlaying);
+                      const nextPlaying = !isJukeboxPlaying;
+                      setIsJukeboxPlaying(nextPlaying);
+
+                      if (youtubeVideoId && ytPlayerRef.current) {
+                        try {
+                          if (nextPlaying) {
+                            ytPlayerRef.current.unMute();
+                            ytPlayerRef.current.setVolume(Math.round(jukeboxVolume * 100));
+                            ytPlayerRef.current.playVideo();
+                          } else {
+                            ytPlayerRef.current.pauseVideo();
+                          }
+                        } catch (clickErr) {
+                          console.warn("Direct onClick YouTube action failed:", clickErr);
+                        }
+                      }
+
+                      if (!youtubeVideoId && streamAudioRef.current) {
+                        try {
+                          if (nextPlaying) {
+                            streamAudioRef.current.volume = jukeboxVolume;
+                            streamAudioRef.current.play();
+                          } else {
+                            streamAudioRef.current.pause();
+                          }
+                        } catch (clickErr) {
+                          console.warn("Direct onClick general audio action failed:", clickErr);
+                        }
+                      }
                     }}
                     className={`p-3 rounded-lg transition-all ${
                       !activeDisc 
@@ -8461,8 +8597,7 @@ export default function App() {
         </div>
       </section>
 
-      {/* Hidden container anchor for the YouTube background audio player */}
-      <div id="youtube-player-element" className="absolute w-px h-px opacity-0 pointer-events-none" />
+
 
       <footer className="relative z-10 border-t border-neutral-800/50 py-12 bg-black/20">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
@@ -8702,38 +8837,50 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
                 <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
                   <UserIcon className="text-mc-red" />
-                  {isAdmin && editingProfileId !== user?.uid ? `Profil von ${userProfiles.find(p => p.userId === editingProfileId)?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
+                  {isAdmin && editingProfileId !== user?.uid ? `Profil von ${editingProfile?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
                 </h3>
                 
                 <form onSubmit={saveProfile} className="space-y-10">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {/* Admin Stealth Status Indicators & Toggles */}
-                    {isSuperAdmin && editingProfileId && (
+                    {isSuperAdmin && activeEditingProfId && (
                       <div className="md:col-span-2 flex flex-wrap gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
                         <button 
                           type="button"
                           onClick={() => {
-                            const prof = userProfiles.find(p => p.userId === editingProfileId);
-                            setDoc(doc(db, 'user_profiles', editingProfileId), { isInvisible: !prof?.isInvisible }, { merge: true });
+                            if (editingProfile) {
+                              const newInv = !editingProfile.isInvisible;
+                              setDoc(doc(db, 'user_profiles', activeEditingProfId), { isInvisible: newInv }, { merge: true });
+                              setUserProfiles(prev => prev.map(p => p.userId === activeEditingProfId ? { ...p, isInvisible: newInv } : p));
+                              if (activeEditingProfId === user?.uid) {
+                                setMyProfile(prev => prev ? { ...prev, isInvisible: newInv } : prev);
+                              }
+                            }
                           }}
                           className="flex items-center gap-2 hover:bg-purple-500/10 px-2 py-1 rounded"
                         >
-                           <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isInvisible ? 'bg-purple-500 shadow-[0_0_5px_purple]' : 'bg-neutral-800'}`} />
+                           <div className={`w-3 h-3 rounded-full ${editingProfile?.isInvisible ? 'bg-purple-500 shadow-[0_0_5px_purple]' : 'bg-neutral-800'}`} />
                            <span className="text-[10px] font-bold uppercase text-purple-400">Invisible Ghost</span>
                         </button>
                         <button 
                           type="button"
                           onClick={() => {
-                            const prof = userProfiles.find(p => p.userId === editingProfileId);
-                            setDoc(doc(db, 'user_profiles', editingProfileId), { isShadowMuted: !prof?.isShadowMuted }, { merge: true });
+                            if (editingProfile) {
+                              const newMute = !editingProfile.isShadowMuted;
+                              setDoc(doc(db, 'user_profiles', activeEditingProfId), { isShadowMuted: newMute }, { merge: true });
+                              setUserProfiles(prev => prev.map(p => p.userId === activeEditingProfId ? { ...p, isShadowMuted: newMute } : p));
+                              if (activeEditingProfId === user?.uid) {
+                                setMyProfile(prev => prev ? { ...prev, isShadowMuted: newMute } : prev);
+                              }
+                            }
                           }}
                           className="flex items-center gap-2 hover:bg-mc-gold/10 px-2 py-1 rounded"
                         >
-                           <div className={`w-3 h-3 rounded-full ${userProfiles.find(p => p.userId === editingProfileId)?.isShadowMuted ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-neutral-800'}`} />
+                           <div className={`w-3 h-3 rounded-full ${editingProfile?.isShadowMuted ? 'bg-mc-gold shadow-[0_0_5px_gold]' : 'bg-neutral-800'}`} />
                            <span className="text-[10px] font-bold uppercase text-mc-gold">Shadow Muted</span>
                         </button>
                         <div className="flex items-center gap-2 px-2 py-1">
-                           <span className="text-[10px] font-bold uppercase text-neutral-500">Coins: {userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}</span>
+                           <span className="text-[10px] font-bold uppercase text-neutral-500">Coins: {editingProfile?.coins || 0}</span>
                         </div>
                       </div>
                     )}
@@ -8744,7 +8891,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Display Name</label>
                         <input 
                           name="displayName"
-                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.displayName || (editingProfileId === user?.uid ? user?.displayName : '') || ''}
+                          defaultValue={editingProfile?.displayName || ''}
                           placeholder="Wie willst du genannt werden?"
                           required
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors"
@@ -8767,7 +8914,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Aktueller Server</label>
                         <select 
                           name="currentServer"
-                          defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.currentServer || 'none'}
+                          defaultValue={editingProfile?.currentServer || 'none'}
                           className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors appearance-none"
                         >
                           <option value="none">Keiner / Menü</option>
@@ -8839,7 +8986,7 @@ export default function App() {
                               <label className="block text-xs font-bold text-mc-gold uppercase tracking-widest mb-2">Benutzer-Rolle (Nur Staff)</label>
                               <select 
                                 name="role"
-                                defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.role || 'Member'}
+                                defaultValue={editingProfile?.role || 'Member'}
                                 className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors appearance-none"
                               >
                                 <option value="Member">Mitglied</option>
@@ -8856,7 +9003,7 @@ export default function App() {
                               <input 
                                 name="coins"
                                 type="number"
-                                defaultValue={userProfiles.find(p => p.userId === editingProfileId)?.coins || 0}
+                                defaultValue={editingProfile?.coins || 0}
                                 className="w-full bg-black/40 border border-mc-gold/30 rounded-xl p-4 text-white focus:border-mc-gold outline-none transition-colors"
                               />
                             </div>
@@ -8866,9 +9013,9 @@ export default function App() {
                           <button 
                             type="button"
                             onClick={() => {
-                              if (!editingProfileId) return;
+                              if (!activeEditingProfId) return;
                               if (confirm("🚨 KICK: Benutzer-Session terminieren?")) {
-                                setDoc(doc(db, 'user_profiles', editingProfileId), { isOnline: false }, { merge: true });
+                                setDoc(doc(db, 'user_profiles', activeEditingProfId), { isOnline: false }, { merge: true });
                               }
                             }}
                             className="py-4 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-600 hover:text-white text-orange-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -8877,11 +9024,12 @@ export default function App() {
                           </button>
                           <button 
                             type="button"
-                            onClick={() => {
-                              if (!editingProfileId) return;
+                            onClick={async () => {
+                              if (!activeEditingProfId) return;
                               if (confirm("☢️ PERMANENT-DELETE: Profil vollständig vernichten?")) {
-                                deleteDoc(doc(db, 'user_profiles', editingProfileId));
+                                await deleteDoc(doc(db, 'user_profiles', activeEditingProfId));
                                 setShowProfileModal(false);
+                                setEditingProfileId(null);
                               }
                             }}
                             className="py-4 bg-red-600/10 border border-red-600/30 hover:bg-red-600 hover:text-white text-mc-red rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -8926,7 +9074,7 @@ export default function App() {
                                         <div className="flex flex-col">
                                           <span className="text-[10px] font-black text-red-500/60 uppercase tracking-[0.2em] mb-1">Active Signal Monitor</span>
                                           <span className="text-xl font-mono text-white font-black tracking-widest break-all">
-                                            {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginIp || 'DETERMINING_IP...'}
+                                            {(editingProfile as any)?.lastLoginIp || 'DETERMINING_IP...'}
                                           </span>
                                         </div>
                                       </div>
@@ -8949,7 +9097,7 @@ export default function App() {
                                               Infrastructural Origins
                                             </div>
                                             <div className="bg-neutral-900/80 border border-red-500/20 p-8 rounded-[2rem] group hover:border-red-500/60 transition-all cursor-copy relative overflow-hidden" onClick={() => {
-                                              const ip = userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp;
+                                              const ip = editingProfile?.lastLoginIp;
                                               if (ip) { navigator.clipboard.writeText(ip); }
                                             }}>
                                               <div className="absolute top-0 right-0 p-6 opacity-5">
@@ -8958,7 +9106,7 @@ export default function App() {
                                               <div className="flex flex-col relative z-10 text-left">
                                                 <p className="text-[9px] font-black text-neutral-500 uppercase mb-2 tracking-widest">Active session IP (Trace)</p>
                                                 <span className="text-3xl font-mono font-black text-white tracking-widest break-all group-hover:text-red-500 transition-colors">
-                                                  {userProfiles.find(p => p.userId === editingProfileId)?.lastLoginIp || 'HIDDEN'}
+                                                  {editingProfile?.lastLoginIp || 'HIDDEN'}
                                                 </span>
                                                 <div className="flex items-center gap-3 mt-4">
                                                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
@@ -8971,7 +9119,7 @@ export default function App() {
                                               <div>
                                                 <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Genesis Arrival IP</p>
                                                 <span className="text-lg font-mono font-bold text-blue-400 tracking-wider">
-                                                  {userProfiles.find(p => p.userId === editingProfileId)?.registrationIp || '---'}
+                                                  {editingProfile?.registrationIp || '---'}
                                                 </span>
                                               </div>
                                               <div className="px-3 py-1 bg-blue-500/10 rounded-xl text-blue-500 text-[9px] font-black border border-blue-500/20 shadow-lg shadow-blue-500/5">SYSTEM_ROOT</div>
@@ -8990,23 +9138,23 @@ export default function App() {
                                               </div>
                                               <div className="flex flex-col gap-2 relative z-10 text-left">
                                                 <span className="text-3xl font-black text-white leading-tight tracking-tight">
-                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCity || '?'}, 
-                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginRegion || '?'}
+                                                  {(editingProfile as any)?.lastLoginCity || '?'}, 
+                                                  {(editingProfile as any)?.lastLoginRegion || '?'}
                                                 </span>
                                                 <div className="text-mc-gold font-black uppercase tracking-[0.2em] text-sm flex items-center gap-2">
                                                   <div className="w-4 h-[1px] bg-mc-gold/40" />
-                                                  {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginCountry || 'Neutral Territory'}
+                                                  {(editingProfile as any)?.lastLoginCountry || 'Neutral Territory'}
                                                 </div>
                                               </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-4 relative z-10">
                                               <div className="bg-black/60 p-5 rounded-2xl border border-white/5 hover:border-mc-gold/30 transition-colors group/sub text-left">
                                                 <p className="text-[9px] font-black text-neutral-600 uppercase mb-2 tracking-widest">Registry ZIP</p>
-                                                <p className="text-base font-mono text-neutral-300 font-bold tracking-widest">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginPostal || '---'}</p>
+                                                <p className="text-base font-mono text-neutral-300 font-bold tracking-widest">{(editingProfile as any)?.lastLoginPostal || '---'}</p>
                                               </div>
                                               <div className="bg-black/60 p-5 rounded-2xl border border-white/5 hover:border-mc-gold/30 transition-colors group/sub text-left">
                                                 <p className="text-[9px] font-black text-neutral-600 uppercase mb-2 tracking-widest">Zone / Offset</p>
-                                                <p className="text-base font-mono text-mc-gold font-black tracking-widest">{(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginTimezone || 'UTC'}</p>
+                                                <p className="text-base font-mono text-mc-gold font-black tracking-widest">{(editingProfile as any)?.lastLoginTimezone || 'UTC'}</p>
                                               </div>
                                             </div>
                                           </div>
@@ -9021,12 +9169,12 @@ export default function App() {
                                               <div className="bg-black/60 p-6 rounded-[2rem] border border-white/5 group-hover:border-red-500/20 transition-all relative overflow-hidden">
                                                 <div className="relative z-10 text-left">
                                                   <span className="text-xl font-mono text-red-500 font-black block leading-tight tracking-[0.02em]">
-                                                    {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginOrg || 'DETERMINING ISP...'}
+                                                    {(editingProfile as any)?.lastLoginOrg || 'DETERMINING ISP...'}
                                                   </span>
                                                   <div className="flex items-center justify-between mt-4 border-t border-white/5 pt-4">
                                                     <span className="text-[10px] font-mono text-neutral-500 font-bold uppercase tracking-widest">AS Number</span>
                                                     <span className="text-xs font-mono bg-mc-gold/10 text-mc-gold px-3 py-1 rounded-lg border border-mc-gold/20 font-black">
-                                                      {(userProfiles.find(p => p.userId === editingProfileId) as any)?.lastLoginAsn || 'AS_NONE'}
+                                                      {(editingProfile as any)?.lastLoginAsn || 'AS_NONE'}
                                                     </span>
                                                   </div>
                                                 </div>
@@ -9059,7 +9207,7 @@ export default function App() {
                                               <span className="text-[9px] font-mono text-red-500 font-black tracking-widest uppercase">Trace_Active</span>
                                             </div>
                                             <span className="text-[10px] font-mono text-neutral-500 font-bold tracking-widest">
-                                              ENTITY_IDENT: TR-{(userProfiles.find(p => p.userId === editingProfileId) as any)?.userId?.substring(0, 10).toUpperCase()}
+                                              ENTITY_IDENT: TR-{editingProfile?.userId?.substring(0, 10).toUpperCase()}
                                             </span>
                                           </div>
                                           <span className="text-[9px] font-mono text-neutral-700 uppercase tracking-[0.2em] font-bold">Protocol v8.12.0 SECURED</span>
@@ -9079,7 +9227,7 @@ export default function App() {
                       <input 
                         type="checkbox" 
                         name="isOnline"
-                        defaultChecked={userProfiles.find(p => p.userId === editingProfileId)?.isOnline || false}
+                        defaultChecked={editingProfile?.isOnline || false}
                         className="sr-only peer" 
                       />
                       <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-mc-red"></div>
@@ -9087,11 +9235,11 @@ export default function App() {
                   </div>
 
                   <div className="flex gap-3">
-                    {isAdmin && editingProfileId && editingProfileId !== user?.uid && (
+                    {isAdmin && activeEditingProfId && activeEditingProfId !== user?.uid && (
                       <button 
                         type="button" 
                         onClick={() => {
-                          deleteProfile(editingProfileId);
+                          deleteProfile(activeEditingProfId);
                           setShowProfileModal(false);
                           setEditingProfileId(null);
                         }}

@@ -99,6 +99,8 @@ service cloud.firestore {
              (!('minecraftUsername' in data) || (data.minecraftUsername is string && data.minecraftUsername.size() <= 64)) &&
              (!('isOnline' in data) || data.isOnline is bool) &&
              (!('currentServer' in data) || data.currentServer in ['none', 'pvp', 'survival']) &&
+             // Ensure coins is a non-negative integer
+             (!('coins' in data) || (data.coins is int && data.coins >= 0)) &&
              // Role Security: Setting staff roles (Admin/Owner/Root) requires isOwner()
              (!('role' in data) || !(data.role in ['Admin', 'Owner', 'Root']) || isOwner()) &&
              (!('updatedAt' in data) || (data.updatedAt is timestamp || data.updatedAt is string)) &&
@@ -150,12 +152,17 @@ service cloud.firestore {
     // User Profiles Collection
     match /user_profiles/{userId} {
       allow read: if true;
-      allow create: if isSignedIn() && (userId == request.auth.uid || isOwner()) && isValidUserProfile(incoming(), userId);
+      allow create: if isSignedIn() && (userId == request.auth.uid || isOwner()) && isValidUserProfile(incoming(), userId) &&
+                    (!('coins' in incoming()) || incoming().coins <= 500 || isAdmin());
       allow update: if isSignedIn() && (
           // Owner can edit anyone
           isOwner() || 
           // Users can edit themselves (but not change their role)
-          (userId == request.auth.uid && (!incoming().keys().hasAll(['role']) || incoming().role == existing().role)) ||
+          (userId == request.auth.uid && 
+             (!incoming().keys().hasAll(['role']) || incoming().role == existing().role) &&
+             // Prevent clients from manually giving themselves coins (max increment of 50k per request)
+             (isAdmin() || !('coins' in incoming()) || !('coins' in existing()) || incoming().coins <= existing().coins + 50000)
+          ) ||
           // Admins can edit non-staff (but not promote them to staff)
           (isAdmin() && !(existing().role in ['Admin', 'Owner', 'Root']) && (!incoming().keys().hasAll(['role']) || !(incoming().role in ['Admin', 'Owner', 'Root'])))
       ) && isValidUserProfile(incoming(), userId);

@@ -302,6 +302,85 @@ async function startServer() {
     res.json({ status: 'ok', mode: 'full-stack' });
   });
 
+  // --- STREAM PROXY (Bypasses CORS & Mixed Content) ---
+  app.get('/api/stream-proxy', async (req, res) => {
+    const streamUrl = req.query.url as string;
+    if (!streamUrl) {
+      return res.status(400).send("Parameter 'url' is required");
+    }
+
+    try {
+      const decodedUrl = decodeURIComponent(streamUrl);
+      if (!decodedUrl.startsWith('http://') && !decodedUrl.startsWith('https://')) {
+        return res.status(400).send("Invalid URL protocol. Must start with http:// or https://");
+      }
+
+      console.log(`[STREAM PROXY] Proxying request to: ${decodedUrl}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds connection timeout
+
+      const response = await fetch(decodedUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Icy-MetaData': '1' // Request shoutcast metadata if supported
+        }
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return res.status(response.status).send(`Failed to stream. Source returned HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Forward headers
+      const contentType = response.headers.get('content-type') || 'audio/mpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+
+      // Forward length if available and not a live stream chunked transfer
+      const contentLength = response.headers.get('content-length');
+      if (contentLength && response.headers.get('transfer-encoding') !== 'chunked') {
+        res.setHeader('Content-Length', contentLength);
+      }
+
+      if (response.body) {
+        const { Readable } = await import('stream');
+        const nodeReadable = Readable.fromWeb(response.body as any);
+        
+        nodeReadable.on('error', (err) => {
+          console.error('[STREAM PROXY] Error piping source stream:', err);
+          res.end();
+        });
+
+        req.on('close', () => {
+          // Prevent resource leak if client aborts/closes tab or pauses audio
+          try {
+            nodeReadable.destroy();
+          } catch (e) {
+            // ignore
+          }
+        });
+
+        nodeReadable.pipe(res);
+      } else {
+        res.status(500).send("No body stream was returned from the source.");
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        res.status(504).send("Error: Connecting to the stream timed out.");
+      } else {
+        console.error('[STREAM PROXY FEHLER]', err);
+        res.status(500).send(`Stream Proxy Failure: ${err.message}`);
+      }
+    }
+  });
+
   // --- VITE MIDDLEWARE ---
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
