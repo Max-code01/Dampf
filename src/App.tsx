@@ -5117,7 +5117,10 @@ export default function App() {
                 <div className="w-full md:w-1/2 h-auto min-h-[300px] md:h-full flex flex-col items-center justify-center p-4 md:p-6 sm:border-r border-white/5 relative z-10 select-none touch-pan-y">
                   <div className="mb-4 md:mb-8 text-center space-y-1 scale-90 md:scale-100 pointer-events-none">
                      <h2 className="text-white font-black text-2xl md:text-3xl tracking-[0.3em] uppercase drop-shadow-mc">Mining Clicker</h2>
-                     <p className="text-mc-gold font-bold italic text-sm">CPS: {coinsPerSecond} Coins/s</p>
+                     <div className="flex flex-col items-center gap-1">
+                       <p className="text-mc-gold font-bold italic text-sm">CPS (Münzen/s): {coinsPerSecond} Coins/s</p>
+                       <p className="text-[#fbbf24] font-bold italic text-xs">CPC (Münzen/Klick): {myProfile?.mining?.coinsPerClick || 1} Coins/Klick</p>
+                     </div>
                   </div>
 
                   {/* Center Game Area */}

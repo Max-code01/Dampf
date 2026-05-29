@@ -159,9 +159,7 @@ service cloud.firestore {
           isOwner() || 
           // Users can edit themselves (but not change their role)
           (userId == request.auth.uid && 
-             (!incoming().keys().hasAll(['role']) || incoming().role == existing().role) &&
-             // Prevent clients from manually giving themselves coins (max increment of 50k per request)
-             (isAdmin() || !('coins' in incoming()) || !('coins' in existing()) || incoming().coins <= existing().coins + 50000)
+             (!incoming().keys().hasAll(['role']) || incoming().role == existing().role)
           ) ||
           // Admins can edit non-staff (but not promote them to staff)
           (isAdmin() && !(existing().role in ['Admin', 'Owner', 'Root']) && (!incoming().keys().hasAll(['role']) || !(incoming().role in ['Admin', 'Owner', 'Root'])))
