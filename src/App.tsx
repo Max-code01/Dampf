@@ -1377,9 +1377,7 @@ export default function App() {
   const [coinsPerSecond, setCoinsPerSecond] = useState(0);
 
   useEffect(() => {
-    if (myProfile?.mining?.cps) {
-      setCoinsPerSecond(myProfile?.mining?.cps || 0);
-    }
+    setCoinsPerSecond(myProfile?.mining?.cps ?? 0);
   }, [myProfile?.mining?.cps]);
 
   // Mining Game State
@@ -2187,15 +2185,10 @@ export default function App() {
 
   // Update my profile when user object changes
   useEffect(() => {
-    if (user) {
-      const found = userProfiles.find(p => p.userId === user.uid);
-      if (found) {
-        setMyProfile(found);
-      }
-    } else {
+    if (!user) {
       setMyProfile(null);
     }
-  }, [user, userProfiles]);
+  }, [user]);
 
   const openProfileEdit = (userId?: string) => {
     const targetId = userId || user?.uid || null;
@@ -2899,16 +2892,18 @@ export default function App() {
         user.photoURL || undefined
       );
       
-      await addDoc(collection(db, 'chat_messages'), {
-        text: item.category === 'Ränge' 
-          ? `👑 **${myProfile.displayName}** ist nun offiziell **${purchasedRank}**! Herzlichen Glückwunsch!`
-          : `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! ${specialMessage}`,
-        userId: 'system',
-        displayName: 'SHOP',
-        role: 'System',
-        purchasedRank: purchasedRank,
-        createdAt: serverTimestamp()
-      });
+      if (!item.name?.toLowerCase()?.includes('key')) {
+        await addDoc(collection(db, 'chat_messages'), {
+          text: item.category === 'Ränge' 
+            ? `👑 **${myProfile.displayName}** ist nun offiziell **${purchasedRank}**! Herzlichen Glückwunsch!`
+            : `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! ${specialMessage}`,
+          userId: 'system',
+          displayName: 'SHOP',
+          role: 'System',
+          purchasedRank: purchasedRank,
+          createdAt: serverTimestamp()
+        });
+      }
       
       alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${(updates.coins || newCoins).toLocaleString()} Coins`);
     } catch (err) {
@@ -2968,26 +2963,24 @@ export default function App() {
 
       // 🔥 Sync with Optimistic UI locally (only if mining modal is actually open to save rendering performance)
       if (showMiningModalRef.current) {
-        setOptimisticCoins(prev => (prev !== null ? prev + coinsPerSecond : (myProfile?.coins || 0) + coinsPerSecond));
-        setOptimisticXp(prev => (prev !== null ? prev + xpReward : (myProfile?.xp || 0) + xpReward));
+        setOptimisticCoins((myProfile?.coins || 0) + pendingCpsCoinsRef.current + pendingCoinUpdateRef.current);
+        setOptimisticXp((myProfile?.xp || 0) + pendingCpsXpRef.current);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [user, coinsPerSecond]);
+  }, [user, coinsPerSecond, myProfile]);
 
-  // Sync back to db and clear local optimistic state if coin count changes externally (e.g. via admins, transactions)
+  // Keep optimistic states initialized correctly when opening the modal, and reconcile smoothly during active play
   useEffect(() => {
-    if (myProfile?.coins !== undefined) {
+    if (showMiningModal && myProfile) {
+      setOptimisticCoins((myProfile.coins || 0) + pendingCpsCoinsRef.current + pendingCoinUpdateRef.current);
+      setOptimisticXp((myProfile.xp || 0) + pendingCpsXpRef.current);
+    } else {
       setOptimisticCoins(null);
-    }
-  }, [myProfile?.coins]);
-
-  useEffect(() => {
-    if (myProfile?.xp !== undefined) {
       setOptimisticXp(null);
     }
-  }, [myProfile?.xp]);
+  }, [showMiningModal, myProfile]);
 
   const spawnNextBlock = () => {
     const luckBonus = (myProfile?.inventory?.luck || 0) / 100;
@@ -3121,8 +3114,11 @@ export default function App() {
       setFloatingRewards(prev => prev.filter(r => r.id !== rewardId));
     }, 1000);
 
-    if (optimisticCoins === null) setOptimisticCoins((myProfile?.coins || 0) + coinsPerClick);
-    else setOptimisticCoins(prev => (prev || 0) + coinsPerClick);
+    // BATCHED COIN UPDATE INSTEAD OF IMMEDIATE
+    queueCoinUpdate(coinsPerClick);
+
+    // Reconcile optimistic value from absolute DB state + pending ticks
+    setOptimisticCoins((myProfile?.coins || 0) + pendingCpsCoinsRef.current + pendingCoinUpdateRef.current);
 
     setTimeout(() => {
       setPickaxeSwing(false);
@@ -3145,9 +3141,6 @@ export default function App() {
       vy: (Math.random() - 0.5) * 20 - 10
     }));
     setMiningParticles(prev => [...prev, ...particles].slice(-60));
-    
-    // BATCHED COIN UPDATE INSTEAD OF IMMEDIATE
-    queueCoinUpdate(coinsPerClick);
 
     const newHealth = Math.max(0, miningBlock.health - damage);
 
@@ -3197,19 +3190,6 @@ export default function App() {
       setFloatingRewards(prev => prev.filter(r => r.id !== blockRewardId));
     }, 1500);
 
-    // Synchronize optimistic coins & XP
-    if (optimisticCoins !== null) {
-      setOptimisticCoins(prev => (prev || 0) + finalCoins);
-    }
-    if (optimisticXp !== null) {
-      setOptimisticXp(prev => (prev || 0) + finalXp);
-    }
-
-    setMiningStats(prev => ({
-      totalBroken: prev.totalBroken + 1,
-      diamondsFound: miningBlock.type === 'Diamond' ? prev.diamondsFound + 1 : prev.diamondsFound
-    }));
-
     if (user) {
       // Queue rewards in pending accumulators to prevent excessive database writes
       pendingCoinUpdateRef.current += finalCoins;
@@ -3219,6 +3199,15 @@ export default function App() {
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = setTimeout(syncCoinsToDb, 3000);
     }
+
+    // Reconcile optimistic values from absolute DB states + pending ticks
+    setOptimisticCoins((myProfile?.coins || 0) + pendingCpsCoinsRef.current + pendingCoinUpdateRef.current);
+    setOptimisticXp((myProfile?.xp || 0) + pendingCpsXpRef.current);
+
+    setMiningStats(prev => ({
+      totalBroken: prev.totalBroken + 1,
+      diamondsFound: miningBlock.type === 'Diamond' ? prev.diamondsFound + 1 : prev.diamondsFound
+    }));
 
     // Visual pause before respawn
     setTimeout(() => {
@@ -5265,16 +5254,28 @@ export default function App() {
                           onClick={async () => {
                              if (!canAfford || !user) return;
                              
-                             // 🔥 Optimistic UI update
-                             if (optimisticCoins !== null) {
-                               setOptimisticCoins(prev => (prev || 0) - item.price);
-                             } else {
-                               setOptimisticCoins((myProfile?.coins || 0) - item.price);
-                             }
+                             const coinsToSync = pendingCpsCoinsRef.current + pendingCoinUpdateRef.current;
+                             const xpToSync = pendingCpsXpRef.current;
 
-                             const updates: any = { coins: increment(-item.price) };
+                             // Clear local pending accumulators simultaneously to prevent double increments/race conditions
+                             pendingCpsCoinsRef.current = 0;
+                             pendingCoinUpdateRef.current = 0;
+                             pendingCpsXpRef.current = 0;
+
+                             // Estimate new balance optimistically
+                             const currentDbCoins = myProfile?.coins || 0;
+                             const currentDbXp = myProfile?.xp || 0;
+                             const nextCoins = currentDbCoins + coinsToSync - item.price;
+                             const nextXp = currentDbXp + xpToSync;
+
+                             setOptimisticCoins(nextCoins);
+                             setOptimisticXp(nextXp);
+
+                             const updates: any = { 
+                               coins: increment(-item.price + coinsToSync),
+                               xp: increment(xpToSync)
+                             };
                              if ('cps' in item) {
-                               setCoinsPerSecond(prev => prev + (item.cps || 0));
                                updates['mining.cps'] = increment(item.cps || 0);
                              }
                              if ('cpc' in item) {
@@ -5297,8 +5298,9 @@ export default function App() {
                                }].slice(-10));
                              } catch (err) {
                                console.error("Purchase failed:", err);
-                               // Revert optimistic coins on failure
+                               // Revert to database state on failure
                                setOptimisticCoins(null);
+                               setOptimisticXp(null);
                              }
                           }}
                           className={`w-full p-4 rounded-2xl border flex items-center gap-4 text-left transition-all ${
