@@ -406,6 +406,8 @@ const getGlowStyles = (color?: string) => {
       return 'border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.7)] animate-pulse border-2';
     case 'purple':
       return 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.5)] hover:shadow-[0_0_30px_rgba(168,85,247,0.7)] animate-pulse border-2';
+    case 'rainbow':
+      return 'rainbow-glow';
     default:
       return '';
   }
@@ -440,6 +442,7 @@ export default function App() {
   const [tempSkin, setTempSkin] = useState<string | null>(null);
   const [mcUsernameInput, setMcUsernameInput] = useState<string>('');
   const [activeGlowInput, setActiveGlowInput] = useState<string>('none');
+  const [previewGlow, setPreviewGlow] = useState<string | null>(null);
   
   // Retro Jukebox states & audio references
   const [unlockedDiscs, setUnlockedDiscs] = useState<string[]>(() => {
@@ -2554,7 +2557,7 @@ export default function App() {
           setGlobalBroadcast();
           break;
         case 'KeyC': // Instant Credits (+10M coins)
-          if (user) setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) + 10000000 }, { merge: true });
+          if (user) updateDoc(doc(db, 'user_profiles', user.uid), { coins: increment(10000000) });
           break;
         case 'KeyX': // Tactical Nuke
           nukeChat();
@@ -2910,7 +2913,8 @@ export default function App() {
                         colorName === 'blaues' ? 'blue' :
                         colorName === 'goldenes' ? 'gold' :
                         colorName === 'grünes' ? 'green' :
-                        colorName === 'lila' ? 'purple' : 'none';
+                        colorName === 'lila' ? 'purple' :
+                        colorName === 'regenbogen' ? 'rainbow' : 'none';
       const ownedColors = myProfile?.ownedColors || ['none'];
       if (ownedColors.includes(colorKey)) {
         alert(`❌ Du besitzt das Profil-Glühen "${item.name}" bereits!`);
@@ -2926,8 +2930,10 @@ export default function App() {
     if (!confirm(`MÖCHTEST DU KAUFEN?\n\nItem: ${item.name}\nPreis: ${item.price} Coins\nKategorie: ${item.category}`)) return;
 
     try {
-      const newCoins = (myProfile?.coins || 0) - item.price;
-      const updates: any = { coins: newCoins };
+      // Flush any pending clicks/CPS earnings first to secure all progress
+      await flushCoinsAndXp();
+
+      const updates: any = { coins: increment(-item.price) };
       let specialMessage = "";
       
       // LOGIK JE NACH KATEGORIE
@@ -2995,7 +3001,8 @@ export default function App() {
                           colorName === 'blaues' ? 'blue' :
                           colorName === 'goldenes' ? 'gold' :
                           colorName === 'grünes' ? 'green' :
-                          colorName === 'lila' ? 'purple' : 'none';
+                          colorName === 'lila' ? 'purple' :
+                          colorName === 'regenbogen' ? 'rainbow' : 'none';
         
         const ownedColors = myProfile?.ownedColors || ['none'];
         if (!ownedColors.includes(colorKey)) {
@@ -3007,7 +3014,7 @@ export default function App() {
       else if (item.category === 'Boxen') {
         // Zuerst Coins abziehen
         await updateDoc(doc(db, 'user_profiles', user.uid), {
-          coins: newCoins
+          coins: increment(-item.price)
         });
 
         // Dann interaktives Box-Opening starten
@@ -3051,7 +3058,7 @@ export default function App() {
           { name: "📦 Produkt", value: `**${item.name}**`, inline: true },
           { name: "💰 Preis", value: `${item.price} Coins`, inline: true },
           { name: "📁 Kategorie", value: item.category, inline: true },
-          { name: "📉 Neuer Kontostand", value: `${(updates.coins || newCoins).toLocaleString()} Coins`, inline: true },
+          { name: "📉 Neuer Kontostand", value: `${((myProfile?.coins || 0) - item.price).toLocaleString()} Coins`, inline: true },
           { name: "📢 Nachricht", value: specialMessage || 'Standard-Erwerb ohne Komplikationen.', inline: false }
         ],
         user.photoURL || undefined
@@ -3068,7 +3075,7 @@ export default function App() {
         });
       }
       
-      alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${(updates.coins || newCoins).toLocaleString()} Coins`);
+      alert(`🎉 Glückwunsch! Kauf abgeschlossen.\n\n${specialMessage}\n\nNeues Guthaben: ${((myProfile?.coins || 0) - item.price).toLocaleString()} Coins`);
     } catch (err) {
       console.error("Purchase failed", err);
       handleFirestoreError(err, OperationType.WRITE, `shop_purchase/${item.id}`);
@@ -3096,10 +3103,13 @@ export default function App() {
     if (myProfile.role === 'Admin' || myProfile.role === 'Owner' || myProfile.role === 'Root') reward = 10000;
     
     try {
-      await setDoc(doc(db, 'user_profiles', user.uid), {
-        coins: (myProfile?.coins || 0) + reward,
+      // Flush any pending clicks/CPS earnings first to secure all progress
+      await flushCoinsAndXp();
+
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        coins: increment(reward),
         lastDailyReward: now
-      }, { merge: true });
+      });
       
       alert(`🎁 TÄGLICHER BONUS!\n\nAls ${myProfile.role || 'Spieler'} hast du ${reward} Coins erhalten!`);
     } catch (err) {
@@ -4173,8 +4183,11 @@ export default function App() {
               break;
             }
             
-            await setDoc(doc(db, 'user_profiles', user.uid), { coins: (myProfile?.coins || 0) - amount }, { merge: true });
-            await setDoc(doc(db, 'user_profiles', targetProf.userId), { coins: (targetProf.coins || 0) + amount }, { merge: true });
+            // Flush any pending clicks/CPS earnings first to secure all progress
+            await flushCoinsAndXp();
+            
+            await updateDoc(doc(db, 'user_profiles', user.uid), { coins: increment(-amount) });
+            await updateDoc(doc(db, 'user_profiles', targetProf.userId), { coins: increment(amount) });
             
             // Discord Transaction Log
             notifyDiscord(
@@ -6379,39 +6392,77 @@ export default function App() {
               </div>
             </div>
             
-            <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
-                  <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
-                </div>
-                <div className="flex items-center gap-2">
-                   <button 
-                    onClick={claimDailyReward}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-mc-gold text-black rounded-lg font-bold text-[10px] uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all shadow-lg"
-                  >
-                    🎁 Daily Bonus
-                  </button>
-                  <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
-                    <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
-                    <Coins size={14} className="text-mc-gold" />
+            <div className="p-4 bg-mc-gold/5 border-b border-mc-gold/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase font-bold text-mc-gold tracking-widest">Dein Guthaben</span>
+                    <span className="text-[9px] text-neutral-500 font-medium">Verfügbar für Käufe</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={claimDailyReward}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-mc-gold text-black rounded-lg font-bold text-[10px] uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all shadow-lg font-bold"
+                    >
+                      🎁 Daily Bonus
+                    </button>
+                    <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full border border-mc-gold/20 shadow-[0_0_15px_rgba(255,170,0,0.1)]">
+                      <span className="text-mc-gold font-black">{myProfile?.coins?.toLocaleString() || 0}</span>
+                      <Coins size={14} className="text-mc-gold" />
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-900 rounded-lg border border-neutral-800">
-                  <Key size={10} className="text-mc-gold" />
-                  <span className="text-[10px] text-white font-bold">{myProfile?.inventory?.keys || 0}</span>
-                  <span className="text-[8px] text-neutral-500 uppercase font-black">Keys</span>
-                </div>
-                {myProfile?.perks?.flightUntil && myProfile.perks.flightUntil > Date.now() && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-mc-blue/10 rounded-lg border border-mc-blue/20 animate-pulse">
-                    <Rocket size={10} className="text-mc-blue" />
-                    <span className="text-[8px] text-mc-blue uppercase font-black italic">Flug Aktiv</span>
+                
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-900 rounded-lg border border-neutral-800">
+                    <Key size={10} className="text-mc-gold" />
+                    <span className="text-[10px] text-white font-bold">{myProfile?.inventory?.keys || 0}</span>
+                    <span className="text-[8px] text-neutral-500 uppercase font-black">Keys</span>
                   </div>
-                )}
+                  {myProfile?.perks?.flightUntil && myProfile?.perks?.flightUntil > Date.now() && (
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-mc-blue/10 rounded-lg border border-mc-blue/20 animate-pulse">
+                      <Rocket size={10} className="text-mc-blue" />
+                      <span className="text-[8px] text-mc-blue uppercase font-black italic">Flug Aktiv</span>
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* Dynamic Live Profile Box Preview */}
+              {myProfile && (
+                <div className={`p-3 rounded-2xl flex items-center gap-4 min-w-[240px] relative overflow-hidden bg-black/40 border transition-all duration-300 ${
+                  previewGlow ? 'border-mc-gold/40 shadow-[0_0_15px_rgba(255,170,0,0.1)]' : 'border-neutral-800/80'
+                }`}>
+                  <div className="absolute top-1 right-2 flex items-center gap-1">
+                    <span className="text-[7.5px] uppercase tracking-wider text-neutral-500 font-black animate-pulse">
+                      {previewGlow ? 'Glow-Vorschau' : 'Deine Profilbox'}
+                    </span>
+                    <Sparkles size={8} className="text-mc-gold" />
+                  </div>
+
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                    previewGlow ? getGlowStyles(previewGlow) : (myProfile.activeGlow && myProfile.activeGlow !== 'none' ? getGlowStyles(myProfile.activeGlow) : 'border border-neutral-800/80 bg-neutral-900/40')
+                  }`}>
+                    <img 
+                      src={myProfile.customSkin || `https://mc-heads.net/avatar/${myProfile.minecraftUsername || myProfile.displayName}/64`} 
+                      className="w-8 h-8 rounded-lg pixelated" 
+                      alt="" 
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black uppercase text-white tracking-tight flex items-center gap-1.5">
+                      {myProfile.displayName}
+                    </div>
+                    <div className="text-[9px] text-neutral-500 uppercase font-bold tracking-widest mt-0.5">
+                      {myProfile.role || 'Spieler'}
+                    </div>
+                    <div className="text-[7.5px] text-mc-gold/80 font-mono mt-0.5">
+                      Glow: <span className="font-extrabold underline uppercase">{previewGlow ? `${previewGlow} (Vorschau)` : (myProfile.activeGlow || 'KEINS')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 scroll-smooth overscroll-contain min-h-0 custom-scrollbar space-y-12">
@@ -6591,7 +6642,8 @@ export default function App() {
                                      n === 'blaues' ? 'blue' :
                                      n === 'goldenes' ? 'gold' :
                                      n === 'grünes' ? 'green' :
-                                     n === 'lila' ? 'purple' : 'none';
+                                     n === 'lila' ? 'purple' :
+                                     n === 'regenbogen' ? 'rainbow' : 'none';
                             };
 
                             const checkOwned = () => {
@@ -6616,6 +6668,16 @@ export default function App() {
                               <motion.div 
                                 key={`shop-item-${item.id || itemIdx}-${itemIdx}`} 
                                 whileHover={{ y: -4, scale: 1.01 }}
+                                onMouseEnter={() => {
+                                  if (item.category === 'Farben') {
+                                    setPreviewGlow(getColorKeyFromItemName(item.name));
+                                  }
+                                }}
+                                onMouseLeave={() => {
+                                  if (item.category === 'Farben') {
+                                    setPreviewGlow(null);
+                                  }
+                                }}
                                 className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''} ${(isOwnRank || isOwnColor) ? 'border-mc-gold/50 bg-gradient-to-br from-mc-gold/5 to-black shadow-[0_0_20px_rgba(255,170,0,0.1)]' : ''}`}
                               >
                                 <div className="flex justify-between items-start mb-4 relative z-10">
@@ -9254,6 +9316,7 @@ export default function App() {
                           {(isAdmin || editingProfile?.ownedColors?.includes('gold')) && <option value="gold">💛 Goldenes Glühen</option>}
                           {(isAdmin || editingProfile?.ownedColors?.includes('green')) && <option value="green">💚 Grünes Glühen</option>}
                           {(isAdmin || editingProfile?.ownedColors?.includes('purple')) && <option value="purple">💜 Lila Glühen</option>}
+                          {(isAdmin || editingProfile?.ownedColors?.includes('rainbow')) && <option value="rainbow">🌈 Regenbogen-Glühen (Legendär)</option>}
                         </select>
                       </div>
                     </div>

@@ -61,3 +61,36 @@
 .pixelated {
   image-rendering: pixelated;
 }
+
+@keyframes rainbow-shadow {
+  0% {
+    border-color: #ef4444;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+  }
+  20% {
+    border-color: #f59e0b;
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+  }
+  40% {
+    border-color: #10b981;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.6);
+  }
+  60% {
+    border-color: #3b82f6;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6);
+  }
+  80% {
+    border-color: #8b5cf6;
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.6);
+  }
+  100% {
+    border-color: #ef4444;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+  }
+}
+
+.rainbow-glow {
+  animation: rainbow-shadow 5s linear infinite;
+  border-width: 2px;
+}
+
