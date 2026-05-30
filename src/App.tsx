@@ -3612,13 +3612,17 @@ export default function App() {
     const newCat = prompt("Kategorie (Ränge, Farben, Ausrüstung, Items, Vorteile, Boxen):", item.category) as any || item.category;
 
     try {
+      const createdAt = item.createdAt || serverTimestamp();
       await setDoc(doc(db, 'shop', item.id), {
         name: newName,
         description: newDesc,
-        price: parseInt(newPrice),
-        category: newCat
+        price: parseInt(newPrice) || 0,
+        category: newCat,
+        isActive: item.isActive !== undefined ? item.isActive : true,
+        createdAt: createdAt
       }, { merge: true });
       alert("✅ Item aktualisiert!");
+      await fetchShop();
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `shop/${item.id}`);
     }

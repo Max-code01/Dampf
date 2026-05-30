@@ -237,6 +237,7 @@ service cloud.firestore {
     match /chat_messages/{messageId} {
       allow read: if true;
       allow create: if isSignedIn() && isValidChatMessage(incoming());
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -273,7 +274,7 @@ service cloud.firestore {
 
     match /shop/{itemId} {
       allow read: if true;
-      allow create, update: if isAdmin() && isValidShopItem(incoming());
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
