@@ -1269,6 +1269,68 @@ export default function App() {
   const [showMiningModal, setShowMiningModal] = useState(false);
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
 
+  // Floating Toast Notification System
+  interface AppToast {
+    id: string;
+    type: 'quest' | 'xp' | 'level';
+    title: string;
+    description: string;
+    amount?: number;
+    questTitle?: string;
+    percent?: number;
+  }
+
+  const [toasts, setToasts] = useState<AppToast[]>([]);
+
+  const triggerToast = (type: 'quest' | 'xp' | 'level', title: string, description: string, options?: Partial<AppToast>) => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    const newToast: AppToast = { id, type, title, description, ...options };
+    setToasts(prev => [...prev.slice(-3), newToast]); // Shows max 4 toasts at the same time
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  const getLevel = (xp: number = 0) => Math.floor(Math.sqrt(xp / 100)) + 1;
+
+  const prevXpRef = useRef<number | null>(null);
+  const prevLevelRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!myProfile) {
+      prevXpRef.current = null;
+      prevLevelRef.current = null;
+      return;
+    }
+
+    const currentXp = myProfile.xp || 0;
+    const currentLevel = getLevel(currentXp);
+
+    if (prevXpRef.current !== null && prevLevelRef.current !== null) {
+      const xpDifference = currentXp - prevXpRef.current;
+      const levelDifference = currentLevel - prevLevelRef.current;
+
+      if (levelDifference > 0) {
+        triggerToast(
+          'level',
+          '🔥 LEVEL UP! 🎉',
+          `Glückwunsch! Du hast Level ${currentLevel} erreicht!`,
+          { amount: currentLevel }
+        );
+      } else if (xpDifference >= 20) {
+        triggerToast(
+          'xp',
+          '✨ ERFAHRUNG GEWONNEN!',
+          `Du hast +${xpDifference} XP erhalten! Mach weiter so!`,
+          { amount: xpDifference }
+        );
+      }
+    }
+
+    prevXpRef.current = currentXp;
+    prevLevelRef.current = currentLevel;
+  }, [myProfile?.xp]);
+
   useEffect(() => {
     setQuotaListener(() => {
       setHasQuotaExceeded(prev => {
@@ -1485,6 +1547,51 @@ export default function App() {
   const [clanTab, setClanTab] = useState<'members' | 'chat' | 'perks' | 'requests' | 'quests' | 'stats'>('members');
   const [clanRequests, setClanRequests] = useState<ClanJoinRequest[]>([]);
   const [clanQuests, setClanQuests] = useState<ClanQuest[]>([]);
+
+  // Tracks and triggers floating toast notifications for clan quest updates
+  const prevQuestsRef = useRef<Record<string, { current: number, completed: boolean }>>({});
+
+  useEffect(() => {
+    if (!clanQuests || clanQuests.length === 0) {
+      prevQuestsRef.current = {};
+      return;
+    }
+
+    clanQuests.forEach((quest) => {
+      const prev = prevQuestsRef.current[quest.id];
+      const nextCurrent = quest.current;
+      const nextCompleted = quest.completed;
+
+      if (prev) {
+        if (nextCompleted && !prev.completed) {
+          triggerToast(
+            'quest',
+            '🎯 QUEST ABGESCHLOSSEN!',
+            `Die Clan Quest "${quest.title}" wurde erfolgreich abgeschlossen. (+${quest.rewardXp} Clan-XP)`,
+            { percent: 100 }
+          );
+        } else if (nextCurrent !== prev.current) {
+          const prevPercent = Math.floor((prev.current / quest.goal) * 100);
+          const nextPercent = Math.floor((nextCurrent / quest.goal) * 100);
+
+          const milestones = [25, 50, 75, 90];
+          const milestonePassed = milestones.find(m => prevPercent < m && nextPercent >= m);
+
+          if (milestonePassed) {
+            triggerToast(
+              'quest',
+              '🎯 MEILENSTEIN ERREICHT!',
+              `Quest "${quest.title}" Fortschritt: ${nextCurrent}/${quest.goal} (${nextPercent}%)`,
+              { percent: nextPercent, questTitle: quest.title }
+            );
+          }
+        }
+      }
+
+      prevQuestsRef.current[quest.id] = { current: nextCurrent, completed: nextCompleted };
+    });
+  }, [clanQuests]);
+
   const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
   const [visitorInfo, setVisitorInfo] = useState<any>(null);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
@@ -9909,6 +10016,56 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating toast notification panel */}
+      <div id="toast-container" className="fixed bottom-5 right-5 z-[10000] flex flex-col gap-3 max-w-[360px] pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, y: 10, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.9, transition: { duration: 0.2 } }}
+              className="pointer-events-auto flex items-start gap-3 p-4 bg-black/95 border-2 border-mc-gold rounded-xl shadow-[0_0_20px_rgba(255,170,0,0.3)] relative overflow-hidden group select-none"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-mc-gold/10 via-amber-500/5 to-transparent animate-pulse pointer-events-none" />
+              
+              <div className="p-2 rounded-lg bg-mc-gold/10 border border-mc-gold/30 text-mc-gold shrink-0">
+                {toast.type === 'quest' && <Target size={18} className="animate-bounce" />}
+                {toast.type === 'xp' && <Sparkles size={18} className="animate-pulse" />}
+                {toast.type === 'level' && <Award size={18} className="animate-pulse" />}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <h4 className="font-sans font-black text-xs text-mc-gold flex items-center gap-1.5 uppercase tracking-wider">
+                  {toast.title}
+                </h4>
+                <p className="font-sans text-[11px] text-neutral-300 font-semibold leading-relaxed mt-1">
+                  {toast.description}
+                </p>
+                
+                {toast.type === 'quest' && toast.percent !== undefined && (
+                  <div className="w-full h-1.5 bg-neutral-900 rounded-full mt-2.5 overflow-hidden border border-neutral-800">
+                    <motion.div 
+                      className="h-full bg-mc-gold rounded-full shadow-[0_0_8px_rgba(255,170,0,0.5)]"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${toast.percent}%` }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="text-neutral-500 hover:text-white transition-colors p-0.5 shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
