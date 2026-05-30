@@ -93,7 +93,8 @@ import {
   serverTimestamp,
   writeBatch,
   increment,
-  updateDoc
+  updateDoc,
+  arrayUnion
 } from 'firebase/firestore';
 import { 
   signInWithPopup, 
@@ -393,19 +394,30 @@ const FloatingParticles = () => {
   );
 };
 
-const getGlowStyles = (color?: string) => {
+const getGlowStyles = (color?: string, isStaticOverride?: boolean) => {
   if (!color || color === 'none') return '';
+  const isStatic = isStaticOverride !== undefined ? isStaticOverride : (color !== 'rainbow');
   switch (color) {
     case 'red':
-      return 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] hover:shadow-[0_0_30px_rgba(239,68,68,0.7)] animate-pulse border-2';
+      return isStatic
+        ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.7),_0_0_30px_rgba(239,68,68,0.3)] hover:shadow-[0_0_25px_rgba(239,68,68,0.9)] border-2 bg-red-950/20'
+        : 'border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.85),_0_0_50px_rgba(239,68,68,0.45)] hover:shadow-[0_0_35px_rgba(239,68,68,1.0),_0_0_70px_rgba(239,68,68,0.6)] animate-pulse border-2';
     case 'blue':
-      return 'border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] hover:shadow-[0_0_30px_rgba(59,130,246,0.7)] animate-pulse border-2';
+      return isStatic
+        ? 'border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.7),_0_0_30px_rgba(59,130,246,0.3)] hover:shadow-[0_0_25px_rgba(59,130,246,0.9)] border-2 bg-blue-950/20'
+        : 'border-blue-400 shadow-[0_0_25px_rgba(59,130,246,0.85),_0_0_50px_rgba(59,130,246,0.45)] hover:shadow-[0_0_35px_rgba(59,130,246,1.0),_0_0_70px_rgba(59,130,246,0.6)] animate-pulse border-2';
     case 'gold':
-      return 'border-yellow-400 shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:shadow-[0_0_35px_rgba(251,191,36,0.8)] animate-pulse border-2';
+      return isStatic
+        ? 'border-yellow-400 shadow-[0_0_18px_rgba(251,191,36,0.75),_0_0_35px_rgba(251,191,36,0.35)] hover:shadow-[0_0_28px_rgba(251,191,36,0.95)] border-2 bg-yellow-950/20'
+        : 'border-yellow-400 shadow-[0_0_30px_rgba(251,191,36,0.9),_0_0_60px_rgba(251,191,36,0.5)] hover:shadow-[0_0_40px_rgba(251,191,36,1.0),_0_0_80px_rgba(251,191,36,0.7)] animate-pulse border-2';
     case 'green':
-      return 'border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.7)] animate-pulse border-2';
+      return isStatic
+        ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.7),_0_0_30px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.9)] border-2 bg-emerald-950/20'
+        : 'border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.85),_0_0_50px_rgba(16,185,129,0.45)] hover:shadow-[0_0_35px_rgba(16,185,129,1.0),_0_0_70px_rgba(16,185,129,0.6)] animate-pulse border-2';
     case 'purple':
-      return 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.5)] hover:shadow-[0_0_30px_rgba(168,85,247,0.7)] animate-pulse border-2';
+      return isStatic
+        ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.7),_0_0_30px_rgba(168,85,247,0.3)] hover:shadow-[0_0_25px_rgba(168,85,247,0.9)] border-2 bg-purple-950/20'
+        : 'border-purple-500 shadow-[0_0_25px_rgba(168,85,247,0.85),_0_0_50px_rgba(168,85,247,0.45)] hover:shadow-[0_0_35px_rgba(168,85,247,1.0),_0_0_70px_rgba(168,85,247,0.6)] animate-pulse border-2';
     case 'rainbow':
       return 'rainbow-glow border-2 border-solid';
     default:
@@ -1405,7 +1417,7 @@ export default function App() {
         { id: 'boost_xp', name: 'Erfahrungs-Boost', description: 'Du erhältst +50% mehr XP beim Mining', price: 15000, category: 'Ausrüstung', isActive: true, createdAt: null },
         { id: 'vote_key_1', name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items', isActive: true, createdAt: null },
         { id: 'vote_key_10', name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items', isActive: true, createdAt: null },
-        { id: 'benefit_flight', name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile', isActive: true, createdAt: null },
+
 
         { id: 'glow_red', name: 'Rotes Glühen', description: 'Glow: red. Profilbox leuchtet im feurigen Rot!', price: 1500, category: 'Farben', isActive: true, createdAt: null },
         { id: 'glow_blue', name: 'Blaues Glühen', description: 'Glow: blue. Profilbox leuchtet im mystischen Aquamarin-Blau!', price: 1500, category: 'Farben', isActive: true, createdAt: null },
@@ -3019,10 +3031,7 @@ export default function App() {
                           colorName === 'lila' ? 'purple' :
                           colorName === 'regenbogen' ? 'rainbow' : 'none';
         
-        const ownedColors = myProfile?.ownedColors || ['none'];
-        if (!ownedColors.includes(colorKey)) {
-          updates.ownedColors = [...ownedColors, colorKey];
-        }
+        updates.ownedColors = arrayUnion(colorKey);
         updates.activeGlow = colorKey;
         specialMessage = `Du hast das Profil-Glühen ${item.name} freigeschaltet und direkt ausgerüstet!`;
       }
@@ -3072,16 +3081,30 @@ export default function App() {
               current[lastPart] = val;
             }
           } else {
-            const val = updates[key];
-            if (val && typeof val === 'object') {
-              const operand = (val as any).operand;
-              if (typeof operand === 'number') {
-                (newProfile as any)[key] = (((newProfile as any)[key] as number) || 0) + operand;
+            if (key === 'ownedColors') {
+              const colorName = item.name.replace(' Glühen', '').toLowerCase();
+              const cKey = colorName === 'rotes' ? 'red' :
+                            colorName === 'blaues' ? 'blue' :
+                            colorName === 'goldenes' ? 'gold' :
+                            colorName === 'grünes' ? 'green' :
+                            colorName === 'lila' ? 'purple' :
+                            colorName === 'regenbogen' ? 'rainbow' : 'none';
+              const currentOwned = newProfile.ownedColors || ['none'];
+              if (!currentOwned.includes(cKey)) {
+                newProfile.ownedColors = [...currentOwned, cKey];
+              }
+            } else {
+              const val = updates[key];
+              if (val && typeof val === 'object') {
+                const operand = (val as any).operand;
+                if (typeof operand === 'number') {
+                  (newProfile as any)[key] = (((newProfile as any)[key] as number) || 0) + operand;
+                } else {
+                  (newProfile as any)[key] = val;
+                }
               } else {
                 (newProfile as any)[key] = val;
               }
-            } else {
-              (newProfile as any)[key] = val;
             }
           }
         });
@@ -3094,16 +3117,30 @@ export default function App() {
         const updated = { ...p };
         Object.keys(updates).forEach(key => {
           if (!key.includes('.')) {
-            const val = updates[key];
-            if (val && typeof val === 'object') {
-              const operand = (val as any).operand;
-              if (typeof operand === 'number') {
-                (updated as any)[key] = ((updated as any)[key] || 0) + operand;
+            if (key === 'ownedColors') {
+              const colorName = item.name.replace(' Glühen', '').toLowerCase();
+              const cKey = colorName === 'rotes' ? 'red' :
+                            colorName === 'blaues' ? 'blue' :
+                            colorName === 'goldenes' ? 'gold' :
+                            colorName === 'grünes' ? 'green' :
+                            colorName === 'lila' ? 'purple' :
+                            colorName === 'regenbogen' ? 'rainbow' : 'none';
+              const currentOwned = updated.ownedColors || ['none'];
+              if (!currentOwned.includes(cKey)) {
+                updated.ownedColors = [...currentOwned, cKey];
+              }
+            } else {
+              const val = updates[key];
+              if (val && typeof val === 'object') {
+                const operand = (val as any).operand;
+                if (typeof operand === 'number') {
+                  (updated as any)[key] = ((updated as any)[key] || 0) + operand;
+                } else {
+                  (updated as any)[key] = val;
+                }
               } else {
                 (updated as any)[key] = val;
               }
-            } else {
-              (updated as any)[key] = val;
             }
           }
         });
@@ -3503,7 +3540,6 @@ export default function App() {
       { name: 'Erfahrungs-Boost', description: 'Du erhältst +50% mehr XP beim Mining', price: 15000, category: 'Ausrüstung' },
       { name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items' },
       { name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items' },
-      { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
 
       { name: 'Rotes Glühen', description: 'Glow: red. Profilbox leuchtet im feurigen Rot!', price: 1500, category: 'Farben' },
       { name: 'Blaues Glühen', description: 'Glow: blue. Profilbox leuchtet im mystischen Aquamarin-Blau!', price: 1500, category: 'Farben' },
@@ -7787,18 +7823,24 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-                  {communityDisplayList.map((p: any, i: number) => (
-                    <motion.div 
-                      key={`community-profile-${p.userId || p.username || `v-${i}`}-${i}`}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className={`mc-card p-4 flex flex-col items-center text-center border-neutral-800/50 transition-colors group relative ${isAdmin ? 'hover:border-mc-gold/50 cursor-pointer' : 'hover:border-mc-red/30'}`}
-                  onClick={() => {
-                    if (isAdmin && p.userId) {
-                      openProfileEdit(p.userId);
-                    }
-                  }}
-                >
+                  {communityDisplayList.map((p: any, i: number) => {
+                    const activeColorGlow = p.activeGlow || p.profile?.activeGlow;
+                    return (
+                      <motion.div 
+                        key={`community-profile-${p.userId || p.username || `v-${i}`}-${i}`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className={`mc-card p-4 flex flex-col items-center text-center transition-all duration-300 group relative ${
+                          (activeColorGlow && activeColorGlow !== 'none')
+                            ? getGlowStyles(activeColorGlow)
+                            : 'border-neutral-800/50'
+                        } ${isAdmin ? 'cursor-pointer hover:border-mc-gold/50' : 'hover:border-mc-red/30'}`}
+                        onClick={() => {
+                          if (isAdmin && p.userId) {
+                            openProfileEdit(p.userId);
+                          }
+                        }}
+                      >
                   {isAdmin && p.lastLoginIp && (
                     <div className={`absolute inset-0 bg-black/95 opacity-0 group-hover:opacity-100 transition-opacity z-40 flex flex-col items-center justify-center p-2 text-center pointer-events-none border-2 ${p.isOnline ? 'border-red-600' : 'border-mc-gold/50'} rounded-xl`}>
                       <div className="flex items-center gap-1 mb-1">
@@ -7919,7 +7961,8 @@ export default function App() {
                     )}
                   </div>
                 </motion.div>
-              ))}
+              );
+            })}
               {!user && (
                 <div 
                   onClick={() => setShowLoginModal(true)}
