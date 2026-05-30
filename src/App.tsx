@@ -2676,6 +2676,30 @@ export default function App() {
     }
   };
 
+  const editSingleMessage = async (msgId: string) => {
+    if (!isAdmin && !isOwner && !isSuperAdmin) return;
+    try {
+      const msg = chatMessages.find(m => m.id === msgId);
+      if (!msg) return;
+      const newText = prompt("Nachricht anpassen / bearbeiten:", msg.text);
+      if (newText === null || newText.trim() === "") return;
+      
+      await updateDoc(doc(db, 'chat_messages', msgId), {
+        text: newText.trim()
+      });
+      
+      notifyDiscord(
+        "📝 NACHRICHT BEARBEITET",
+        `**Admin:** ${myProfile?.displayName || user?.displayName}\n**Sender:** ${msg.displayName || 'Unbekannt'}\n**Alt:** ${msg.text}\n**Neu:** ${newText.trim()}`,
+        3447003 // Dark green / cyan
+      );
+      
+      console.log(`Message ${msgId} edited by admin.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chat_messages/${msgId}`);
+    }
+  };
+
   // News & Poll Management
   const addNews = async () => {
     if (!isAdmin) return;
@@ -7240,13 +7264,23 @@ export default function App() {
                         )}
                         
                         <div className="flex items-end gap-2 group max-w-[85%]">
-                          {(isAdmin || isOwner || isSuperAdmin) && !isSystem && (
-                            <button 
-                              onClick={() => deleteSingleMessage(msg.id)}
-                              className="p-1.5 text-neutral-600 hover:text-mc-red transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                          {(isAdmin || isOwner || isSuperAdmin) && (
+                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={() => editSingleMessage(msg.id)}
+                                className="p-1 hover:text-blue-400 text-neutral-600 transition-colors shrink-0"
+                                title="Anpassen"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button 
+                                onClick={() => deleteSingleMessage(msg.id)}
+                                className="p-1 hover:text-mc-red text-neutral-600 transition-colors shrink-0"
+                                title="Löschen"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           )}
                           
                           <div className={`relative px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap transition-all ${
