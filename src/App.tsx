@@ -149,6 +149,8 @@ interface UserProfile {
   updatedAt: any;
   purchasedRank?: string;
   purchasedRanks?: string[];
+  activeGlow?: string;
+  ownedColors?: string[];
   // NEUE FELDER
   inventory?: {
     keys?: number;
@@ -219,7 +221,7 @@ interface ShopItem {
   name: string;
   description: string;
   price: number;
-  category: 'Ränge' | 'Items' | 'Vorteile' | 'Boxen' | 'Ausrüstung';
+  category: 'Ränge' | 'Items' | 'Vorteile' | 'Boxen' | 'Ausrüstung' | 'Farben';
   icon?: string;
   stock?: number;
   isActive: boolean;
@@ -391,6 +393,24 @@ const FloatingParticles = () => {
   );
 };
 
+const getGlowStyles = (color?: string) => {
+  if (!color || color === 'none') return '';
+  switch (color) {
+    case 'red':
+      return 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] hover:shadow-[0_0_30px_rgba(239,68,68,0.7)] animate-pulse border-2';
+    case 'blue':
+      return 'border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] hover:shadow-[0_0_30px_rgba(59,130,246,0.7)] animate-pulse border-2';
+    case 'gold':
+      return 'border-yellow-400 shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:shadow-[0_0_35px_rgba(251,191,36,0.8)] animate-pulse border-2';
+    case 'green':
+      return 'border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.7)] animate-pulse border-2';
+    case 'purple':
+      return 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.5)] hover:shadow-[0_0_30px_rgba(168,85,247,0.7)] animate-pulse border-2';
+    default:
+      return '';
+  }
+};
+
 export default function App() {
   // Quota state
   const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
@@ -419,6 +439,7 @@ export default function App() {
     : null;
   const [tempSkin, setTempSkin] = useState<string | null>(null);
   const [mcUsernameInput, setMcUsernameInput] = useState<string>('');
+  const [activeGlowInput, setActiveGlowInput] = useState<string>('none');
   
   // Retro Jukebox states & audio references
   const [unlockedDiscs, setUnlockedDiscs] = useState<string[]>(() => {
@@ -1366,7 +1387,41 @@ export default function App() {
     if (hasQuotaExceeded) return;
     try {
       const shopSnap = await getDocs(query(collection(db, 'shop'), orderBy('price', 'asc')));
-      setShopItems(shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem)));
+      const dbItems = shopSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShopItem));
+      
+      const defaultItems: ShopItem[] = [
+        { id: 'rank_vip', name: 'VIP Rang', description: 'Goldener Name & exklusive Features', price: 5000, category: 'Ränge', isActive: true, createdAt: null },
+        { id: 'rank_mvp', name: 'MVP Rang', description: 'Der ultimative Rang mit 5.000 Coins Daily Bonus!', price: 25000, category: 'Ränge', isActive: true, createdAt: null },
+        
+        { id: 'pickaxe_wood', name: 'Holzspitzhacke', description: 'Standard-Equipment (Power: 1)', price: 100, category: 'Ausrüstung', isActive: true, createdAt: null },
+        { id: 'pickaxe_iron', name: 'Eisenspitzhacke', description: 'Bessere Haltbarkeit & Speed (Power: 2)', price: 2500, category: 'Ausrüstung', isActive: true, createdAt: null },
+        { id: 'pickaxe_diamond', name: 'Diamantspitzhacke', description: 'Die schärfste Klinge (Power: 4)', price: 15000, category: 'Ausrüstung', isActive: true, createdAt: null },
+        { id: 'pickaxe_netherite', name: 'Netheritspitzhacke', description: 'Göttergleicher Speed (Power: 8)', price: 75000, category: 'Ausrüstung', isActive: true, createdAt: null },
+
+        { id: 'amulet_god', name: 'Götter-Amulett', description: 'Erhöht die Chance auf seltene Erze (Luck: +5)', price: 10000, category: 'Ausrüstung', isActive: true, createdAt: null },
+        { id: 'boost_xp', name: 'Erfahrungs-Boost', description: 'Du erhältst +50% mehr XP beim Mining', price: 15000, category: 'Ausrüstung', isActive: true, createdAt: null },
+        { id: 'vote_key_1', name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items', isActive: true, createdAt: null },
+        { id: 'vote_key_10', name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items', isActive: true, createdAt: null },
+        { id: 'benefit_flight', name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile', isActive: true, createdAt: null },
+
+        { id: 'glow_red', name: 'Rotes Glühen', description: 'Glow: red. Profilbox leuchtet im feurigen Rot!', price: 1500, category: 'Farben', isActive: true, createdAt: null },
+        { id: 'glow_blue', name: 'Blaues Glühen', description: 'Glow: blue. Profilbox leuchtet im mystischen Aquamarin-Blau!', price: 1500, category: 'Farben', isActive: true, createdAt: null },
+        { id: 'glow_gold', name: 'Goldenes Glühen', description: 'Glow: gold. Königlicher Schein für dich und dein Profil!', price: 3000, category: 'Farben', isActive: true, createdAt: null },
+        { id: 'glow_green', name: 'Grünes Glühen', description: 'Glow: green. Giftig-grünes Smaragd-Schimmern!', price: 1500, category: 'Farben', isActive: true, createdAt: null },
+        { id: 'glow_purple', name: 'Lila Glühen', description: 'Glow: purple. Magisches violettes Schimmern!', price: 2000, category: 'Farben', isActive: true, createdAt: null }
+      ];
+
+      const merged = [...dbItems];
+      const dbNames = new Set(dbItems.map(i => (i.name || '').toLowerCase().trim()));
+      
+      defaultItems.forEach(defItem => {
+        if (!dbNames.has(defItem.name.toLowerCase().trim())) {
+          merged.push(defItem);
+        }
+      });
+      
+      merged.sort((a, b) => a.price - b.price);
+      setShopItems(merged);
     } catch (err: any) {
       if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     }
@@ -1907,13 +1962,49 @@ export default function App() {
     if (!user || hasQuotaExceeded) return;
     const profileRef = doc(db, 'user_profiles', user.uid);
     
-    // 1. Initial Sync (Online + Assigned Role)
+    // 1. Initial Sync (Online + Assigned Role & Offline Income Calculation)
     const syncProfileData = async () => {
       const userEmail = user.email?.toLowerCase() || '';
       const mcName = user.displayName?.toLowerCase() || '';
       
+      let existingRole = 'Member';
+      let offlineCoinsEarned = 0;
+      let offlineXpEarned = 0;
+      let offlineSeconds = 0;
+      let showOfflineReport = false;
+
+      try {
+        const snap = await getDoc(profileRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          existingRole = data.role || 'Member';
+          // Calculate offline income if client has auto clicker (cps) and active last active timestamp
+          if (data.updatedAt?.seconds && data.mining?.cps > 0) {
+            const lastActiveSecs = data.updatedAt.seconds;
+            const currentSecs = Math.floor(Date.now() / 1000);
+            const rawSecs = currentSecs - lastActiveSecs;
+            
+            // Only trigger offline progress if disconnected for at least 30 seconds
+            if (rawSecs >= 30) {
+              // Standard idle limit: capped at 12 hours (43200 seconds) to balance game progression
+              offlineSeconds = Math.min(rawSecs, 43200);
+              const cps = data.mining.cps || 0;
+              offlineCoinsEarned = offlineSeconds * cps;
+              
+              // Standard offline XP formula
+              const xpPerSec = Math.max(1, Math.floor(cps / 10));
+              offlineXpEarned = offlineSeconds * xpPerSec;
+              
+              showOfflineReport = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile for offline progression check:", err);
+      }
+
       // HARDCODED OVERRIDES for the specified users
-      let assignedRole: 'Owner' | 'Admin' | 'Member' = 'Member';
+      let assignedRole = existingRole;
       if (userEmail === 'max.schule13@gmail.com' || userEmail === 'block5@community.local' || mcName === 'block5') {
         assignedRole = 'Owner';
       } else if (userEmail.includes('dampfk') || userEmail.includes('finnhd1165') || mcName === 'dampfk' || mcName === 'finnhd1165') {
@@ -1922,9 +2013,7 @@ export default function App() {
 
       const uName = user.displayName || user.email?.split('@')[0] || 'Unbekannt';
 
-      // If we already have a profile, don't overwrite role unless it's a promotion
-      // This prevents "downgrading" manually set roles by accident
-      await setDoc(profileRef, { 
+      const docUpdates: any = { 
         isOnline: true, 
         currentServer: 'none',
         updatedAt: serverTimestamp(),
@@ -1932,7 +2021,28 @@ export default function App() {
         userId: user.uid,
         minecraftUsername: uName,
         displayName: uName
-      }, { merge: true });
+      };
+
+      if (showOfflineReport) {
+        if (offlineCoinsEarned > 0) {
+          docUpdates.coins = increment(offlineCoinsEarned);
+        }
+        if (offlineXpEarned > 0) {
+          docUpdates.xp = increment(offlineXpEarned);
+        }
+      }
+
+      // If we already have a profile, don't overwrite role unless it's a promotion
+      // This prevents "downgrading" manually set roles by accident
+      await setDoc(profileRef, docUpdates, { merge: true });
+
+      if (showOfflineReport && (offlineCoinsEarned > 0 || offlineXpEarned > 0)) {
+        setOfflineReport({
+          seconds: offlineSeconds,
+          coins: offlineCoinsEarned,
+          xp: offlineXpEarned
+        });
+      }
 
       // Add to online_players too
       await setDoc(doc(db, 'online_players', user.uid), {
@@ -2198,16 +2308,19 @@ export default function App() {
     if (profileToEdit) {
       setTempSkin(profileToEdit.customSkin || null);
       setMcUsernameInput(profileToEdit.minecraftUsername || '');
+      setActiveGlowInput(profileToEdit.activeGlow || 'none');
     } else {
       setTempSkin(null);
       setMcUsernameInput('');
+      setActiveGlowInput('none');
     }
     
     setShowProfileModal(true);
   };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen;
+  const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -2267,21 +2380,33 @@ export default function App() {
 
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
-        // Create/Update profile for Discord user
-        await setDoc(doc(db, 'user_profiles', result.user.uid), {
-          userId: result.user.uid,
-          displayName: result.user.displayName || 'Unbekannt',
-          minecraftUsername: result.user.displayName || '',
-          role: 'Member',
-          coins: 100,
-          xp: 0,
-          isOnline: true,
-          currentServer: 'none',
-          isShadowMuted: false,
-          isInvisible: false,
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp()
-        }, { merge: true });
+        // Prevent resetting coins or rank of returning users by validating existence first
+        const pRef = doc(db, 'user_profiles', result.user.uid);
+        const pSnap = await getDoc(pRef);
+        
+        if (!pSnap.exists()) {
+          // Create default profile for NEW user
+          await setDoc(pRef, {
+            userId: result.user.uid,
+            displayName: result.user.displayName || 'Unbekannt',
+            minecraftUsername: result.user.displayName || '',
+            role: 'Member',
+            coins: 100,
+            xp: 0,
+            isOnline: true,
+            currentServer: 'none',
+            isShadowMuted: false,
+            isInvisible: false,
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+          });
+        } else {
+          // Returning user: Just update online status and general login details
+          await setDoc(pRef, {
+            isOnline: true,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
 
         setShowLoginModal(false);
         notifyDiscord(
@@ -2666,7 +2791,7 @@ export default function App() {
     const name = prompt("Item Name:");
     const desc = prompt("Beschreibung:");
     const priceStr = prompt("Preis (Coins):");
-    const cat = prompt("Kategorie (Ränge, Items, Vorteile, Boxen):") as any;
+    const cat = prompt("Kategorie (Ränge, Farben, Ausrüstung, Items, Vorteile, Boxen):") as any;
     if (!name || !desc || !priceStr || !cat) return;
     
     try {
@@ -2768,6 +2893,31 @@ export default function App() {
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
     
+    // Check if they already own the Rang or the Farbe to prevent double purchases (as requested)
+    if (item.category === 'Ränge') {
+      const newRole = item.name.replace(' Rang', '').trim();
+      const currentRanks = myProfile?.purchasedRanks || [];
+      const isAlreadyOwned = myProfile?.role === newRole || myProfile?.purchasedRank === newRole || currentRanks.includes(newRole);
+      if (isAlreadyOwned) {
+        alert(`❌ Du besitzt den Rang "${item.name}" bereits!`);
+        return;
+      }
+    }
+
+    if (item.category === 'Farben') {
+      const colorName = item.name.replace(' Glühen', '').toLowerCase();
+      const colorKey = colorName === 'rotes' ? 'red' :
+                        colorName === 'blaues' ? 'blue' :
+                        colorName === 'goldenes' ? 'gold' :
+                        colorName === 'grünes' ? 'green' :
+                        colorName === 'lila' ? 'purple' : 'none';
+      const ownedColors = myProfile?.ownedColors || ['none'];
+      if (ownedColors.includes(colorKey)) {
+        alert(`❌ Du besitzt das Profil-Glühen "${item.name}" bereits!`);
+        return;
+      }
+    }
+    
     if ((myProfile?.coins || 0) < item.price) {
       alert("❌ Du hast nicht genug Coins für diesen Kauf!");
       return;
@@ -2785,14 +2935,14 @@ export default function App() {
       if (item.category === 'Ränge') {
         const newRole = item.name.replace(' Rang', '').trim();
         purchasedRank = newRole;
+        const currentRanks = myProfile?.purchasedRanks || [];
+        if (!currentRanks.includes(newRole)) {
+          updates.purchasedRanks = [...currentRanks, newRole];
+        }
         // ADMIN SCHUTZ: Überschreibe Admin/Owner nicht durch normale Ränge
         if (myProfile?.role === 'Admin' || myProfile?.role === 'Owner' || myProfile?.role === 'Root') {
           specialMessage = `Rang ${newRole} wurde freigeschaltet (Dein Admin-Rang bleibt sichtbar!)`;
           updates.purchasedRank = newRole; // Save the purchased rank specifically
-          const currentRanks = myProfile?.purchasedRanks || [];
-          if (!currentRanks.includes(newRole)) {
-            updates.purchasedRanks = [...currentRanks, newRole];
-          }
         } else {
           updates.role = newRole;
           updates.purchasedRank = ""; // Clear if they overwrite their primary role (e.g. going from VIP to MVP)
@@ -2838,6 +2988,21 @@ export default function App() {
           updates['perks.flightUntil'] = newFlightUntil;
           specialMessage = `Flug-Recht für 1 Stunde aktiviert! (Gültig bis ${new Date(newFlightUntil).toLocaleTimeString()})`;
         }
+      }
+      else if (item.category === 'Farben') {
+        const colorName = item.name.replace(' Glühen', '').toLowerCase();
+        const colorKey = colorName === 'rotes' ? 'red' :
+                          colorName === 'blaues' ? 'blue' :
+                          colorName === 'goldenes' ? 'gold' :
+                          colorName === 'grünes' ? 'green' :
+                          colorName === 'lila' ? 'purple' : 'none';
+        
+        const ownedColors = myProfile?.ownedColors || ['none'];
+        if (!ownedColors.includes(colorKey)) {
+          updates.ownedColors = [...ownedColors, colorKey];
+        }
+        updates.activeGlow = colorKey;
+        specialMessage = `Du hast das Profil-Glühen ${item.name} freigeschaltet und direkt ausgerüstet!`;
       }
       else if (item.category === 'Boxen') {
         // Zuerst Coins abziehen
@@ -2892,11 +3057,9 @@ export default function App() {
         user.photoURL || undefined
       );
       
-      if (!item.name?.toLowerCase()?.includes('key')) {
+      if (item.category === 'Ränge') {
         await addDoc(collection(db, 'chat_messages'), {
-          text: item.category === 'Ränge' 
-            ? `👑 **${myProfile.displayName}** ist nun offiziell **${purchasedRank}**! Herzlichen Glückwunsch!`
-            : `🛒 **${myProfile.displayName}** hat sich gerade **${item.name}** gegönnt! ${specialMessage}`,
+          text: `👑 **${myProfile.displayName}** ist nun offiziell **${purchasedRank}**! Herzlichen Glückwunsch!`,
           userId: 'system',
           displayName: 'SHOP',
           role: 'System',
@@ -3252,6 +3415,12 @@ export default function App() {
       { name: '1x Vote-Key', description: 'Öffne Cases am Spawn!', price: 50, category: 'Items' },
       { name: '10x Vote-Keys', description: 'Das Sparpaket für Key-Jäger!', price: 400, category: 'Items' },
       { name: 'Flug-Recht (1h)', description: 'Fliege eine Stunde lang auf dem Server.', price: 2000, category: 'Vorteile' },
+
+      { name: 'Rotes Glühen', description: 'Glow: red. Profilbox leuchtet im feurigen Rot!', price: 1500, category: 'Farben' },
+      { name: 'Blaues Glühen', description: 'Glow: blue. Profilbox leuchtet im mystischen Aquamarin-Blau!', price: 1500, category: 'Farben' },
+      { name: 'Goldenes Glühen', description: 'Glow: gold. Königlicher Schein für dich und dein Profil!', price: 3000, category: 'Farben' },
+      { name: 'Grünes Glühen', description: 'Glow: green. Giftig-grünes Smaragd-Schimmern!', price: 1500, category: 'Farben' },
+      { name: 'Lila Glühen', description: 'Glow: purple. Magisches violettes Schimmern!', price: 2000, category: 'Farben' }
     ];
 
     try {
@@ -3290,7 +3459,7 @@ export default function App() {
     const newName = prompt("Neuer Name:", item.name) || item.name;
     const newDesc = prompt("Neue Beschreibung:", item.description) || item.description;
     const newPrice = prompt("Neuer Preis:", item.price.toString()) || item.price.toString();
-    const newCat = prompt("Kategorie (Ränge, Items, Vorteile, Boxen):", item.category) as any || item.category;
+    const newCat = prompt("Kategorie (Ränge, Farben, Ausrüstung, Items, Vorteile, Boxen):", item.category) as any || item.category;
 
     try {
       await setDoc(doc(db, 'shop', item.id), {
@@ -3434,6 +3603,7 @@ export default function App() {
         isOnline,
         currentServer,
         customSkin: tempSkin || null,
+        activeGlow: activeGlowInput,
         updatedAt: serverTimestamp()
       };
 
@@ -6383,7 +6553,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {['Ränge', 'Items', 'Vorteile', 'Boxen'].map((cat, catIdx) => {
+                  {['Ränge', 'Farben', 'Ausrüstung', 'Items', 'Vorteile', 'Boxen'].map((cat, catIdx) => {
                     const items = shopItems.filter(i => i.category === cat);
                     if (items.length === 0 && !isAdmin) return null;
                     
@@ -6392,6 +6562,8 @@ export default function App() {
                         <div className="flex items-center gap-3">
                           <div className="p-1.5 bg-mc-gold/10 rounded-lg border border-mc-gold/20">
                             {cat === 'Ränge' && <Award size={16} className="text-mc-gold" />}
+                            {cat === 'Farben' && <Sparkles size={16} className="text-mc-gold" />}
+                            {cat === 'Ausrüstung' && <Pickaxe size={16} className="text-mc-gold" />}
                             {cat === 'Items' && <Sword size={16} className="text-mc-gold" />}
                             {cat === 'Vorteile' && <Zap size={16} className="text-mc-gold" />}
                             {cat === 'Boxen' && <Box size={16} className="text-mc-gold" />}
@@ -6413,11 +6585,38 @@ export default function App() {
                           {items.map((item, itemIdx) => {
                             const isOwnRank = item.category === 'Ränge' && myProfile?.role === item.name.replace(' Rang', '').trim();
                             
+                            const getColorKeyFromItemName = (name: string) => {
+                              const n = name.replace(' Glühen', '').toLowerCase();
+                              return n === 'rotes' ? 'red' :
+                                     n === 'blaues' ? 'blue' :
+                                     n === 'goldenes' ? 'gold' :
+                                     n === 'grünes' ? 'green' :
+                                     n === 'lila' ? 'purple' : 'none';
+                            };
+
+                            const checkOwned = () => {
+                              if (!myProfile) return false;
+                              if (item.category === 'Ränge') {
+                                const roleName = item.name.replace(' Rang', '').trim();
+                                return myProfile.role === roleName || 
+                                       myProfile.purchasedRank === roleName || 
+                                       (myProfile.purchasedRanks || []).includes(roleName);
+                              }
+                              if (item.category === 'Farben') {
+                                const colorKey = getColorKeyFromItemName(item.name);
+                                return (myProfile.ownedColors || ['none']).includes(colorKey);
+                              }
+                              return false;
+                            };
+
+                            const isOwned = checkOwned();
+                            const isOwnColor = item.category === 'Farben' && (myProfile?.ownedColors || ['none']).includes(getColorKeyFromItemName(item.name));
+                            
                             return (
                               <motion.div 
                                 key={`shop-item-${item.id || itemIdx}-${itemIdx}`} 
                                 whileHover={{ y: -4, scale: 1.01 }}
-                                className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''} ${isOwnRank ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                                className={`mc-card p-5 border-neutral-800 hover:border-mc-gold/50 transition-all group relative overflow-hidden bg-gradient-to-br from-neutral-900/40 to-black select-none ${item.price >= 10000 ? 'border-l-4 border-l-mc-gold' : ''} ${(isOwnRank || isOwnColor) ? 'border-mc-gold/50 bg-gradient-to-br from-mc-gold/5 to-black shadow-[0_0_20px_rgba(255,170,0,0.1)]' : ''}`}
                               >
                                 <div className="flex justify-between items-start mb-4 relative z-10">
                                   <div className="space-y-1.5">
@@ -6430,7 +6629,7 @@ export default function App() {
                                       ) : (item.price >= 5000 || item.name.includes('VIP')) ? (
                                         <span className="bg-purple-500/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.3)]">VIP ELITE</span>
                                       ) : null}
-                                      {isOwnRank && (
+                                      {(isOwnRank || isOwnColor) && (
                                         <span className="bg-white text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">AKTIV</span>
                                       )}
                                     </div>
@@ -6464,12 +6663,12 @@ export default function App() {
                                     <div className="relative group/btn">
                                       <button 
                                         onClick={() => buyItem(item)}
-                                        disabled={isOwnRank || !myProfile || (myProfile?.coins || 0) < item.price}
-                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwnRank ? 'bg-neutral-800 text-neutral-500 border-neutral-900' : (!myProfile || (myProfile?.coins || 0) < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
+                                        disabled={isOwned || !myProfile || (myProfile?.coins || 0) < item.price}
+                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwned ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-[0.65]' : (!myProfile || (myProfile?.coins || 0) < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
                                       >
-                                        {isOwnRank ? 'AKTIVIERT' : item.price.toLocaleString()} {!isOwnRank && <Coins size={12} />}
+                                        {isOwned ? (item.category === 'Ränge' ? 'ERWORBEN' : 'AKTIVIERT') : item.price.toLocaleString()} {!isOwned && <Coins size={12} />}
                                       </button>
-                                      {myProfile && (myProfile?.coins || 0) < item.price && !isOwnRank && (
+                                      {myProfile && (myProfile?.coins || 0) < item.price && !isOwned && (
                                         <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
                                           Nicht genug Coins!
                                         </div>
@@ -6682,9 +6881,11 @@ export default function App() {
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
                         className={`flex items-center justify-between p-4 rounded-2xl border transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
-                          profile.userId === user?.uid 
-                            ? 'bg-mc-gold/20 border-mc-gold shadow-[0_0_30px_rgba(255,170,0,0.1)]' 
-                            : 'bg-black/40 border-white/5 hover:border-mc-gold/30'
+                          profile.activeGlow && profile.activeGlow !== 'none'
+                            ? getGlowStyles(profile.activeGlow)
+                            : profile.userId === user?.uid 
+                              ? 'bg-mc-gold/20 border-mc-gold shadow-[0_0_30px_rgba(255,170,0,0.1)]' 
+                              : 'bg-black/40 border-white/5 hover:border-mc-gold/30'
                         }`}
                         onClick={() => {
                           setEditingProfileId(profile.userId);
@@ -7160,7 +7361,11 @@ export default function App() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
-                        className="mc-card p-6 flex flex-col items-center text-center group border-mc-gold/10 hover:border-mc-gold/40 transition-colors"
+                        className={`mc-card p-6 flex flex-col items-center text-center group transition-all duration-300 ${
+                          p.activeGlow && p.activeGlow !== 'none'
+                            ? getGlowStyles(p.activeGlow)
+                            : 'border-mc-gold/10 hover:border-mc-gold/40'
+                        }`}
                       >
                          <div className="relative mb-4">
                            <img 
@@ -8820,6 +9025,112 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Offline Progress Modal */}
+      <AnimatePresence>
+        {offlineReport && (
+          <div key="offline-modal-container" className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/50 backdrop-blur-xs">
+            <motion.div 
+              key="offline-modal-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setOfflineReport(null)}
+              className="absolute inset-0 bg-black/80"
+            />
+            <motion.div 
+              key="offline-modal-content"
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-md overflow-hidden shadow-[0_0_50px_rgba(251,191,36,0.15)] flex flex-col z-10"
+            >
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-mc-gold to-yellow-500" />
+              
+              <div className="p-8 text-center flex flex-col items-center">
+                <div className="w-16 h-16 rounded-2xl bg-mc-gold/10 border border-mc-gold/20 flex items-center justify-center mb-6">
+                  <Pickaxe size={30} className="text-mc-gold animate-bounce" />
+                </div>
+                
+                <h3 className="text-2xl font-black text-white tracking-wide uppercase drop-shadow-mc mb-2">
+                  Offline-Ausbeute!
+                </h3>
+                
+                <p className="text-sm text-neutral-400 mb-6 max-w-xs leading-relaxed">
+                  Dein Bergbau-Team war fleißig und hat weitergearbeitet, während du offline warst!
+                </p>
+
+                <div className="w-full space-y-4 mb-8">
+                  {/* Time Gone */}
+                  <div className="bg-neutral-950/40 border border-neutral-800/60 rounded-2xl p-4 flex items-center justify-between text-left">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-neutral-900 flex items-center justify-center text-neutral-400">
+                        <Clock size={18} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Abwesenheit</p>
+                        <p className="text-sm font-black text-neutral-200">
+                          {(() => {
+                            const secs = offlineReport.seconds;
+                            const h = Math.floor(secs / 3600);
+                            const m = Math.floor((secs % 3600) / 60);
+                            const s = secs % 60;
+                            const textList: string[] = [];
+                            if (h > 0) textList.push(`${h} Std.`);
+                            if (m > 0) textList.push(`${m} Min.`);
+                            if (s > 0 || textList.length === 0) textList.push(`${s} Sek.`);
+                            return textList.join(' ');
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                    {offlineReport.seconds >= 43200 && (
+                      <span className="text-[10px] uppercase font-bold px-2.5 py-1 bg-mc-red/10 border border-mc-red/20 text-mc-red rounded-lg">Capped (12h)</span>
+                    )}
+                  </div>
+
+                  {/* Coins Earned */}
+                  <div className="bg-neutral-950/40 border border-neutral-800/60 rounded-2xl p-4 flex items-center justify-between text-left">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-mc-gold/10 flex items-center justify-center text-mc-gold font-bold">
+                        🪙
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Erhaltene Münzen</p>
+                        <p className="text-base font-black text-mc-gold italic">
+                          +{offlineReport.coins.toLocaleString('de-DE')} Coins
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* XP Earned */}
+                  <div className="bg-neutral-950/40 border border-neutral-800/60 rounded-2xl p-4 flex items-center justify-between text-left">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                        <Award size={18} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Erhaltene XP</p>
+                        <p className="text-base font-black text-emerald-400">
+                          +{offlineReport.xp.toLocaleString('de-DE')} XP
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setOfflineReport(null)}
+                  className="w-full px-6 py-4 rounded-2xl font-black text-white bg-emerald-600 hover:bg-emerald-500 active:scale-95 border-b-4 border-emerald-800 hover:border-emerald-700 transition-all shadow-lg uppercase tracking-widest text-xs"
+                >
+                  Belohnungen Einsammeln
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Profile Modal */}
       <AnimatePresence>
         {showProfileModal && (
@@ -8927,12 +9238,30 @@ export default function App() {
                           <option value="survival">{realmNames.survival}</option>
                         </select>
                       </div>
+
+                      {/* Profil-Leuchten (Farbe) */}
+                      <div>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Profil-Leuchten (Glow-Farbe)</label>
+                        <select 
+                          name="activeGlow"
+                          value={activeGlowInput}
+                          onChange={(e) => setActiveGlowInput(e.target.value)}
+                          className="w-full bg-black/40 border border-neutral-800 rounded-xl p-4 text-white focus:border-mc-red outline-none transition-colors appearance-none"
+                        >
+                          <option value="none">Standard (Kein Leuchten)</option>
+                          {(isAdmin || editingProfile?.ownedColors?.includes('red')) && <option value="red">❤️ Rotes Glühen</option>}
+                          {(isAdmin || editingProfile?.ownedColors?.includes('blue')) && <option value="blue">💙 Blaues Glühen</option>}
+                          {(isAdmin || editingProfile?.ownedColors?.includes('gold')) && <option value="gold">💛 Goldenes Glühen</option>}
+                          {(isAdmin || editingProfile?.ownedColors?.includes('green')) && <option value="green">💚 Grünes Glühen</option>}
+                          {(isAdmin || editingProfile?.ownedColors?.includes('purple')) && <option value="purple">💜 Lila Glühen</option>}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Right Column: Skin & Avatar */}
                     <div className="flex flex-col gap-4">
                       <label className="block text-xs font-bold text-neutral-500 uppercase tracking-widest">Skin & Avatar</label>
-                      <div className="mc-card p-4 flex flex-col items-center gap-4 border-neutral-800/50 bg-black/20">
+                      <div className={`mc-card p-4 flex flex-col items-center gap-4 bg-black/20 transition-all duration-300 ${activeGlowInput !== 'none' ? getGlowStyles(activeGlowInput) : 'border-neutral-800/50'}`}>
                         <div className="relative group">
                           {tempSkin ? (
                             <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Minecraft Skin Vorschau - Dein Charakter" />
