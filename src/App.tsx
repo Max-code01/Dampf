@@ -407,7 +407,7 @@ const getGlowStyles = (color?: string) => {
     case 'purple':
       return 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.5)] hover:shadow-[0_0_30px_rgba(168,85,247,0.7)] animate-pulse border-2';
     case 'rainbow':
-      return 'rainbow-glow';
+      return 'rainbow-glow border-2 border-solid';
     default:
       return '';
   }
@@ -2893,6 +2893,21 @@ export default function App() {
     }
   };
 
+  const equipColor = async (colorKey: string) => {
+    if (!user || !myProfile) return;
+    try {
+      await updateDoc(doc(db, 'user_profiles', user.uid), {
+        activeGlow: colorKey
+      });
+      // Optimistisch aktualisieren für sofortige Reaktion
+      setMyProfile(prev => prev ? { ...prev, activeGlow: colorKey } : prev);
+      setUserProfiles(prev => prev.map(p => p.userId === user.uid ? { ...p, activeGlow: colorKey } : p));
+    } catch (e: any) {
+      console.error("Error equipping color:", e);
+      alert("Fehler beim Ausrüsten der Farbe.");
+    }
+  };
+
   const buyItem = async (item: ShopItem) => {
     if (!user || !myProfile) return;
     
@@ -3030,6 +3045,70 @@ export default function App() {
 
       // Wir nutzen updateDoc für präzise Feld-Updates (Dots)
       await updateDoc(doc(db, 'user_profiles', user.uid), updates);
+
+      // Lokales Profil sofort aktualisieren für instant Feedback im UI
+      setMyProfile(prev => {
+        if (!prev) return null;
+        const newProfile = { ...prev };
+        Object.keys(updates).forEach(key => {
+          if (key.includes('.')) {
+            const parts = key.split('.');
+            let current = newProfile as any;
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!current[parts[i]]) current[parts[i]] = {};
+              current[parts[i]] = { ...current[parts[i]] };
+              current = current[parts[i]];
+            }
+            const lastPart = parts[parts.length - 1];
+            const val = updates[key];
+            if (val && typeof val === 'object') {
+              const operand = (val as any).operand;
+              if (typeof operand === 'number') {
+                current[lastPart] = (current[lastPart] || 0) + operand;
+              } else {
+                current[lastPart] = val;
+              }
+            } else {
+              current[lastPart] = val;
+            }
+          } else {
+            const val = updates[key];
+            if (val && typeof val === 'object') {
+              const operand = (val as any).operand;
+              if (typeof operand === 'number') {
+                (newProfile as any)[key] = (((newProfile as any)[key] as number) || 0) + operand;
+              } else {
+                (newProfile as any)[key] = val;
+              }
+            } else {
+              (newProfile as any)[key] = val;
+            }
+          }
+        });
+        return newProfile;
+      });
+
+      // Auch die Liste aller Profile aktualisieren
+      setUserProfiles(prev => prev.map(p => {
+        if (p.userId !== user.uid) return p;
+        const updated = { ...p };
+        Object.keys(updates).forEach(key => {
+          if (!key.includes('.')) {
+            const val = updates[key];
+            if (val && typeof val === 'object') {
+              const operand = (val as any).operand;
+              if (typeof operand === 'number') {
+                (updated as any)[key] = ((updated as any)[key] || 0) + operand;
+              } else {
+                (updated as any)[key] = val;
+              }
+            } else {
+              (updated as any)[key] = val;
+            }
+          }
+        });
+        return updated;
+      }));
 
       // In Firestore History loggen
       await addDoc(collection(db, 'shop_logs'), {
@@ -3430,7 +3509,8 @@ export default function App() {
       { name: 'Blaues Glühen', description: 'Glow: blue. Profilbox leuchtet im mystischen Aquamarin-Blau!', price: 1500, category: 'Farben' },
       { name: 'Goldenes Glühen', description: 'Glow: gold. Königlicher Schein für dich und dein Profil!', price: 3000, category: 'Farben' },
       { name: 'Grünes Glühen', description: 'Glow: green. Giftig-grünes Smaragd-Schimmern!', price: 1500, category: 'Farben' },
-      { name: 'Lila Glühen', description: 'Glow: purple. Magisches violettes Schimmern!', price: 2000, category: 'Farben' }
+      { name: 'Lila Glühen', description: 'Glow: purple. Magisches violettes Schimmern!', price: 2000, category: 'Farben' },
+      { name: 'Regenbogen Glühen', description: 'Glow: rainbow. Legendäres schillerndes Regenbogen-Fluten!', price: 10000, category: 'Farben' }
     ];
 
     try {
@@ -6663,6 +6743,8 @@ export default function App() {
 
                             const isOwned = checkOwned();
                             const isOwnColor = item.category === 'Farben' && (myProfile?.ownedColors || ['none']).includes(getColorKeyFromItemName(item.name));
+                            const colorKey = item.category === 'Farben' ? getColorKeyFromItemName(item.name) : 'none';
+                            const isActiveColor = item.category === 'Farben' && myProfile?.activeGlow === colorKey;
                             
                             return (
                               <motion.div 
@@ -6691,7 +6773,7 @@ export default function App() {
                                       ) : (item.price >= 5000 || item.name.includes('VIP')) ? (
                                         <span className="bg-purple-500/20 text-purple-400 text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.3)]">VIP ELITE</span>
                                       ) : null}
-                                      {(isOwnRank || isOwnColor) && (
+                                      {((item.category === 'Ränge' && isOwnRank) || (item.category === 'Farben' && isActiveColor)) && (
                                         <span className="bg-white text-black text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">AKTIV</span>
                                       )}
                                     </div>
@@ -6723,13 +6805,27 @@ export default function App() {
                                     </div>
                                     
                                     <div className="relative group/btn">
-                                      <button 
-                                        onClick={() => buyItem(item)}
-                                        disabled={isOwned || !myProfile || (myProfile?.coins || 0) < item.price}
-                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwned ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-[0.65]' : (!myProfile || (myProfile?.coins || 0) < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
-                                      >
-                                        {isOwned ? (item.category === 'Ränge' ? 'ERWORBEN' : 'AKTIVIERT') : item.price.toLocaleString()} {!isOwned && <Coins size={12} />}
-                                      </button>
+                                      {item.category === 'Farben' && isOwned ? (
+                                        <button 
+                                          onClick={() => equipColor(colorKey)}
+                                          disabled={isActiveColor}
+                                          className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${
+                                            isActiveColor 
+                                              ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-[0.65]' 
+                                              : 'bg-mc-blue text-white border-mc-blue/40 hover:bg-white hover:text-black hover:border-white hover:-translate-y-0.5'
+                                          }`}
+                                        >
+                                          {isActiveColor ? 'AKTIVIERT' : 'AUSRÜSTEN'}
+                                        </button>
+                                      ) : (
+                                        <button 
+                                          onClick={() => buyItem(item)}
+                                          disabled={isOwned || !myProfile || (myProfile?.coins || 0) < item.price}
+                                          className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all shadow-xl active:scale-95 flex items-center gap-2 border-b-4 ${isOwned ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-[0.65]' : (!myProfile || (myProfile?.coins || 0) < item.price) ? 'bg-neutral-800 text-neutral-500 border-neutral-900 cursor-not-allowed opacity-50' : 'bg-mc-gold text-black border-mc-gold/40 hover:bg-white hover:border-white hover:-translate-y-0.5'}`}
+                                        >
+                                          {isOwned ? (item.category === 'Ränge' ? 'ERWORBEN' : 'AKTIVIERT') : item.price.toLocaleString()} {!isOwned && <Coins size={12} />}
+                                        </button>
+                                      )}
                                       {myProfile && (myProfile?.coins || 0) < item.price && !isOwned && (
                                         <div className="absolute bottom-full right-0 mb-2 bg-mc-red text-white text-[9px] px-2 py-1 rounded shadow-lg opacity-0 group-hover/btn:opacity-100 whitespace-nowrap transition-opacity pointer-events-none font-bold uppercase tracking-widest border border-red-500">
                                           Nicht genug Coins!

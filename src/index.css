@@ -92,5 +92,6 @@
 .rainbow-glow {
   animation: rainbow-shadow 5s linear infinite;
   border-width: 2px;
+  border-style: solid;
 }
 
