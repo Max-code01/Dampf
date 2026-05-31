@@ -5,6 +5,7 @@ import { Client, GatewayIntentBits, REST, Routes, PermissionFlagsBits, ChatInput
 import { initializeApp } from 'firebase/app';
 import { getFirestore, query, collection, where, getDocs, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import fs from 'fs';
+import { GoogleGenAI } from "@google/genai";
 
 // Load Firebase Config
 const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
@@ -295,6 +296,79 @@ async function startServer() {
       }
     } catch (err) {
       res.status(500).json({ error: "Verbindung zu Discord fehlgeschlagen." });
+    }
+  });
+
+  // --- AI ORACLE ENDPOINT (Server-Side proxy for Gemini) ---
+  let aiClient: GoogleGenAI | null = null;
+  function getAiClient() {
+    if (!aiClient) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("GEMINI_API_KEY environment variable is required");
+      }
+      aiClient = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+    }
+    return aiClient;
+  }
+
+  app.post('/api/oracle', async (req, res) => {
+    const { prompt, history } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "Parameter 'prompt' ist erforderlich." });
+    }
+
+    try {
+      const aiInstance = getAiClient();
+      const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
+        role: h.role,
+        parts: h.parts.map((p: any) => ({ text: p.text }))
+      })) : [];
+
+      let response;
+      try {
+        response = await aiInstance.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: [
+            ...formattedHistory,
+            { role: 'user', parts: [{ text: prompt }] }
+          ],
+          config: {
+            systemInstruction: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown."
+          }
+        });
+      } catch (primaryError: any) {
+        console.warn("[ORACLE] Hauptmodell ist ausgelastet, probiere Ausweichmodell...", primaryError.message);
+        try {
+          response = await aiInstance.models.generateContent({
+            model: "gemini-3.1-flash-lite",
+            contents: [
+              ...formattedHistory,
+              { role: 'user', parts: [{ text: prompt }] }
+            ],
+            config: {
+              systemInstruction: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown."
+            }
+          });
+        } catch (secondaryError: any) {
+          console.error("[ORACLE] Beide Modelle sind ausgelastet", secondaryError);
+          throw secondaryError;
+        }
+      }
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.error("[ORACLE FEHLER]", error);
+      res.json({
+        text: "📜 *Das Orakel meditiert tief im Nether...*\n\nDie Geister des Servers sind gerade sehr unruhig und die Verbindung zur Astralebene ist vorübergehend blockiert (503 Hohe Auslastung).\n\n**Hier ist ein weiser Tipp während du wartest:**\n*Nutze das **Abenteuer-Menü** rechts unten, um Erze in den Deep Mines abzubauen, abzustimmen oder den Shop zu erkunden! Versuche es in Kürze noch einmal.* ✨"
+      });
     }
   });
 

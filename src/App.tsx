@@ -1598,6 +1598,7 @@ export default function App() {
   
   // AI Helper State
   const [isAiOpen, setIsAiOpen] = useState(false);
+  const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
   const [aiHistory, setAiHistory] = useState<GeminiChatMessage[]>([]);
   const [aiInput, setAiInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -6341,108 +6342,280 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Group - Hide when any overlay is open */}
+      {/* Unified Expandable Adventure Menu (FAB) - Hide when any overlay is open */}
       <AnimatePresence>
         {!isAnyOverlayOpen && (
-          <motion.div 
-            key="floating-action-group"
-            initial={{ opacity: 0, scale: 0.8, y: 50 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 50 }}
-            className="fixed bottom-8 right-8 z-[80] flex flex-col sm:flex-row gap-3"
-          >
-            {/* Install App Button */}
-            {showInstallButton && (
-              <button 
-                onClick={handleInstallClick}
-                className="w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 bg-mc-green text-black border border-green-500/50"
-                title="App installieren"
+          <div className="fixed bottom-8 right-8 z-[120] flex flex-col items-end gap-3 pointer-events-none">
+            {/* Expanded items list */}
+            {isFabMenuOpen && (
+              <motion.div
+                initial="hidden"
+                animate="visible"
+                exit="hidden"
+                variants={{
+                  visible: {
+                    transition: {
+                      staggerChildren: 0.04,
+                    }
+                  },
+                  hidden: {}
+                }}
+                className="flex flex-col items-end gap-3 mb-2"
               >
-                <Rocket size={24} className="animate-bounce" />
-              </button>
+                {/* 1. KI-Orakel */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-mc-gold text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-mc-gold/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    KI-Orakel
+                  </span>
+                  <button
+                    onClick={() => {
+                      setIsAiOpen(true);
+                      setIsFabMenuOpen(false);
+                      setChatOpen(false);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setShopOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border-2 border-mc-gold text-mc-gold flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(255,170,0,0.5)] transition-all"
+                    title="KI-Orakel"
+                  >
+                    <Sparkles size={20} className="animate-pulse" />
+                  </button>
+                </motion.div>
+
+                {/* 2. Clan Chat */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-neutral-200 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-neutral-800 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Clan Chat
+                  </span>
+                  <button
+                    onClick={() => {
+                      setChatOpen(true);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setShopOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-gold transition-all"
+                    title="Clan Chat"
+                  >
+                    <MessageCircle size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 3. Umfragen */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-neutral-200 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-neutral-800 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Umfragen
+                  </span>
+                  <button
+                    onClick={() => {
+                      setPollsOpen(true);
+                      fetchPolls();
+                      setNewsOpen(false);
+                      setChatOpen(false);
+                      setShopOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-red transition-all"
+                    title="Umfragen"
+                  >
+                    <Vote size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 4. News-Feed */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-neutral-200 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-neutral-800 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    News-Feed
+                  </span>
+                  <button
+                    onClick={() => {
+                      setNewsOpen(true);
+                      fetchNews();
+                      setPollsOpen(false);
+                      setChatOpen(false);
+                      setShopOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-red transition-all"
+                    title="News-Feed"
+                  >
+                    <Newspaper size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 5. Globaler Shop */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-neutral-200 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-neutral-800 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Shop
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShopOpen(true);
+                      fetchShop();
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setChatOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-gold transition-all"
+                    title="Globaler Shop"
+                  >
+                    <ShoppingBag size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 6. Deep Mines */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-mc-gold text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-mc-gold/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Deep Mines
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShowMiningModal(true);
+                      setShopOpen(false);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setChatOpen(false);
+                      setLeaderboardOpen(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-gold transition-all"
+                    title="Mining Minispiel"
+                  >
+                    <Pickaxe size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 7. Bestenliste */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-neutral-200 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-neutral-800 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Bestenliste
+                  </span>
+                  <button
+                    onClick={() => {
+                      setLeaderboardOpen(true);
+                      fetchLeaderboard();
+                      setShopOpen(false);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setChatOpen(false);
+                      setShowMiningModal(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-gold transition-all"
+                    title="Bestenliste"
+                  >
+                    <Trophy size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 8. Install App (Conditional) */}
+                {showInstallButton && (
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15, scale: 0.8 },
+                      visible: { opacity: 1, y: 0, scale: 1 }
+                    }}
+                    className="flex items-center gap-3 pointer-events-auto group/item"
+                  >
+                    <span className="bg-black/95 text-mc-green text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-green-500/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                      App Installieren
+                    </span>
+                    <button
+                      onClick={() => {
+                        handleInstallClick();
+                        setIsFabMenuOpen(false);
+                      }}
+                      className="w-12 h-12 rounded-xl bg-mc-green text-black flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all"
+                      title="App installieren"
+                    >
+                      <Rocket size={20} className="animate-bounce" />
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
             )}
 
-            {/* Leaderboard Button */}
-            <button 
-              onClick={() => { 
-                setLeaderboardOpen(!leaderboardOpen);
-                if (!leaderboardOpen) fetchLeaderboard();
-                setShopOpen(false);
-                setNewsOpen(false); 
-                setPollsOpen(false); 
-                setChatOpen(false); 
-                setShowMiningModal(false);
-              }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${leaderboardOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
-              title="Bestenliste"
+            {/* Main Primary FAB Toggle Button */}
+            <motion.button
+              key="main-fab-toggle"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsFabMenuOpen(!isFabMenuOpen)}
+              className="pointer-events-auto w-14 h-14 rounded-2xl bg-black border-2 border-mc-gold text-mc-gold flex items-center justify-center shadow-[0_0_30px_rgba(255,170,0,0.4)] relative overflow-hidden group transition-all"
+              title="Abenteuer-Menü"
             >
-              <Trophy size={24} />
-            </button>
-
-            {/* Mining Game Button */}
-            <button 
-              onClick={() => { setShowMiningModal(true); setShopOpen(false); setNewsOpen(false); setPollsOpen(false); setChatOpen(false); }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${showMiningModal ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
-              title="Mining Minispiel"
-            >
-              <Pickaxe size={24} />
-            </button>
-
-            {/* Shop Button */}
-            <button 
-              onClick={() => { 
-                const newState = !shopOpen;
-                setShopOpen(newState); 
-                if (newState) fetchShop();
-                setNewsOpen(false); 
-                setPollsOpen(false); 
-                setChatOpen(false); 
-              }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${shopOpen ? 'bg-mc-gold text-black' : 'bg-black border border-neutral-800 text-white'}`}
-              title="Globaler Shop"
-            >
-              <ShoppingBag size={24} />
-            </button>
-
-            {/* News Button */}
-            <button 
-              onClick={() => { 
-                const newState = !newsOpen;
-                setNewsOpen(newState); 
-                if (newState) fetchNews();
-                setPollsOpen(false); 
-                setChatOpen(false); 
-              }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${newsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
-              title="News-Feed"
-            >
-              <Newspaper size={24} />
-            </button>
-
-            {/* Polls Button */}
-            <button 
-              onClick={() => { 
-                const newState = !pollsOpen;
-                setPollsOpen(newState); 
-                if (newState) fetchPolls();
-                setNewsOpen(false); 
-                setChatOpen(false); 
-              }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${pollsOpen ? 'bg-mc-red text-white' : 'bg-black border border-neutral-800 text-white'}`}
-              title="Umfragen"
-            >
-              <Vote size={24} />
-            </button>
-
-            {/* Chat Button */}
-            <button 
-              onClick={() => { setChatOpen(!chatOpen); setNewsOpen(false); setPollsOpen(false); setShopOpen(false); }}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 ${chatOpen ? 'bg-mc-red text-white rotate-90' : 'bg-black border border-neutral-800 text-white'}`}
-              title="Chat"
-            >
-              {chatOpen ? <X size={28} /> : <MessageCircle size={28} />}
-            </button>
-          </motion.div>
+              <div className="absolute inset-0 bg-mc-gold/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {/* Pulsing ring around main action button when menu is closed */}
+              {!isFabMenuOpen && (
+                <div className="absolute inset-0 border-2 border-mc-gold/40 rounded-2xl animate-ping opacity-75 pointer-events-none scale-105" />
+              )}
+              
+              <motion.div
+                animate={{ rotate: isFabMenuOpen ? 135 : 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                className="relative z-10 flex items-center justify-center"
+              >
+                <Plus size={26} className="text-mc-gold drop-shadow-[0_0_8px_rgba(255,170,0,0.5)]" />
+              </motion.div>
+            </motion.button>
+          </div>
         )}
       </AnimatePresence>
 
@@ -7139,25 +7312,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-
-      {/* AI Oracle Floating Button */}
-      {!isAnyOverlayOpen && (
-        <motion.button
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          onClick={() => setIsAiOpen(true)}
-          className="fixed bottom-24 left-6 sm:bottom-24 sm:right-8 sm:left-auto z-[90] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-black border-2 border-mc-gold flex items-center justify-center group shadow-[0_0_30px_rgba(255,170,0,0.3)] hover:scale-110 active:scale-95 transition-all"
-        >
-          <div className="absolute inset-0 bg-mc-gold/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="relative z-10 text-mc-gold">
-            <Sparkles className="group-hover:rotate-12 transition-transform" size={24} />
-          </div>
-          {/* Label Tooltip */}
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 sm:left-auto sm:translate-x-0 sm:right-full sm:bottom-auto sm:mr-4 px-4 py-2 bg-mc-gold text-black text-[10px] font-black uppercase tracking-widest rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 translate-y-2 sm:translate-y-0 group-hover:translate-y-0 sm:translate-x-4 sm:group-hover:translate-x-0 transition-all pointer-events-none shadow-xl hidden sm:block">
-             KI- ORAKEL FRAGEN
-          </div>
-        </motion.button>
-      )}
 
       {/* Leaderboard Modal */}
       <AnimatePresence>
