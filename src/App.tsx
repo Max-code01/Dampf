@@ -9650,13 +9650,24 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0 }}
               className="relative bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col z-10"
             >
-              <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
-                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                  <UserIcon className="text-mc-red" />
-                  {isAdmin && editingProfileId !== user?.uid ? `Profil von ${editingProfile?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
-                </h3>
-                
-                <form onSubmit={saveProfile} className="space-y-10">
+              <form onSubmit={saveProfile} className="flex-1 flex flex-col overflow-hidden m-0 text-left">
+                {/* Fixed Header */}
+                <div className="p-6 md:px-10 py-5 border-b border-neutral-800/80 flex items-center justify-between shrink-0 bg-neutral-900">
+                  <h3 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                    <UserIcon className="text-mc-red" />
+                    {isAdmin && editingProfileId !== user?.uid ? `Profil von ${editingProfile?.displayName || 'Unbekannt'}` : 'Dein Spieler-Profil'}
+                  </h3>
+                  <button 
+                    type="button" 
+                    onClick={() => { setShowProfileModal(false); setEditingProfileId(null); }}
+                    className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Scrollable Form Body Container */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 custom-scrollbar bg-neutral-900/40">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {/* Admin Stealth Status Indicators & Toggles */}
                     {isSuperAdmin && activeEditingProfId && (
@@ -10068,38 +10079,39 @@ export default function App() {
                       <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-mc-red"></div>
                     </label>
                   </div>
+                </div> {/* Closes Scrollable Form Body Container */}
 
-                  <div className="flex gap-3">
-                    {isAdmin && activeEditingProfId && activeEditingProfId !== user?.uid && (
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          deleteProfile(activeEditingProfId);
-                          setShowProfileModal(false);
-                          setEditingProfileId(null);
-                        }}
-                        className="px-4 py-4 rounded-xl font-bold bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 transition-colors flex items-center justify-center"
-                        title="Benutzer permanent löschen"
-                      >
-                        <Trash2 size={20} />
-                      </button>
-                    )}
+                {/* Sticky/Fixed Footer at Bottom */}
+                <div className="p-6 md:px-10 border-t border-neutral-800/80 bg-neutral-950/85 backdrop-blur-md flex gap-3 shrink-0">
+                  {isAdmin && activeEditingProfId && activeEditingProfId !== user?.uid && (
                     <button 
                       type="button" 
-                      onClick={() => { setShowProfileModal(false); setEditingProfileId(null); }}
-                      className="flex-1 px-6 py-4 rounded-xl font-bold bg-neutral-800 hover:bg-neutral-700 transition-colors"
+                      onClick={() => {
+                        deleteProfile(activeEditingProfId);
+                        setShowProfileModal(false);
+                        setEditingProfileId(null);
+                      }}
+                      className="px-4 py-4 rounded-xl font-bold bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 transition-colors flex items-center justify-center min-h-[48px] min-w-[48px]"
+                      title="Benutzer permanent löschen"
                     >
-                      Abbrechen
+                      <Trash2 size={20} />
                     </button>
-                    <button 
-                      type="submit"
-                      className="flex-1 px-6 py-4 rounded-xl font-bold bg-mc-red text-white hover:bg-red-500 transition-all shadow-lg shadow-red-500/20"
-                    >
-                      Speichern
-                    </button>
-                  </div>
-                </form>
-              </div>
+                  )}
+                  <button 
+                    type="button" 
+                    onClick={() => { setShowProfileModal(false); setEditingProfileId(null); }}
+                    className="flex-1 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-wider bg-neutral-800 hover:bg-neutral-700 hover:text-white transition-colors min-h-[48px]"
+                  >
+                    Abbrechen
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-wider bg-mc-red text-white hover:bg-red-500 transition-all shadow-lg shadow-red-500/20 min-h-[48px]"
+                  >
+                    Speichern
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

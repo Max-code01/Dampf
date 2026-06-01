@@ -15,13 +15,13 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.uid in ['xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2'] ||
-        request.auth.token.email in [
+        ('email' in request.auth.token && request.auth.token.email in [
           'max.schule13@gmail.com',
           'max@community.local',
           'dampf@community.local',
           'dampfk@community.local',
           'block5@community.local'
-        ] ||
+        ]) ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
          (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role in ['Admin', 'Owner', 'Root'])) ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
@@ -33,8 +33,8 @@ service cloud.firestore {
     function isOwner() {
       return isSignedIn() && (
         request.auth.uid in ['xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2'] ||
-        request.auth.token.email in ['max.schule13@gmail.com', 'block5@community.local'] ||
-        request.auth.token.email.matches('.*dampfk.*') ||
+        ('email' in request.auth.token && request.auth.token.email in ['max.schule13@gmail.com', 'block5@community.local']) ||
+        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.matches('.*dampfk.*')) ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
          (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role in ['Owner', 'Root']))
       );
@@ -45,7 +45,9 @@ service cloud.firestore {
     }
 
     function isRoot() {
-       return isSignedIn() && get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5';
+       return isSignedIn() && 
+         exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5';
     }
 
     function isValidId(id) {
