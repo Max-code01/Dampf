@@ -622,6 +622,8 @@ async function startServer() {
     }
   };
 
+  let latestSeenMessageId: string | null = null;
+
   // Listen to incoming chat messages
   onSnapshot(
     query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(1)),
@@ -630,13 +632,22 @@ async function startServer() {
       
       const docSnap = snap.docs[0];
       const data = docSnap.data();
+      const docId = docSnap.id;
 
-      if (data && data.createdAt && data.userId !== 'quiz_bot' && data.userId !== 'system') {
-        const createMs = data.createdAt.toMillis ? data.createdAt.toMillis() : new Date(data.createdAt).getTime();
-        // Skip messages from previous sessions or older than 4 seconds
-        if (createMs > startQuizTime && createMs > Date.now() - 4000) {
-          checkQuizAnswer(data);
-        }
+      // On first boot call, record the currently newest message ID to ignore it
+      if (latestSeenMessageId === null) {
+        latestSeenMessageId = docId;
+        console.log('[QUIZ-BOT] Initialer letzter Keks-ID gesetzt (historisch übersprungen):', docId);
+        return;
+      }
+
+      if (docId === latestSeenMessageId) {
+        return;
+      }
+      latestSeenMessageId = docId;
+
+      if (data && data.userId !== 'quiz_bot' && data.userId !== 'system') {
+        checkQuizAnswer(data);
       }
     }, (err) => {
       console.error('[QUIZ-BOT] Snapshot listen error:', err);
@@ -650,7 +661,7 @@ async function startServer() {
       if (curDoc.exists()) {
         const curData = curDoc.data();
         if (curData && curData.active === true && curData.createdAt) {
-          const createdTime = curData.createdAt.toMillis ? curData.createdAt.toMillis() : new Date(curData.createdAt).getTime();
+          const createdTime = curData.createdAt?.toMillis ? curData.createdAt.toMillis() : (curData.createdAt ? new Date(curData.createdAt).getTime() : Date.now());
           const ageSec = (Date.now() - createdTime) / 1000;
           if (ageSec < 15 * 60) {
             console.log('[QUIZ-BOT] Aktive Frage existiert und ist noch gütig. Vermeide Überschreiben...');
