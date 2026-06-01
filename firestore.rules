@@ -22,14 +22,9 @@ service cloud.firestore {
           request.auth.token.email == 'dampfk@community.local' ||
           request.auth.token.email == 'block5@community.local'
         )) ||
-        (resource != null && resource.id == request.auth.uid ? (
-          resource.data.get('role', 'Member') in ['Admin', 'Owner', 'Root'] ||
-          resource.data.get('minecraftUsername', '') == 'Block5'
-        ) : (
-          exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && (
-            get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Admin', 'Owner', 'Root'] ||
-            get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5'
-          )
+        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Admin', 'Owner', 'Root'] ||
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5'
         )) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
@@ -43,11 +38,8 @@ service cloud.firestore {
           request.auth.token.email == 'block5@community.local'
         )) ||
         ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.matches('.*dampfk.*')) ||
-        (resource != null && resource.id == request.auth.uid ? 
-          resource.data.get('role', 'Member') in ['Owner', 'Root'] : (
-          exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Owner', 'Root']
-        ))
+        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Owner', 'Root'])
       );
     }
 
@@ -57,11 +49,8 @@ service cloud.firestore {
 
     function isRoot() {
        return isSignedIn() && (
-         resource != null && resource.id == request.auth.uid ?
-           resource.data.get('minecraftUsername', '') == 'Block5' : (
-           exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5'
-         )
+         exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5'
        );
     }
 

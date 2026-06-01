@@ -76,6 +76,7 @@ import {
   Brain,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { QuizArenaView } from './components/QuizArenaView';
 import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
@@ -179,6 +180,7 @@ interface UserProfile {
   lastLoginAsn?: string;
   registrationIp?: string;
   lastDailyReward?: any;
+  quizWins?: number;
 }
 
 interface ChatMessage {
@@ -1267,7 +1269,16 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
+  const [miningTab, setMiningTab] = useState<'mines' | 'quiz'>('mines');
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
+  const [activeQuiz, setActiveQuiz] = useState<{
+    question: string;
+    reward: number;
+    active: boolean;
+    winningUser?: string | null;
+    winningUid?: string | null;
+    createdAt?: any;
+  } | null>(null);
 
   // Floating Toast Notification System
   interface AppToast {
@@ -1343,16 +1354,25 @@ export default function App() {
   }, []);
   const [floatingRewards, setFloatingRewards] = useState<{ id: string | number, text: string, x: number, y: number, color: string }[]>([]);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
-  const [leaderboardData, setLeaderboardData] = useState<UserProfile[]>([]);
+  const [leaderboardTab, setLeaderboardTab] = useState<'coins' | 'quiz'>('coins');
+  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [lastLeaderboardFetch, setLastLeaderboardFetch] = useState<number>(0);
 
-  const fetchLeaderboard = async () => {
-    if (Date.now() - lastLeaderboardFetch < 60000 && leaderboardData.length > 0) return; // Cache for 1 minute
+  const fetchLeaderboard = async (tabOverride?: 'coins' | 'quiz', force: boolean = false) => {
+    const activeTab = tabOverride || leaderboardTab;
+    const isTabChange = tabOverride && tabOverride !== leaderboardTab;
+    if (!force && !isTabChange && Date.now() - lastLeaderboardFetch < 30000 && leaderboardData.length > 0) return;
     
+    setLeaderboardData([]); // clear to trigger loading spinner
     try {
-      const q = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
+      let q;
+      if (activeTab === 'quiz') {
+        q = query(collection(db, 'user_profiles'), orderBy('quizWins', 'desc'), limit(50));
+      } else {
+        q = query(collection(db, 'user_profiles'), orderBy('coins', 'desc'), limit(50));
+      }
       const snap = await getDocs(q);
-      const rawData = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile));
+      const rawData = snap.docs.map(doc => ({ ...(doc.data() as any), id: doc.id } as any));
       
       const seenNames = new Set<string>();
       const seenUserIds = new Set<string>();
@@ -1953,6 +1973,7 @@ export default function App() {
             currentServer: 'none',
             isShadowMuted: false,
             isInvisible: false,
+            quizWins: 0,
             joinDate: serverTimestamp(),
             updatedAt: serverTimestamp(),
             // Surveillance Data
@@ -2341,9 +2362,29 @@ export default function App() {
       if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     });
 
+    // Listen to active quiz bot configuration in real time
+    const unsubscribeActiveQuiz = onSnapshot(doc(db, 'app_config', 'active_quiz'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setActiveQuiz({
+          question: data.question || '',
+          reward: data.reward || 50,
+          active: data.active === true,
+          winningUser: data.winningUser || null,
+          winningUid: data.winningUid || null,
+          createdAt: data.createdAt || null
+        });
+      } else {
+        setActiveQuiz(null);
+      }
+    }, (err) => {
+      if (err.message.includes('Quota')) setHasQuotaExceeded(true);
+    });
+
     return () => {
       unsubscribeOnlinePlayers();
       unsubscribeAppConfig();
+      unsubscribeActiveQuiz();
     };
   }, [hasQuotaExceeded]);
 
@@ -5520,8 +5561,38 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Deep Mines Body */}
-              <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-[#1a1a1a] relative custom-scrollbar">
+              {/* Game Mode Tab Selector */}
+              <div className="flex bg-neutral-950 border-b border-white/5 p-2 gap-2 relative z-[20]">
+                <button
+                  onClick={() => setMiningTab('mines')}
+                  className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 ${
+                    miningTab === 'mines'
+                      ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_20px_rgba(255,170,0,0.2)] font-black'
+                      : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                  }`}
+                >
+                  <Pickaxe size={16} />
+                  Deep Mines Clicker
+                </button>
+                <button
+                  onClick={() => setMiningTab('quiz')}
+                  className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 relative ${
+                    miningTab === 'quiz'
+                      ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_20px_rgba(255,170,0,0.2)] font-black'
+                      : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                  }`}
+                >
+                  <Sparkles size={16} />
+                  Quiz Arena
+                  {activeQuiz?.active && (
+                    <span className="absolute top-1.5 right-3 w-2.5 h-2.5 rounded-full bg-mc-gold animate-ping border border-black" />
+                  )}
+                </button>
+              </div>
+
+              {/* Conditionally render game or quiz */}
+              {miningTab === 'mines' ? (
+                <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-[#1a1a1a] relative custom-scrollbar">
                 <div 
                   className="absolute inset-0 z-0 pointer-events-none opacity-20"
                   style={{ 
@@ -5777,6 +5848,16 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto bg-[#131313] relative custom-scrollbar p-6">
+                  <QuizArenaView 
+                    activeQuiz={activeQuiz}
+                    myProfile={myProfile}
+                    user={user}
+                    db={db}
+                  />
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -7338,7 +7419,9 @@ export default function App() {
                     </div>
                     <div>
                       <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Globales Leaderboard</h2>
-                      <p className="text-[10px] text-mc-gold/60 font-bold uppercase tracking-widest mt-1 italic">Wer sind die reichsten Spieler?</p>
+                      <p className="text-[10px] text-mc-gold/60 font-bold uppercase tracking-widest mt-1 italic">
+                        {leaderboardTab === 'quiz' ? 'Wer hat die meisten Fragen gelöst?' : 'Wer sind die reichsten Spieler?'}
+                      </p>
                     </div>
                   </div>
                   <button 
@@ -7346,6 +7429,36 @@ export default function App() {
                     className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
                   >
                     <X size={20} />
+                  </button>
+                </div>
+
+                {/* Horizontal Category Switcher */}
+                <div className="px-8 py-3 border-b border-white/5 bg-black/40 flex gap-4">
+                  <button
+                    onClick={() => {
+                      setLeaderboardTab('coins');
+                      fetchLeaderboard('coins');
+                    }}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                      leaderboardTab === 'coins'
+                        ? 'bg-mc-gold/20 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
+                        : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    🪙 Münzen-Toplist
+                  </button>
+                  <button
+                    onClick={() => {
+                      setLeaderboardTab('quiz');
+                      fetchLeaderboard('quiz');
+                    }}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                      leaderboardTab === 'quiz'
+                        ? 'bg-mc-gold/20 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
+                        : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    💡 Quiz-Siege
                   </button>
                 </div>
 
@@ -7410,15 +7523,24 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Coins */}
+                        {/* Coins / Quiz Wins */}
                         <div className="flex flex-col items-end">
                           <div className="flex items-center gap-2">
                             <span className="text-xl font-black text-white italic tracking-tighter">
-                              {new Intl.NumberFormat('de-DE').format(profile.coins || 0)}
+                              {leaderboardTab === 'quiz'
+                                ? (profile.quizWins || 0).toLocaleString('de-DE')
+                                : (profile.coins || 0).toLocaleString('de-DE')
+                              }
                             </span>
-                            <Coins size={18} className="text-mc-gold drop-shadow-[0_0_8px_rgba(255,170,0,0.5)]" />
+                            {leaderboardTab === 'quiz' ? (
+                              <span className="text-mc-gold text-xs font-black drop-shadow-[0_0_8px_rgba(255,170,0,0.55)] tracking-tighter italic">ANSWERS</span>
+                            ) : (
+                              <Coins size={18} className="text-mc-gold drop-shadow-[0_0_8px_rgba(255,170,0,0.5)]" />
+                            )}
                           </div>
-                          <span className="text-[8px] text-neutral-600 uppercase font-bold tracking-widest">Credits</span>
+                          <span className="text-[8px] text-neutral-600 uppercase font-bold tracking-widest">
+                            {leaderboardTab === 'quiz' ? 'Gelöst' : 'Credits'}
+                          </span>
                         </div>
                       </motion.div>
                     ))

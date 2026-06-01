@@ -6,11 +6,21 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, query, collection, where, getDocs, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
+import admin from 'firebase-admin';
 
 // Load Firebase Config
 const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firebase Admin SDK for super-user Firestore operations
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: firebaseConfig.projectId
+  });
+}
+const adminDb = admin.firestore();
+adminDb.settings({ databaseId: firebaseConfig.firestoreDatabaseId });
 
 async function startServer() {
   const app = express();
@@ -454,6 +464,200 @@ async function startServer() {
       }
     }
   });
+
+  // --- CHAT QUIZ BOT (SYSTEM BOT) ---
+  const quizQuestions = [
+    { question: "Wie viele Eisenbarren benötigt man für einen Amboss?", answers: ["31"] },
+    { question: "Welches Werkzeug baut Obsidian am schnellsten ab?", answers: ["diamantspitzhacke", "diamant-spitzhacke", "netheritespitzhacke", "netherite-spitzhacke", "spitzhacke"] },
+    { question: "Welche Kreatur explodiert, wenn sie dem Spieler zu nahe kommt?", answers: ["creeper", "kreeper"] },
+    { question: "Was muss man im Nether abbauen, um Netherit herzustellen?", answers: ["antiker schutt", "ancient debris", "schutt", "ancientdebris"] },
+    { question: "Wie viele Holzbretter (Planks) erhält man aus einem normalen Holzstamm?", answers: ["4", "vier"] },
+    { question: "Welcher Trank verleiht die Fähigkeit, unter Wasser zu atmen?", answers: ["wasseratmung", "wasseratmungstrank", "trank der wasseratmung"] },
+    { question: "Welches Tier liefert Wolle und Hammelfleisch?", answers: ["schaf", "schafe"] },
+    { question: "Wie heißt die Dimension, in der man den Enderdrachen bekämpft?", answers: ["the end", "end", "das end"] },
+    { question: "Aus wie vielen Obsidianblöcken besteht das kleinste Netherportal (ohne Ecken)?", answers: ["10", "zehn"] },
+    { question: "Aus wie vielen Obsidianblöcken besteht ein vollständiges Netherportal inklusive Ecken?", answers: ["14", "vierzehn"] },
+    { question: "Welcher feindliche Mob teleportiert sich, wenn man ihn anschaut?", answers: ["enderman", "endermann"] },
+    { question: "Wie zähmt man einen Wolf in Minecraft?", answers: ["knochen", "mit knochen"] },
+    { question: "Welches Material schmilzt man in einem Ofen, um Glas herzustellen?", answers: ["sand"] },
+    { question: "Wie viele Betten benötigt man, um einen Eisengolem in einem Dorf spawnen zu lassen? (Minimum)", answers: ["3", "drei"] },
+    { question: "Welcher Block zieht Feuchtigkeit an und trocknet im Ofen?", answers: ["schwamm", "sponge"] },
+    { question: "Mit welchem Gegenstand kann man ein Schwein lenken, wenn man auf ihm reitet?", answers: ["karottenrute", "karotte am stiel", "karotten-rute"] },
+    { question: "Welcher Trank erhöht die Bewegungsgeschwindigkeit?", answers: ["schnelligkeit", "geschwindigkeit", "schnelligkeitstrank", "geschwindigkeitstrank"] },
+    { question: "Was erhält man, wenn man eine Wasserquelle mit fließender Lava mischt?", answers: ["pflasterstein", "cobblestone"] },
+    { question: "Wie heißt das grüne Juwel, das zum Handeln mit Dorfbewohnern verwendet wird?", answers: ["smaragd", "emerald"] },
+    { question: "Welche Nahrung wird benötigt, um Axolotl fortzupflanzen?", answers: ["tropenfisch", "tropenfischeimer"] },
+    { question: "Welches Erz kommt nur im Extremberge-Biom natürlich vor?", answers: ["smaragderz", "smaragd"] },
+    { question: "Wie viele Goldklumpen benötigt man, um einen Goldbarren herzustellen?", answers: ["9", "neun"] },
+    { question: "Aus welchem Holz wird der dunkelste Holztyp hergestellt?", answers: ["schwarzeiche", "dark oak", "schwarzeichenholz"] },
+    { question: "Wie hoch ist die maximale Bauhöhe in Minecraft?", answers: ["320", "319"] },
+    { question: "Welcher Block verhindert Fallschaden zu 100%, wenn man darauf landet?", answers: ["heuballen", "schleimblock", "wasser", "honigblock"] },
+    { question: "Welches gängige Monster verbrennt NICHT im Sonnenlicht?", answers: ["creeper", "spinne", "enderman"] },
+    { question: "In welchem Jahr wurde Minecraft 1.0 offiziell veröffentlicht?", answers: ["2011"] },
+    { question: "Mit welcher Taste schleicht man standardmäßig in Minecraft?", answers: ["shift", "umschalttaste", "schleichtaste", "umschalt"] },
+    { question: "Aus wie vielen Fäden stellt man einen Block Wolle her?", answers: ["4", "vier"] },
+    { question: "Welcher Gegenstand schützt den Spieler im Nether vor Angriffen der Piglins?", answers: ["goldrüstung", "gold", "goldhelm", "goldhose", "goldbrustplatte", "goldschuhe"] },
+    { question: "Welcher Trank schwächt feindliche Mobs und reduziert ihren Schaden?", answers: ["schwäche", "schwächetrank"] },
+    { question: "Wie viele Obsidianblöcke benötigt man, um einen Zaubertisch herzustellen?", answers: ["4", "vier"] }
+  ];
+
+  let serverQuizState: {
+    question: string;
+    answers: string[];
+    reward: number;
+    active: boolean;
+  } | null = null;
+
+  const startQuizTime = Date.now();
+
+  const checkQuizAnswer = async (msg: any) => {
+    if (!serverQuizState || !serverQuizState.active) return;
+    
+    const text = (msg.text || '').trim();
+    if (!text) return;
+
+    const cleanStr = (s: string) => s.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "").replace(/\s+/g, ' ').trim();
+    const userClean = cleanStr(text);
+
+    const matchIdx = serverQuizState.answers.findIndex(ans => cleanStr(ans) === userClean);
+    if (matchIdx >= 0) {
+      const correctAns = serverQuizState.answers[matchIdx];
+      const userId = msg.userId;
+      const displayName = msg.displayName || 'Unbekannt';
+      const solvedQuiz = serverQuizState;
+      
+      // Instantly mark as resolved in memory
+      serverQuizState = null;
+
+      console.log(`[QUIZ-BOT] Richtig beantwortet von ${displayName} (${userId}): ${text}`);
+
+      try {
+        // 1. Write solved state to app_config
+        await adminDb.collection('app_config').doc('active_quiz').set({
+          active: false,
+          winningUser: displayName,
+          winningUid: userId,
+          solvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          question: solvedQuiz.question,
+          answer: correctAns,
+          reward: solvedQuiz.reward
+        }, { merge: true });
+
+        // 2. Increment stats of winning user safely via transaction
+        const userRef = adminDb.collection('user_profiles').doc(userId);
+        await adminDb.runTransaction(async (transaction) => {
+          const snap = await transaction.get(userRef);
+          if (snap.exists) {
+            const data = snap.data() || {};
+            const coins = data.coins || 0;
+            const wins = data.quizWins || 0;
+
+            transaction.update(userRef, {
+              coins: coins + solvedQuiz.reward,
+              quizWins: wins + 1
+            });
+          }
+        });
+
+        // 3. Post notification to global chat
+        await adminDb.collection('chat_messages').add({
+          text: `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙)`,
+          userId: 'quiz_bot',
+          displayName: '💡 Quiz-Bot',
+          role: 'System',
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+      } catch (err) {
+        console.error('[QUIZ-BOT] Fehler beim Verarbeiten des Richtig-Tipps:', err);
+      }
+    }
+  };
+
+  // Listen to incoming chat messages
+  adminDb.collection('chat_messages')
+    .orderBy('createdAt', 'desc')
+    .limit(1)
+    .onSnapshot(snap => {
+      if (!snap || snap.empty) return;
+      
+      const docSnap = snap.docs[0];
+      const data = docSnap.data();
+
+      if (data && data.createdAt && data.userId !== 'quiz_bot' && data.userId !== 'system') {
+        const createMs = data.createdAt.toMillis ? data.createdAt.toMillis() : new Date(data.createdAt).getTime();
+        // Skip messages from previous sessions or older than 4 seconds
+        if (createMs > startQuizTime && createMs > Date.now() - 4000) {
+          checkQuizAnswer(data);
+        }
+      }
+    }, err => {
+      console.error('[QUIZ-BOT] Snapshot listen error:', err);
+    });
+
+  const sendNewQuizQuestion = async () => {
+    try {
+      // Check existing active quiz in DB (freshness threshold: 15 mins)
+      const curDoc = await adminDb.collection('app_config').doc('active_quiz').get();
+      if (curDoc.exists) {
+        const curData = curDoc.data();
+        if (curData && curData.active === true && curData.createdAt) {
+          const createdTime = curData.createdAt.toMillis ? curData.createdAt.toMillis() : new Date(curData.createdAt).getTime();
+          const ageSec = (Date.now() - createdTime) / 1000;
+          if (ageSec < 15 * 60) {
+            console.log('[QUIZ-BOT] Aktive Frage existiert und ist noch gütig. Vermeide Überschreiben...');
+            serverQuizState = {
+              question: curData.question,
+              answers: curData.answers || [curData.answer],
+              reward: curData.reward || 50,
+              active: true
+            };
+            return;
+          }
+        }
+      }
+
+      // Pick random question from list
+      const randQuiz = quizQuestions[Math.floor(Math.random() * quizQuestions.length)];
+      serverQuizState = {
+        question: randQuiz.question,
+        answers: randQuiz.answers,
+        reward: 50,
+        active: true
+      };
+
+      // Set DB
+      await adminDb.collection('app_config').doc('active_quiz').set({
+        question: serverQuizState.question,
+        answers: serverQuizState.answers,
+        reward: serverQuizState.reward,
+        active: true,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        winningUser: null,
+        winningUid: null
+      });
+
+      // Post to chat
+      await adminDb.collection('chat_messages').add({
+        text: `💡 **NEUE QUIZFRAGE:** ${serverQuizState.question} 🤔 (Tippe die Antwort als Erste/r in den Chat für **50 Coins**!)`,
+        userId: 'quiz_bot',
+        displayName: '💡 Quiz-Bot',
+        role: 'System',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log(`[QUIZ-BOT] Neue Frage generiert: ${serverQuizState.question}`);
+    } catch (err) {
+      console.error('[QUIZ-BOT] Fehler beim Registrieren neuer Quiz-Frage:', err);
+    }
+  };
+
+  // Every 5 minutes, post a new quiz question
+  const QUIZ_CYCLE_TIME = 5 * 60 * 1000;
+  setTimeout(() => {
+    sendNewQuizQuestion();
+    setInterval(sendNewQuizQuestion, QUIZ_CYCLE_TIME);
+  }, 10000);
 
   // --- VITE MIDDLEWARE ---
   if (process.env.NODE_ENV !== 'production') {
