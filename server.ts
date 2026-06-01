@@ -3,7 +3,26 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { Client, GatewayIntentBits, REST, Routes, PermissionFlagsBits, ChatInputCommandInteraction } from 'discord.js';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, query, collection, where, getDocs, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  query, 
+  collection, 
+  where, 
+  getDocs, 
+  doc, 
+  deleteDoc, 
+  writeBatch,
+  getDoc,
+  setDoc,
+  addDoc,
+  updateDoc,
+  runTransaction,
+  serverTimestamp,
+  onSnapshot,
+  orderBy,
+  limit
+} from 'firebase/firestore';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
 import admin from 'firebase-admin';
@@ -12,6 +31,7 @@ import admin from 'firebase-admin';
 const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
+const authClient = getAuth(fbApp);
 
 // Initialize Firebase Admin SDK for super-user Firestore operations
 if (!admin.apps.length) {
@@ -27,6 +47,34 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Programmatically authenticate system bot to Firebase Auth
+  const systemEmail = 'system-quiz-bot@community.local';
+  const systemPassword = 'VerySecureSystemPassword987!#@';
+
+  try {
+    await signInWithEmailAndPassword(authClient, systemEmail, systemPassword);
+    console.log('[SYSTEM-BOT] Erfolgreich in Firebase Auth angemeldet.');
+  } catch (err: any) {
+    if (
+      err.code === 'auth/user-not-found' || 
+      err.code === 'auth/invalid-credential' || 
+      String(err).includes('user-not-found') || 
+      String(err).includes('invalid-credential') || 
+      String(err).includes('INVALID_LOGIN_CREDENTIALS') ||
+      String(err).includes('auth/invalid-login-credentials')
+    ) {
+      try {
+        console.log('[SYSTEM-BOT] Bot-User existiert nicht. Erstelle neuen Bot-Account...');
+        await createUserWithEmailAndPassword(authClient, systemEmail, systemPassword);
+        console.log('[SYSTEM-BOT] Bot-User erfolgreich erstellt und angemeldet.');
+      } catch (createErr) {
+        console.error('[SYSTEM-BOT] Fehler beim automatischen Erstellen des Bot-Users:', createErr);
+      }
+    } else {
+      console.error('[SYSTEM-BOT] Login fehlgeschlagen:', err);
+    }
+  }
 
   // --- DISCORD BOT SETUP ---
   const botToken = process.env.DISCORD_BOT_TOKEN;
@@ -533,21 +581,21 @@ async function startServer() {
 
       try {
         // 1. Write solved state to app_config
-        await adminDb.collection('app_config').doc('active_quiz').set({
+        await setDoc(doc(db, 'app_config', 'active_quiz'), {
           active: false,
           winningUser: displayName,
           winningUid: userId,
-          solvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          solvedAt: serverTimestamp(),
           question: solvedQuiz.question,
           answer: correctAns,
           reward: solvedQuiz.reward
         }, { merge: true });
 
         // 2. Increment stats of winning user safely via transaction
-        const userRef = adminDb.collection('user_profiles').doc(userId);
-        await adminDb.runTransaction(async (transaction) => {
+        const userRef = doc(db, 'user_profiles', userId);
+        await runTransaction(db, async (transaction) => {
           const snap = await transaction.get(userRef);
-          if (snap.exists) {
+          if (snap.exists()) {
             const data = snap.data() || {};
             const coins = data.coins || 0;
             const wins = data.quizWins || 0;
@@ -560,12 +608,12 @@ async function startServer() {
         });
 
         // 3. Post notification to global chat
-        await adminDb.collection('chat_messages').add({
+        await addDoc(collection(db, 'chat_messages'), {
           text: `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙)`,
           userId: 'quiz_bot',
           displayName: '💡 Quiz-Bot',
           role: 'System',
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
+          createdAt: serverTimestamp()
         });
 
       } catch (err) {
@@ -575,10 +623,9 @@ async function startServer() {
   };
 
   // Listen to incoming chat messages
-  adminDb.collection('chat_messages')
-    .orderBy('createdAt', 'desc')
-    .limit(1)
-    .onSnapshot(snap => {
+  onSnapshot(
+    query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(1)),
+    (snap) => {
       if (!snap || snap.empty) return;
       
       const docSnap = snap.docs[0];
@@ -591,15 +638,16 @@ async function startServer() {
           checkQuizAnswer(data);
         }
       }
-    }, err => {
+    }, (err) => {
       console.error('[QUIZ-BOT] Snapshot listen error:', err);
-    });
+    }
+  );
 
   const sendNewQuizQuestion = async () => {
     try {
       // Check existing active quiz in DB (freshness threshold: 15 mins)
-      const curDoc = await adminDb.collection('app_config').doc('active_quiz').get();
-      if (curDoc.exists) {
+      const curDoc = await getDoc(doc(db, 'app_config', 'active_quiz'));
+      if (curDoc.exists()) {
         const curData = curDoc.data();
         if (curData && curData.active === true && curData.createdAt) {
           const createdTime = curData.createdAt.toMillis ? curData.createdAt.toMillis() : new Date(curData.createdAt).getTime();
@@ -627,23 +675,23 @@ async function startServer() {
       };
 
       // Set DB
-      await adminDb.collection('app_config').doc('active_quiz').set({
+      await setDoc(doc(db, 'app_config', 'active_quiz'), {
         question: serverQuizState.question,
         answers: serverQuizState.answers,
         reward: serverQuizState.reward,
         active: true,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: serverTimestamp(),
         winningUser: null,
         winningUid: null
       });
 
       // Post to chat
-      await adminDb.collection('chat_messages').add({
+      await addDoc(collection(db, 'chat_messages'), {
         text: `💡 **NEUE QUIZFRAGE:** ${serverQuizState.question} 🤔 (Tippe die Antwort als Erste/r in den Chat für **50 Coins**!)`,
         userId: 'quiz_bot',
         displayName: '💡 Quiz-Bot',
         role: 'System',
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: serverTimestamp()
       });
 
       console.log(`[QUIZ-BOT] Neue Frage generiert: ${serverQuizState.question}`);
