@@ -14,29 +14,32 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.uid in ['xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2'] ||
-        ('email' in request.auth.token && request.auth.token.email in [
-          'max.schule13@gmail.com',
-          'max@community.local',
-          'dampf@community.local',
-          'dampfk@community.local',
-          'block5@community.local'
-        ]) ||
-        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-         (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role in ['Admin', 'Owner', 'Root'])) ||
-        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5') ||
+        request.auth.uid == 'xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2' ||
+        ('email' in request.auth.token && (
+          request.auth.token.email == 'max.schule13@gmail.com' ||
+          request.auth.token.email == 'max@community.local' ||
+          request.auth.token.email == 'dampf@community.local' ||
+          request.auth.token.email == 'dampfk@community.local' ||
+          request.auth.token.email == 'block5@community.local'
+        )) ||
+        (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Admin', 'Owner', 'Root'] ||
+          get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5'
+        )) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isOwner() {
       return isSignedIn() && (
-        request.auth.uid in ['xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2'] ||
-        ('email' in request.auth.token && request.auth.token.email in ['max.schule13@gmail.com', 'block5@community.local']) ||
+        request.auth.uid == 'xcTqBIJ4OQQOk3QZ6jXR4dVTPwn2' ||
+        ('email' in request.auth.token && (
+          request.auth.token.email == 'max.schule13@gmail.com' ||
+          request.auth.token.email == 'block5@community.local'
+        )) ||
         ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.matches('.*dampfk.*')) ||
         (exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) && 
-         (get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.role in ['Owner', 'Root']))
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('role', 'Member') in ['Owner', 'Root'])
       );
     }
 
@@ -47,7 +50,7 @@ service cloud.firestore {
     function isRoot() {
        return isSignedIn() && 
          exists(/databases/$(database)/documents/user_profiles/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.minecraftUsername == 'Block5';
+         get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.get('minecraftUsername', '') == 'Block5';
     }
 
     function isValidId(id) {
@@ -155,19 +158,22 @@ service cloud.firestore {
     match /user_profiles/{userId} {
       allow read: if true;
       allow create: if isSignedIn() && (userId == request.auth.uid || isOwner()) && isValidUserProfile(incoming(), userId) &&
-                    (!('coins' in incoming()) || incoming().coins <= 500 || isAdmin());
+                    (!('coins' in incoming()) || incoming().get('coins', 0) <= 500 || isAdmin());
       allow update: if isSignedIn() && (
           // Owner can edit anyone
           isOwner() || 
           // Users can edit themselves (can purchase ranks but cannot set of staff/privileged roles)
           (userId == request.auth.uid && 
-             (!incoming().keys().hasAll(['role']) || 
-              incoming().role == existing().role ||
-              !(incoming().role in ['Admin', 'Owner', 'Root', 'Developer', 'Moderator'])
+             (!('role' in incoming()) || 
+              incoming().get('role', 'Member') == existing().get('role', 'Member') ||
+              !(incoming().get('role', 'Member') in ['Admin', 'Owner', 'Root', 'Developer', 'Moderator'])
              )
           ) ||
           // Admins can edit non-staff (but not promote them to staff)
-          (isAdmin() && !(existing().role in ['Admin', 'Owner', 'Root']) && (!incoming().keys().hasAll(['role']) || !(incoming().role in ['Admin', 'Owner', 'Root'])))
+          (isAdmin() && 
+           !(existing().get('role', 'Member') in ['Admin', 'Owner', 'Root']) && 
+           (!('role' in incoming()) || !(incoming().get('role', 'Member') in ['Admin', 'Owner', 'Root']))
+          )
       ) && isValidUserProfile(incoming(), userId);
       allow delete: if isOwner();
     }
