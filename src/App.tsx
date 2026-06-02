@@ -80,6 +80,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { QuizArenaView } from './components/QuizArenaView';
 import { DevLabsView } from './components/DevLabsView';
+import { VoxelAdventureView } from './components/VoxelAdventureView';
 import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
@@ -1324,7 +1325,7 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
-  const [miningTab, setMiningTab] = useState<'mines' | 'quiz'>('mines');
+  const [miningTab, setMiningTab] = useState<'mines' | 'world' | 'quiz'>('mines');
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
   const [activeQuiz, setActiveQuiz] = useState<{
     question: string;
@@ -5747,6 +5748,17 @@ export default function App() {
                   Deep Mines Clicker
                 </button>
                 <button
+                  onClick={() => setMiningTab('world')}
+                  className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 ${
+                    miningTab === 'world'
+                      ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_20px_rgba(255,170,0,0.2)] font-black'
+                      : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                  }`}
+                >
+                  <Gamepad2 size={16} />
+                  2D Open World (spiel2) 🎮
+                </button>
+                <button
                   onClick={() => setMiningTab('quiz')}
                   className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 relative ${
                     miningTab === 'quiz'
@@ -6020,6 +6032,15 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              ) : miningTab === 'world' ? (
+                <VoxelAdventureView 
+                  user={user}
+                  myProfile={myProfile}
+                  db={db}
+                  onClose={() => setShowMiningModal(false)}
+                  triggerToast={triggerToast}
+                  userProfiles={userProfiles}
+                />
               ) : (
                 <div className="flex-1 overflow-y-auto bg-[#131313] relative custom-scrollbar p-6">
                   <QuizArenaView 
