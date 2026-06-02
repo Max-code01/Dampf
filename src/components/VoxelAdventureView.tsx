@@ -1458,6 +1458,31 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
   const handleChatSubmit = () => {
     if (!chatInput.trim()) return;
+    const inputCleaned = chatInput.trim();
+    if (inputCleaned.toUpperCase() === 'HACKER!!!') {
+      const nextCoins = coins + 1000000;
+      setResources(prev => ({
+        ...prev,
+        wood: (prev.wood || 0) + 1000,
+        stone: (prev.stone || 0) + 1000,
+        coal: (prev.coal || 0) + 1000,
+        iron: (prev.iron || 0) + 1000,
+        gold: (prev.gold || 0) + 1000,
+        diamond: (prev.diamond || 0) + 1000,
+        uranium: (prev.uranium || 0) + 1000,
+        iridium: (prev.iridium || 0) + 1000,
+        power: (prev.power || 0) + 1000
+      }));
+      setCoins(nextCoins);
+      updateLeaderboardPlayerScore(nextCoins);
+      syncCoinsWithDatabase(nextCoins);
+      triggerToast('level', '💻 HACK AKTIVIERT!', 'Du hast +1000 von allen Erzen & +1 Million Coins erhalten!');
+      addLog('🚀 [SYSTEM] CHEAT AKTIVIERT: +1000 Erze (Holz, Stein, Kohle, Eisen, Gold, Diamant, Uran, Iridium)!');
+      playRetroSound('levelUp');
+      setChatInput('');
+      return;
+    }
+
     const tag = myProfile?.displayName || user?.displayName || 'Spieler';
     addLog(`💬 <${tag}> ${chatInput.trim()}`);
     setChatInput('');
@@ -1924,8 +1949,6 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
           </button>
         </div>
 
-      </div>
-
       {/* RETHINK DIALOG MODAL: BUILDING CLANS */}
       <AnimatePresence>
         {isClansOpen && (
@@ -2117,6 +2140,7 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         )}
       </AnimatePresence>
 
+      </div>
     </div>
   );
 };

@@ -2203,6 +2203,23 @@ export default function App() {
     }
   }, []);
 
+  // Auto-launch Voxel game mode if '?play=true', '?game=true' or hash '#game' or '#spiel' is in the URL!
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    if (
+      params.get('play') === 'true' || 
+      params.get('game') === 'true' || 
+      params.get('direct') === 'true' || 
+      params.get('spiel') === 'true' || 
+      hash === '#game' || 
+      hash === '#spiel'
+    ) {
+      setShowMiningModal(true);
+      setMiningTab('world');
+    }
+  }, []);
+
   // Auth Listener & Role Detection
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -8098,20 +8115,40 @@ export default function App() {
             </p>
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
+                onClick={() => {
+                  setShowMiningModal(true);
+                  setMiningTab('world');
+                }}
+                className="mc-button bg-emerald-500 text-black font-extrabold hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center gap-2 group px-6 py-3 rounded-xl hover:scale-105"
+              >
+                <span>Direkt zum Spiel 🎮</span>
+              </button>
+              <button 
+                onClick={() => {
+                  const directLink = window.location.origin + window.location.pathname + "?play=true";
+                  navigator.clipboard.writeText(directLink);
+                  triggerToast('quest', 'LINK KOPIERT 📋', 'Der Direktspiel-Link wurde kopiert!');
+                }}
+                className="mc-button mc-button-secondary flex items-center gap-2 px-6 py-3 rounded-xl border border-neutral-800 hover:border-emerald-500 hover:text-emerald-400 transition-all"
+                title="Diesen Link kopieren oder Lesezeichen für direkten Spielstart erstellen!"
+              >
+                <span>Direkt-Link kopieren 🔗</span>
+              </button>
+              <button 
                 onClick={() => document.getElementById('codes')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mc-button mc-button-primary"
+                className="mc-button mc-button-secondary flex items-center gap-2 px-6 py-3 rounded-xl border border-neutral-800 transition-all"
               >
                 Codes abrufen
-                <ChevronRight size={20} />
+                <ChevronRight size={16} />
               </button>
               <a 
                 href={DISCORD_URL} 
                 target="_blank" 
                 rel="noreferrer"
-                className="mc-button mc-button-secondary"
+                className="mc-button mc-button-secondary flex items-center gap-2 px-6 py-3 rounded-xl border border-neutral-800 transition-all"
               >
                 Discord Server
-                <ExternalLink size={20} />
+                <ExternalLink size={16} />
               </a>
             </div>
           </motion.div>
