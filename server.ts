@@ -424,8 +424,15 @@ async function startServer() {
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("[ORACLE FEHLER]", error);
+      let errorMsg = "📜 *Das Orakel meditiert tief im Nether...*\n\nDie Geister des Servers sind gerade sehr unruhig und die Verbindung zur Astralebene ist vorübergehend blockiert (503 Hohe Auslastung).\n\n**Hier ist ein weiser Tipp während du wartest:**\n*Nutze das **Abenteuer-Menü** rechts unten, um Erze in den Deep Mines abzubauen, abzustimmen oder den Shop zu erkunden! Versuche es in Kürze noch einmal.* ✨";
+      
+      const isMissingKey = !process.env.GEMINI_API_KEY || error?.message?.includes("GEMINI_API_KEY") || String(error).includes("API_KEY");
+      if (isMissingKey) {
+        errorMsg = "📜 *Das Orakel schläft noch tief im Nether...* 🔮\n\n**Hinweis:** Der **GEMINI_API_KEY** ist für den Online-Betrieb nicht konfiguriert oder ungültig.\n\n*Bitte klicke oben rechts im Google AI Studio auf **Settings > Secrets** (oder Zahnrad-Einstellungen) und hinterlege dort deinen `GEMINI_API_KEY`, damit das Orakel auch online zum Leben erwacht!* 🚀✨";
+      }
+      
       res.json({
-        text: "📜 *Das Orakel meditiert tief im Nether...*\n\nDie Geister des Servers sind gerade sehr unruhig und die Verbindung zur Astralebene ist vorübergehend blockiert (503 Hohe Auslastung).\n\n**Hier ist ein weiser Tipp während du wartest:**\n*Nutze das **Abenteuer-Menü** rechts unten, um Erze in den Deep Mines abzubauen, abzustimmen oder den Shop zu erkunden! Versuche es in Kürze noch einmal.* ✨"
+        text: errorMsg
       });
     }
   });
@@ -538,7 +545,7 @@ async function startServer() {
     { question: "Welches Erz kommt nur im Extremberge-Biom natürlich vor?", answers: ["smaragderz", "smaragd"] },
     { question: "Wie viele Goldklumpen benötigt man, um einen Goldbarren herzustellen?", answers: ["9", "neun"] },
     { question: "Aus welchem Holz wird der dunkelste Holztyp hergestellt?", answers: ["schwarzeiche", "dark oak", "schwarzeichenholz"] },
-    { question: "Wie hoch ist die maximale Bauhöhe in Minecraft?", answers: ["320", "319"] },
+    { question: "Wie hoch ist die maximale Bauhöhe in Minecraft?", answers: ["320", "319", "318"] },
     { question: "Welcher Block verhindert Fallschaden zu 100%, wenn man darauf landet?", answers: ["heuballen", "schleimblock", "wasser", "honigblock"] },
     { question: "Welches gängige Monster verbrennt NICHT im Sonnenlicht?", answers: ["creeper", "spinne", "enderman"] },
     { question: "In welchem Jahr wurde Minecraft 1.0 offiziell veröffentlicht?", answers: ["2011"] },
@@ -622,7 +629,34 @@ async function startServer() {
     }
   };
 
-  let latestSeenMessageId: string | null = null;
+  let processedMessageIds = new Set<string>();
+
+  // Real-time synchronization of the active quiz from Firestore.
+  // This ensures serverQuizState is always populated within milliseconds, completely eliminating any 10-second gap on boot or reload.
+  onSnapshot(
+    doc(db, 'app_config', 'active_quiz'),
+    (snap) => {
+      if (snap && snap.exists()) {
+        const curData = snap.data();
+        if (curData && curData.active === true) {
+          serverQuizState = {
+            question: curData.question,
+            answers: curData.answers || [curData.answer],
+            reward: curData.reward || 50,
+            active: true
+          };
+          console.log('[QUIZ-BOT] Synchronisiertes aktives Quiz aus Firestore:', serverQuizState.question);
+        } else {
+          serverQuizState = null;
+        }
+      } else {
+        serverQuizState = null;
+      }
+    },
+    (err) => {
+      console.error('[QUIZ-BOT] Fehler beim Abonnieren von active_quiz:', err);
+    }
+  );
 
   // Listen to incoming chat messages
   onSnapshot(
@@ -634,20 +668,27 @@ async function startServer() {
       const data = docSnap.data();
       const docId = docSnap.id;
 
-      // On first boot call, record the currently newest message ID to ignore it
-      if (latestSeenMessageId === null) {
-        latestSeenMessageId = docId;
-        console.log('[QUIZ-BOT] Initialer letzter Keks-ID gesetzt (historisch übersprungen):', docId);
+      // Prevent processing the same message snapshot event twice
+      if (processedMessageIds.has(docId)) {
         return;
       }
-
-      if (docId === latestSeenMessageId) {
-        return;
+      processedMessageIds.add(docId);
+      if (processedMessageIds.size > 100) {
+        processedMessageIds.clear();
+        processedMessageIds.add(docId);
       }
-      latestSeenMessageId = docId;
 
       if (data && data.userId !== 'quiz_bot' && data.userId !== 'system') {
-        checkQuizAnswer(data);
+        const createdAtDate = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : null);
+        
+        // Mark as fresh if there's no server timestamp yet (e.g. pending write) or was written within the last 15 seconds
+        const isFresh = !createdAtDate || (createdAtDate > startQuizTime && createdAtDate > Date.now() - 15000);
+        
+        if (isFresh) {
+          checkQuizAnswer(data);
+        } else {
+          console.log('[QUIZ-BOT] Überspringe historische Nachricht:', docId, data.text);
+        }
       }
     }, (err) => {
       console.error('[QUIZ-BOT] Snapshot listen error:', err);
