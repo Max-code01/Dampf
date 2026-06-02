@@ -32,6 +32,8 @@ import {
   Globe,
   MapPin,
   Cpu,
+  Smartphone,
+  Code,
   Circle,
   Award,
   Clock,
@@ -77,6 +79,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { QuizArenaView } from './components/QuizArenaView';
+import { DevLabsView } from './components/DevLabsView';
 import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
@@ -1316,6 +1319,8 @@ export default function App() {
   const [shopLogs, setShopLogs] = useState<any[]>([]);
   const [myPurchases, setMyPurchases] = useState<any[]>([]);
   const [shopOpen, setShopOpen] = useState(false);
+  const [devLabsOpen, setDevLabsOpen] = useState(false);
+  const [devLabsTab, setDevLabsTab] = useState<'rust' | 'flutter'>('rust');
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
@@ -2630,7 +2635,7 @@ export default function App() {
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -6803,12 +6808,42 @@ export default function App() {
                       setPollsOpen(false);
                       setChatOpen(false);
                       setShowMiningModal(false);
+                      setDevLabsOpen(false);
                       setIsFabMenuOpen(false);
                     }}
                     className="w-12 h-12 rounded-xl bg-black border border-neutral-800 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:border-mc-gold transition-all"
                     title="Bestenliste"
                   >
                     <Trophy size={20} />
+                  </button>
+                </motion.div>
+
+                {/* 7.5 Entwickler-Zentrum */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-cyan-400 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-cyan-500/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Entwickler-Zentrum
+                  </span>
+                  <button
+                    onClick={() => {
+                      setDevLabsOpen(true);
+                      setLeaderboardOpen(false);
+                      setShopOpen(false);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setChatOpen(false);
+                      setShowMiningModal(false);
+                      setIsFabMenuOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border-2 border-cyan-500/50 text-cyan-400 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(34,211,238,0.4)] transition-all"
+                    title="Entwickler-Zentrum (Rust & Flutter)"
+                  >
+                    <Cpu size={20} className="text-cyan-400" />
                   </button>
                 </motion.div>
 
@@ -10525,6 +10560,19 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {devLabsOpen && (
+          <DevLabsView
+            user={user}
+            myProfile={myProfile}
+            db={db}
+            chatMessages={combinedMessages}
+            onClose={() => setDevLabsOpen(false)}
+            triggerToast={triggerToast}
+          />
         )}
       </AnimatePresence>
 
