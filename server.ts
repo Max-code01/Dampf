@@ -433,7 +433,8 @@ async function startServer() {
         errorMsg = "📜 *Das Orakel schläft noch tief im Nether...* 🔮\n\n**Hinweis:** Der **GEMINI_API_KEY** ist für den Online-Betrieb nicht konfiguriert oder ungültig.\n\n*Bitte klicke oben rechts im Google AI Studio auf **Settings > Secrets** (oder Zahnrad-Einstellungen) und hinterlege dort deinen `GEMINI_API_KEY`, damit das Orakel auch online zum Leben erwacht!* 🚀✨";
       }
       
-      res.json({
+      res.status(500).json({
+        error: errorMsg,
         text: errorMsg
       });
     }

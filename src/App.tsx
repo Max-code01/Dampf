@@ -197,6 +197,7 @@ interface ChatMessage {
   tempId?: string;
   purchasedRank?: string;
   localTimestamp?: number;
+  channel?: string;
 }
 
 interface NewsItem {
@@ -1294,6 +1295,20 @@ export default function App() {
       return getTime(a.createdAt, a.localTimestamp) - getTime(b.createdAt, b.localTimestamp);
     });
   }, [chatMessages, localMessages, hasQuotaExceeded]);
+
+  const [chatChannel, setChatChannel] = useState<'allgemein' | 'quiz'>('allgemein');
+
+  const filteredMessages = useMemo(() => {
+    return combinedMessages.filter(msg => {
+      const isQuizRelated = msg.channel === 'quiz' || msg.userId === 'quiz_bot' || msg.text.includes('QUIZFRAGE') || msg.text.includes('Richtig!') || msg.text.includes('gelöst');
+      if (chatChannel === 'quiz') {
+        return isQuizRelated;
+      } else {
+        return !isQuizRelated && msg.channel !== 'quiz';
+      }
+    });
+  }, [combinedMessages, chatChannel]);
+
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -3087,7 +3102,7 @@ export default function App() {
       const timeout = setTimeout(scroll, 100);
       return () => clearTimeout(timeout);
     }
-  }, [chatMessages, localMessages, chatOpen]);
+  }, [chatMessages, localMessages, chatOpen, chatChannel]);
 
   // Logic: Lock body scroll when any modal is open
   useEffect(() => {
@@ -4995,6 +5010,25 @@ export default function App() {
       // Note: Firestore actually handles offline queuing, but we want to show visual feedback better
     }
 
+    // Quiz Mode Correct/Incorrect feedback handling
+    if (chatChannel === 'quiz') {
+      if (activeQuiz && activeQuiz.active) {
+        const correctAnswers = activeQuiz.answers || [];
+        const textNorm = inputToSend.trim().toLowerCase();
+        const matchedAnswer = correctAnswers.find((ans: string) => ans.trim().toLowerCase() === textNorm);
+        if (matchedAnswer) {
+          sendSystemMsg(`🏆 §a§lRICHTIGE ANTWORT!§r Deine Antwort §e"${inputToSend}"§r ist korrekt! Du hast das Quiz gelöst! 🎉`, "💡 Quiz-Bot");
+          triggerToast('quest', '🏆 KORREKT!', `Glückwunsch! "${inputToSend.toUpperCase()}" ist die richtige Antwort! 🎉`);
+        } else {
+          sendSystemMsg(`❌ §c§lFALSCHE ANTWORT!§r Die Antwort §e"${inputToSend}"§r ist leider nicht richtig. Probier es noch einmal! 🤔`, "💡 Quiz-Bot");
+          triggerToast('quest', '❌ LEIDER FALSCH', `"${inputToSend}" ist nicht korrekt. Versuche es noch einmal! 🤔`);
+        }
+      } else {
+        sendSystemMsg("⚠️ §6§lHINWEIS:§r Aktuell gibt es keine aktive Quizfrage. Bitte warte auf eine neue Runde!", "💡 Quiz-Bot");
+        triggerToast('quest', '⚠️ KEIN AKTIVES QUIZ', "Aktuell läuft keine Quizfrage.");
+      }
+    }
+
     const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(7);
     const localTimestamp = Date.now();
     const tempMsg: ChatMessage = {
@@ -5006,7 +5040,8 @@ export default function App() {
       purchasedRank: myProfile?.purchasedRank,
       createdAt: null,
       tempId: tempId,
-      localTimestamp: localTimestamp
+      localTimestamp: localTimestamp,
+      channel: chatChannel
     };
     
     setLocalMessages(prev => {
@@ -5032,16 +5067,17 @@ export default function App() {
           role: (myProfile?.role || 'Member').substring(0, 64),
           purchasedRank: myProfile?.purchasedRank || "",
           createdAt: serverTimestamp(),
-          tempId: tempId
+          tempId: tempId,
+          channel: chatChannel
         });
         
         notifyDiscord(
-          "💬 CHAT-LIVESTREAM",
-          `Eine neue Nachricht wurde im globalen Chat gesendet.`,
-          3447003,
+          chatChannel === 'quiz' ? "💡 QUIZ-FEEDBACK" : "💬 CHAT-LIVESTREAM",
+          chatChannel === 'quiz' ? `Ein Benutzer hat eine Antwort im Quiz-Chat eingereicht.` : `Eine neue Nachricht wurde im globalen Chat gesendet.`,
+          chatChannel === 'quiz' ? 16750848 : 3447003,
           [
             { name: "👤 Absender", value: myProfile?.displayName || user.displayName || 'Unbekannt', inline: true },
-            { name: "💬 Nachricht", value: inputToSend, inline: false }
+            { name: chatChannel === 'quiz' ? "💡 Antwort" : "💬 Nachricht", value: inputToSend, inline: false }
           ]
         );
       } catch (err) {
@@ -7707,10 +7743,12 @@ export default function App() {
             <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold flex items-center gap-2">
-                  <MessageCircle className="text-mc-red" />
-                  Community Chat
+                  <MessageCircle className={`${chatChannel === 'quiz' ? 'text-mc-gold' : 'text-mc-red'}`} />
+                  {chatChannel === 'quiz' ? 'Quiz-Chatroom' : 'Community Chat'}
                 </h3>
-                <p className="text-neutral-500 text-xs">Schreibe mit anderen Spielern</p>
+                <p className="text-neutral-500 text-xs">
+                  {chatChannel === 'quiz' ? 'Löse Fragen und erhalte Coins!' : 'Schreibe mit anderen Spielern'}
+                </p>
               </div>
               <button 
                 onClick={() => setChatOpen(false)}
@@ -7721,9 +7759,60 @@ export default function App() {
               </button>
             </div>
 
+            {/* CHANNEL TOGGLE BUTTONS */}
+            <div className="flex bg-neutral-950/60 border-b border-white/5 p-2 gap-2 relative z-[20] shrink-0">
+              <button
+                type="button"
+                onClick={() => setChatChannel('allgemein')}
+                className={`flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 ${
+                  chatChannel === 'allgemein'
+                    ? 'bg-mc-red/25 border-mc-red text-white shadow-[0_0_20px_rgba(255,0,0,0.2)] font-black'
+                    : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                }`}
+              >
+                <MessageSquare size={14} />
+                Allgemein
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatChannel('quiz')}
+                className={`flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 relative ${
+                  chatChannel === 'quiz'
+                    ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_20px_rgba(255,170,0,0.2)] font-black'
+                    : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                }`}
+              >
+                <Sparkles size={14} />
+                Quiz-Chat
+                {activeQuiz?.active && (
+                  <span className="absolute top-1.5 right-3 w-2 h-2 rounded-full bg-mc-gold animate-pulse border border-black" />
+                )}
+              </button>
+            </div>
+
+            {/* Active Quiz Question Banner in Quiz Channel */}
+            {chatChannel === 'quiz' && activeQuiz?.active && (
+              <div className="m-4 mb-2 p-4 bg-mc-gold/15 border border-mc-gold/30 rounded-2xl flex flex-col gap-2 relative overflow-hidden shrink-0">
+                <div className="absolute right-2 -top-1 opacity-10 font-black text-6xl text-mc-gold font-mono pointer-events-none">?</div>
+                <div className="flex items-center gap-2 text-mc-gold text-xs font-black uppercase tracking-wider">
+                  <Sparkles size={14} className="animate-pulse text-mc-gold shrink-0" />
+                  <span>Aktive Quizfrage</span>
+                  <span className="ml-auto bg-mc-gold/25 text-mc-gold text-[10px] px-2 py-0.5 rounded-full border border-mc-gold/30">+{activeQuiz.reward || 50} COINS</span>
+                </div>
+                <p className="font-sans text-sm font-bold text-white leading-relaxed">{activeQuiz.question}</p>
+                <span className="text-[10px] text-neutral-400">Gib deine Antwort unten in das Chat-Textfeld ein!</span>
+              </div>
+            )}
+            {chatChannel === 'quiz' && !activeQuiz?.active && (
+              <div className="m-4 mb-2 p-4 bg-neutral-900 border border-neutral-800 rounded-2xl flex flex-col gap-2 text-center shrink-0">
+                <div className="text-neutral-500 font-bold text-xs uppercase tracking-widest">Keine aktive Quizfrage</div>
+                <p className="text-xs text-neutral-400">Warte auf das nächste automatische oder administrative Quiz-Event!</p>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar scroll-smooth">
                   <AnimatePresence mode="popLayout" initial={false}>
-                    {combinedMessages.map((msg, idx, arr) => {
+                    {filteredMessages.map((msg, idx, arr) => {
                       const prevMsg = arr[idx - 1];
                       const isSameSender = prevMsg && prevMsg.userId === msg.userId && !msg.isAction && !prevMsg.isAction;
                       const isSystem = msg.userId === 'system';
@@ -7839,12 +7928,14 @@ export default function App() {
                   })}
                 </AnimatePresence>
               <div ref={chatEndRef} className="h-4" />
-              {chatMessages.length === 0 && localMessages.length === 0 && (
+              {filteredMessages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-center space-y-4">
                    <div className="p-4 bg-neutral-900 rounded-full">
                      <MessageCircle size={32} />
                    </div>
-                   <p className="text-xs italic">Noch keine Nachrichten... fang an zu schreiben!</p>
+                   <p className="text-xs italic">
+                     {chatChannel === 'quiz' ? 'Noch keine Quiz-Antworten gesendet...' : 'Noch keine Nachrichten... fang an zu schreiben!'}
+                   </p>
                 </div>
               )}
             </div>

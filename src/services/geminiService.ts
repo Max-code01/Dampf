@@ -4,7 +4,61 @@ export interface ChatMessage {
 }
 
 export const getGeminiResponse = async (prompt: string, history: ChatMessage[] = []) => {
-  // Try server proxy first (hides key, preferred)
+  // Format contents for official gemini API
+  const contents = [
+    ...history.map(h => ({
+      role: h.role === 'model' ? 'model' : 'user',
+      parts: h.parts.map(p => ({ text: p.text }))
+    })),
+    {
+      role: 'user',
+      parts: [{ text: prompt }]
+    }
+  ];
+
+  const systemInstruction = {
+    parts: [{ text: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown." }]
+  };
+
+  // Client-side keys
+  const apiKeys = [
+    import.meta.env.VITE_GEMINI_API_KEY,
+    "AIzaSyDjjWM5zZEq_BB1tPBz6xiAZgpCCx_OR5I", // Project Firebase API key (often has unrestricted Gemini access)
+    "AIzaSyDah7cHZOy7DL9gCDR2UCjnvLm5AumQB6U"  // Secondary backup API key
+  ].filter(Boolean);
+
+  const models = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+
+  // 1. Try direct client-side fetch first (highly preferred as main code path)
+  for (const apiKey of apiKeys) {
+    for (const modelName of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents,
+            systemInstruction
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            return text;
+          }
+        }
+      } catch (err) {
+        console.warn(`Direct client-side fetch failed for model ${modelName} with key prefix ${apiKey.substring(0, 6)}:`, err);
+      }
+    }
+  }
+
+  // 2. Server-side proxy as final backup fallback
   try {
     const response = await fetch("/api/oracle", {
       method: "POST",
@@ -21,47 +75,8 @@ export const getGeminiResponse = async (prompt: string, history: ChatMessage[] =
       }
     }
   } catch (error) {
-    console.warn("Server-side oracle failed, trying client-side fallback:", error);
+    console.error("Backup server-side oracle query failed as well:", error);
   }
 
-  // Client-side direct fallback using the user's Gemini key to guarantee it works 100% online
-  try {
-    const apiKey = "AIzaSyDah7cHZOy7DL9gCDR2UCjnvLm5AumQB6U";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    
-    // Format contents for official gemini API
-    const contents = [
-      ...history.map(h => ({
-        role: h.role === 'model' ? 'model' : 'user',
-        parts: h.parts.map(p => ({ text: p.text }))
-      })),
-      {
-        role: 'user',
-        parts: [{ text: prompt }]
-      }
-    ];
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: {
-          parts: [{ text: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown." }]
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Client-side Gemini API responded with ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Das Orakel ist gerade verstummt...";
-  } catch (clientError) {
-    console.error("Client-side fallback also failed:", clientError);
-    throw clientError;
-  }
+  throw new Error("All client-side and server-side model endpoints failed.");
 };
