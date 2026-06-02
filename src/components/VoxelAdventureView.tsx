@@ -23,7 +23,10 @@ import {
   Clock, 
   Settings, 
   Activity,
-  ZapOff
+  ZapOff,
+  Maximize2,
+  Minimize2,
+  Smartphone
 } from 'lucide-react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
 
@@ -77,6 +80,7 @@ interface ShopItem {
   category: 'Spitzhaken' | 'Maschinen' | 'Basenbau' | 'Exo-Suits';
   description: string;
   price: number;
+  costResource: 'wood' | 'stone' | 'coal' | 'iron' | 'gold' | 'diamond' | 'uranium' | 'iridium' | 'power';
   produce: string;
   damage?: number;
   consume: string;
@@ -175,6 +179,11 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [shopTab, setShopTab] = useState<'tools' | 'machines' | 'build' | 'armor'>('tools');
   const [isClansOpen, setIsClansOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMobileMode, setIsMobileMode] = useState<boolean>(() => {
+    return ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  });
+  const [isChatVisible, setIsChatVisible] = useState(true);
 
   // World environment & clima values
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 11, minute: 30 });
@@ -227,30 +236,60 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   // Shop Database matching both the video specs and prototype features
   const shopDatabase: ShopItem[] = [
     // Tab 1: TOOLS (Spitzhacken & Bohrer)
-    { id: 'iron_pick', name: 'Eisen-Spitzhacke', category: 'Spitzhaken', description: 'Mining-Werkzeug. Baut Steine und Kohle doppelt so schnell ab.', price: 100, damage: 25, produce: '+2 Schaden pro Schlag', consume: 'Keine', levelRequired: 1, imageColor: '#cbd5e1', itemType: 'tool', icon: '⛏️' },
-    { id: 'dia_drill', name: 'Diamant-Bohrer', category: 'Spitzhaken', description: 'Elektrisches Abbauwunder. Zerschmettert Erze extrem rasant.', price: 500, damage: 60, produce: '+8 Schaden pro Takt', consume: '3 Energie pro Sek', levelRequired: 3, imageColor: '#22d3ee', itemType: 'tool', icon: '⚙️' },
-    { id: 'nano_saber', name: 'Laser Nano-Säbel', category: 'Spitzhaken', description: 'Energetisches Cyber-Schwert. Vernichtet feindliche Mobs sofort.', price: 5000, damage: 150, produce: '+150 Damage', consume: '10 Energie pro Hieb', levelRequired: 5, imageColor: '#f43f5e', itemType: 'tool', icon: '⚔️' },
+    { id: 'iron_pick', name: 'Eisen-Spitzhacke', category: 'Spitzhaken', description: 'Mining-Werkzeug. Baut Steine und Kohle doppelt so schnell ab.', price: 100, costResource: 'stone', damage: 25, produce: '+2 Schaden pro Schlag', consume: 'Keine', levelRequired: 1, imageColor: '#cbd5e1', itemType: 'tool', icon: '⛏️' },
+    { id: 'dia_drill', name: 'Diamant-Bohrer', category: 'Spitzhaken', description: 'Elektrisches Abbauwunder. Zerschmettert Erze extrem rasant.', price: 250, costResource: 'iron', damage: 60, produce: '+8 Schaden pro Takt', consume: '3 Energie pro Sek', levelRequired: 3, imageColor: '#22d3ee', itemType: 'tool', icon: '⚙️' },
+    { id: 'nano_saber', name: 'Laser Nano-Säbel', category: 'Spitzhaken', description: 'Energetisches Cyber-Schwert. Vernichtet feindliche Mobs sofort.', price: 500, costResource: 'gold', damage: 150, produce: '+150 Damage', consume: '10 Energie pro Hieb', levelRequired: 5, imageColor: '#f43f5e', itemType: 'tool', icon: '⚔️' },
 
     // Tab 2: MACHINES (Generatoren & Wirtschaft)
-    { id: 'solar', name: 'Solarpanel Generator', category: 'Maschinen', description: 'Produziert kontinuierlich Strom (+5 Watt) während der Sonnenstunden.', price: 40, produce: '+5 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 1, imageColor: '#3b82f6', itemType: 'building', icon: '☀️' },
-    { id: 'wind', name: 'Windturbinen-Modul', category: 'Maschinen', description: 'Erzeugt Tag und Nacht Energie abhängig von den meteorologischen Windwerten.', price: 120, produce: 'Variable ⚡ Stromerzeugung', consume: 'Windstärke', levelRequired: 2, imageColor: '#10b981', itemType: 'building', icon: '🌀' },
-    { id: 'miner', name: 'Boden Auto-Miner', category: 'Maschinen', description: 'Passive Bohrstelle. Baut Erze in unmittelbarer Nähe ab. Braucht Stromanschluss.', price: 80, produce: '+1 Stein & +1 Kohle / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#37474f', itemType: 'building', icon: '🤖' },
-    { id: 'seller', name: 'Wireless Auto-Seller', category: 'Maschinen', description: 'Konvertiert geerntete Felderträge selbstständig zu hohen Cash-Preisen.', price: 60, produce: 'Automatische Ressourcen-Einnahmen', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#2e7d32', itemType: 'building', icon: '💵' },
+    { id: 'solar', name: 'Solarpanel Generator', category: 'Maschinen', description: 'Produziert kontinuierlich Strom (+5 Watt) während der Sonnenstunden.', price: 40, costResource: 'wood', produce: '+5 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 1, imageColor: '#3b82f6', itemType: 'building', icon: '☀️' },
+    { id: 'wind', name: 'Windturbinen-Modul', category: 'Maschinen', description: 'Erzeugt Tag und Nacht Energie abhängig von den meteorologischen Windwerten.', price: 120, costResource: 'stone', produce: 'Variable ⚡ Stromerzeugung', consume: 'Windstärke', levelRequired: 2, imageColor: '#10b981', itemType: 'building', icon: '🌀' },
+    { id: 'miner', name: 'Boden Auto-Miner', category: 'Maschinen', description: 'Passive Bohrstelle. Baut Erze in unmittelbarer Nähe ab. Braucht Stromanschluss.', price: 80, costResource: 'wood', produce: '+1 Stein & +1 Kohle / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#37474f', itemType: 'building', icon: '🤖' },
+    { id: 'seller', name: 'Wireless Auto-Seller', category: 'Maschinen', description: 'Konvertiert geerntete Felderträge selbstständig zu hohen Cash-Preisen.', price: 60, costResource: 'wood', produce: 'Automatische Ressourcen-Einnahmen', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#2e7d32', itemType: 'building', icon: '💵' },
 
     // Tab 3: BASENBAU (Shields & Barrikaden)
-    { id: 'wall', name: 'Verstärkte Eisenmauer', category: 'Basenbau', description: 'Tiefgekühlte dichte Abgrenzung mit extrem hohen Haltbarkeitspunkten.', price: 20, produce: 'Defensiv-Schutz (HP: 2000)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🧱' },
-    { id: 'door', name: 'Sicherungstor', category: 'Basenbau', description: 'Automatische Schranke. Kann nur von dir und Verbündeten durchlaufen werden.', price: 50, produce: 'Sicherheitsbarriere (HP: 1000)', consume: 'Keine', levelRequired: 2, imageColor: '#4f46e5', itemType: 'building', icon: '🚪' },
+    { id: 'wall', name: 'Verstärkte Eisenmauer', category: 'Basenbau', description: 'Tiefgekühlte dichte Abgrenzung mit extrem hohen Haltbarkeitspunkten.', price: 20, costResource: 'wood', produce: 'Defensiv-Schutz (HP: 2000)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🧱' },
+    { id: 'door', name: 'Sicherungstor', category: 'Basenbau', description: 'Automatische Schranke. Kann nur von dir und Verbündeten durchlaufen werden.', price: 50, costResource: 'stone', produce: 'Sicherheitsbarriere (HP: 1000)', consume: 'Keine', levelRequired: 2, imageColor: '#4f46e5', itemType: 'building', icon: '🚪' },
 
     // Tab 4: SUITS (Exoskelett & Flugkraft)
-    { id: 'suit_nano', name: 'Nano-Shield Rüstung', category: 'Exo-Suits', description: 'Integrierte Pufferbatterie. Kompensiert 40% des eingesteckten Schadens.', price: 2500, produce: '40% Schadens-Absorption', consume: '2 Energie / Treffer', levelRequired: 3, imageColor: '#16a34a', itemType: 'armor', icon: '🛡️' },
-    { id: 'suit_quantum', name: 'Quanten-Fluganzug', category: 'Exo-Suits', description: 'Das nonplusultra militärische Outfit. Absorbiert 85% Strahlenschaden.', price: 8000, produce: '85% Strahlenschutz', consume: '5 Energie / Treffer', levelRequired: 5, imageColor: '#8b5cf6', itemType: 'armor', icon: '🔮' },
-    { id: 'utility_jetpack', name: 'Jetpack Core Booster', category: 'Exo-Suits', description: 'Erlaubt freies Schweben im Raum über Lava und Abyss hinweg. Turbo-Geschwindigkeit.', price: 12000, produce: 'Fliegen über Gras & Lava', consume: '10 Energie / Laufsekunde', levelRequired: 4, imageColor: '#f43f5e', itemType: 'armor', icon: '🚀' }
+    { id: 'suit_nano', name: 'Nano-Shield Rüstung', category: 'Exo-Suits', description: 'Integrierte Pufferbatterie. Kompensiert 40% des eingesteckten Schadens.', price: 1000, costResource: 'coal', produce: '40% Schadens-Absorption', consume: '2 Energie / Treffer', levelRequired: 3, imageColor: '#16a34a', itemType: 'armor', icon: '🛡️' },
+    { id: 'suit_quantum', name: 'Quanten-Fluganzug', category: 'Exo-Suits', description: 'Das nonplusultra militärische Outfit. Absorbiert 85% Strahlenschaden.', price: 2000, costResource: 'iron', produce: '85% Strahlenschutz', consume: '5 Energie / Treffer', levelRequired: 5, imageColor: '#8b5cf6', itemType: 'armor', icon: '🔮' },
+    { id: 'utility_jetpack', name: 'Jetpack Core Booster', category: 'Exo-Suits', description: 'Erlaubt freies Schweben im Raum über Lava und Abyss hinweg. Turbo-Geschwindigkeit.', price: 300, costResource: 'diamond', produce: 'Fliegen über Gras & Lava', consume: '10 Energie / Laufsekunde', levelRequired: 4, imageColor: '#f43f5e', itemType: 'armor', icon: '🚀' }
   ];
 
   // Helper adding clean formatted log rows
   const addLog = (text: string) => {
     setLogs(p => [text, ...p.slice(0, 40)]);
   };
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    try {
+      if (!document.fullscreenElement) {
+        containerRef.current.requestFullscreen().then(() => {
+          setIsFullscreen(true);
+        }).catch((err) => {
+          console.error("Fullscreen error", err);
+          triggerToast('xp', '🖥️ VOLLBILD BLOCKIERT', 'Öffne die App im neuen Tab für unbegrenzten Vollbildmodus!');
+        });
+      } else {
+        document.exitFullscreen().then(() => {
+          setIsFullscreen(false);
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   const toggleMuted = () => {
     const next = !isMuted;
@@ -421,9 +460,6 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         if (x > 12 && x < 28 && y > 12 && y < 28) {
           type = 'grass';
           biome = 'grassland';
-          if (x === 15 && y === 15) {
-            type = 'tree'; health = 15;
-          }
         }
 
         generated.push({ x: absX, y: absY, type, health, maxHealth, biome });
@@ -477,6 +513,19 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       if (e.key.toLowerCase() === 't') {
         setIsClansOpen(p => !p);
         playRetroSound('buy');
+      }
+      if (e.key.toLowerCase() === 'j' || e.key === ' ') {
+        if (!hasJetpack) {
+          triggerToast('xp', '🔒 KEIN JETPACK', 'Schalte erst die Jetpack-Technologie im Trade-Shop frei!');
+          playRetroSound('hurt');
+          return;
+        }
+        setIsJetpackActive(p => {
+          const next = !p;
+          addLog(next ? '🚀 Jetpack gestartet! Du fliegst rasant über Lava & Gräben.' : '🚀 Jetpack abgeschaltet.');
+          return next;
+        });
+        playRetroSound('powerup');
       }
     };
 
@@ -555,6 +604,11 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       if (mx !== 0 && my !== 0) {
         mx *= 0.7071;
         my *= 0.7071;
+      }
+
+      // Update player face angle based on walking direction if moving
+      if (mx !== 0 || my !== 0) {
+        player.angle = Math.atan2(my, mx);
       }
 
       // Check Jetpack fuel drainage
@@ -789,7 +843,7 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
               if (profits > 0) {
                 passiveEarnings += profits;
                 playRetroSound('buy');
-                addLog(`💵 Auto-Seller hat Ressourcen für $${profits} gewinnbringend abgesetzt!`);
+                addLog(`💵 Auto-Seller hat Ressourcen für ${profits} 💎 Erze gewinnbringend abgesetzt!`);
               }
             }
           }
@@ -868,6 +922,24 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       [type]: (p[type] || 0) + amount
     }));
 
+    // Calculate score points gained
+    let coinGain = 5;
+    if (type === 'stone') coinGain = 8;
+    if (type === 'coal') coinGain = 12;
+    if (type === 'iron') coinGain = 25;
+    if (type === 'gold') coinGain = 60;
+    if (type === 'diamond') coinGain = 150;
+    if (type === 'uranium') coinGain = 350;
+    if (type === 'iridium') coinGain = 800;
+
+    const finalCoinGain = coinGain * amount;
+    setCoins(curCoins => {
+      const nextCoins = curCoins + finalCoinGain;
+      updateLeaderboardPlayerScore(nextCoins);
+      syncCoinsWithDatabase(nextCoins);
+      return nextCoins;
+    });
+
     // Calculate XP bonuses
     let xpGain = 10;
     if (type === 'iron') xpGain = 20;
@@ -904,13 +976,27 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     }
 
     // Tools validation matching levels
-    if (tile.type === 'diamond' && currentTool.power < 2) {
-      triggerToast('xp', '⛏️ WERKZEUG INSUFFIZIENT', 'Bautyp erfordert mindestens eine Eisen-Spitzhacke!');
-      playRetroSound('hurt');
-      return;
+    let isSuitable = true;
+    let requiredPickaxeName = '';
+    
+    if (tile.type === 'iron' && currentTool.power < 2) {
+      isSuitable = false;
+      requiredPickaxeName = 'Eisen-Spitzhacke';
+    } else if (tile.type === 'gold' && currentTool.power < 2) {
+      isSuitable = false;
+      requiredPickaxeName = 'Eisen-Spitzhacke';
+    } else if (tile.type === 'diamond' && currentTool.power < 3) {
+      isSuitable = false;
+      requiredPickaxeName = 'Diamant-Bohrer';
+    } else if ((tile.type === 'uranium' || tile.type === 'iridium') && currentTool.power < 3) {
+      isSuitable = false;
+      requiredPickaxeName = 'Diamant-Bohrer';
     }
-    if ((tile.type === 'uranium' || tile.type === 'iridium') && currentTool.power < 3) {
-      triggerToast('xp', '⚙️ UPGRADE BENÖTIGT', 'Strahlenstoffe erfordern mindestens den Diamant-Bohrer!');
+
+    if (!isSuitable) {
+      const displayTileName = tile.type === 'iron' ? 'Eisen' : tile.type === 'gold' ? 'Gold' : tile.type === 'diamond' ? 'Diamant' : tile.type === 'uranium' ? 'Uranium' : 'Iridium';
+      addLog(`⚠️ [1] '${currentTool.name}' ist nicht geeignet für den Abbau von ${displayTileName}.`);
+      triggerToast('xp', '⛏️ WERKZEUG UNGEEIGNET', `Erfordert mindestens eine ${requiredPickaxeName}!`);
       playRetroSound('hurt');
       return;
     }
@@ -1209,15 +1295,20 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 11px Courier';
       ctx.textAlign = 'center';
-      ctx.fillText(`<${bot.name}> [$${bot.cash}]`, bot.x, bot.y - bot.speed * 6 - 8);
+      ctx.fillText(`<${bot.name}> [${bot.cash} 💎]`, bot.x, bot.y - bot.speed * 6 - 8);
     });
 
     // 5. Draw Primary Character (Minecraft block-style matching video)
     ctx.save();
     ctx.translate(player.x, player.y);
 
-    // Turn head angle look direction directly mirroring mouse pointers
-    const gazeAngle = Math.atan2(mousePosRef.current.y - (player.y - cameraY), mousePosRef.current.x - (player.x - cameraX));
+    // Turn head angle look direction directly mirroring mouse pointers or default player orientation
+    let gazeAngle = player.angle;
+    if (mousePosRef.current.x !== 0 || mousePosRef.current.y !== 0) {
+      gazeAngle = Math.atan2(mousePosRef.current.y - (player.y - cameraY), mousePosRef.current.x - (player.x - cameraX));
+      // update persistent angle
+      player.angle = gazeAngle;
+    }
     ctx.rotate(gazeAngle);
 
     // Character body color options matching custom equipped Exo armor shields
@@ -1290,14 +1381,14 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     ctx.restore();
   };
 
-  // Click Canvas dispatcher (Mining block or Placing machine)
-  const handleCanvasInteraction = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Unified Interaction dispatcher (used by mouse and touch events)
+  const triggerInteractionAt = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const clickX = clientX - rect.left;
+    const clickY = clientY - rect.top;
 
     const viewW = canvas.width;
     const viewH = canvas.height;
@@ -1339,6 +1430,32 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     }
   };
 
+  // Helper trigger action relative to player's face vector (Console / Touch Controllers helper)
+  const triggerActionInFront = () => {
+    const player = playerRef.current;
+    const frontX = player.x + Math.cos(player.angle) * 75;
+    const frontY = player.y + Math.sin(player.angle) * 75;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const viewW = canvas.width;
+    const viewH = canvas.height;
+
+    const cameraX = Math.max(0, Math.min(worldSize.width - viewW, player.x - viewW / 2));
+    const cameraY = Math.max(0, Math.min(worldSize.height - viewH, player.y - viewH / 2));
+
+    const clientX = (frontX - cameraX) + rect.left;
+    const clientY = (frontY - cameraY) + rect.top;
+
+    triggerInteractionAt(clientX, clientY);
+  };
+
+  // Click Canvas dispatcher (Mining block or Placing machine)
+  const handleCanvasInteraction = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    triggerInteractionAt(e.clientX, e.clientY);
+  };
+
   const handleChatSubmit = () => {
     if (!chatInput.trim()) return;
     const tag = myProfile?.displayName || user?.displayName || 'Spieler';
@@ -1348,8 +1465,12 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
   // Buy item transactional ledger
   const triggerUnlockShopItem = (item: ShopItem) => {
-    if (coins < item.price) {
-      triggerToast('xp', '❌ NICHT GENUG GELD', `Du benötigst $${item.price} für dieses Upgrade!`);
+    const requiredRes = item.costResource;
+    const playerHasRes = resources[requiredRes] || 0;
+
+    if (playerHasRes < item.price) {
+      const germanResName = requiredRes === 'wood' ? 'Holz 🪵' : requiredRes === 'stone' ? 'Stein 🪨' : requiredRes === 'coal' ? 'Kohle ⬛' : requiredRes === 'iron' ? 'Eisen 🔩' : requiredRes === 'gold' ? 'Gold 🟡' : requiredRes === 'diamond' ? 'Diamant 💎' : requiredRes === 'uranium' ? 'Uranium 🔋' : 'Iridium 🌌';
+      triggerToast('xp', '❌ NICHT GENUG RESSOURCEN', `Du benötigst ${item.price} ${germanResName} für dieses Upgrade!`);
       playRetroSound('hurt');
       return;
     }
@@ -1360,12 +1481,10 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     }
 
     const cost = item.price;
-    setCoins(c => {
-      const nextCoins = c - cost;
-      updateLeaderboardPlayerScore(nextCoins);
-      syncCoinsWithDatabase(nextCoins);
-      return nextCoins;
-    });
+    setResources(prev => ({
+      ...prev,
+      [requiredRes]: Math.max(0, prev[requiredRes] - cost)
+    }));
 
     playRetroSound('buy');
 
@@ -1375,7 +1494,7 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         id: item.id,
         name: item.name,
         damage: item.damage || 20,
-        power: item.id === 'iron_pick' ? 2 : 3,
+        power: item.id === 'iron_pick' ? 2 : item.id === 'dia_drill' ? 3 : 4,
         label: item.icon,
         color: item.imageColor
       });
@@ -1402,6 +1521,11 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     triggerToast('quest', '🛒 UPGRADE ERFOLGREICH', `${item.name} wurde freigeschaltet.`);
   };
 
+  // Virtual touch d-pad helper keys binder for responsive smartphone play!
+  const bindDirection = (key: string, isActive: boolean) => {
+    keysPressed.current[key] = isActive;
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-[#0d0d12] relative overflow-hidden font-mono min-h-0">
       
@@ -1413,11 +1537,16 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         <canvas 
           ref={canvasRef} 
           onClick={handleCanvasInteraction}
+          onTouchStart={(e) => {
+            if (e.touches && e.touches.length > 0) {
+              triggerInteractionAt(e.touches[0].clientX, e.touches[0].clientY);
+            }
+          }}
           className="absolute inset-0 block w-full h-full border border-neutral-800"
         />
 
         {/* 1. TOP-LEFT PANEL: ULTIMATE SCOREBOARD LEADERBOARD */}
-        <div className="absolute top-4 left-4 z-10 w-64 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto transition-transform hover:scale-[1.01]">
+        <div className="absolute top-4 left-4 z-10 w-64 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto transition-transform hover:scale-[1.01] hidden md:block">
           <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-3">
             <h4 className="text-amber-500 font-extrabold tracking-wider uppercase text-sm flex items-center gap-1.5">
               <Trophy size={15} className="text-yellow-500 animate-pulse" />
@@ -1437,44 +1566,43 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                   <span className="text-[10px] text-neutral-500 font-black">{idx + 1}.</span>
                   <span className="truncate">{u.name}</span>
                 </div>
-                <span className="text-yellow-500 font-black shrink-0 font-mono">${(u.money / 1000).toFixed(1)}K</span>
+                <span className="text-yellow-500 font-black shrink-0 font-mono">{u.money.toLocaleString()} 💎</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* 2. TOP-CENTER PANEL: ATMOSPHERICS WEATHER & CLOCK */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl px-6 py-2.5 pointer-events-auto flex items-center gap-6 text-xs text-neutral-200">
-          <div className="flex items-center gap-2 font-black text-amber-500">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl px-3 sm:px-6 py-1.5 sm:py-2.5 pointer-events-auto flex items-center gap-3 sm:gap-6 text-[10px] sm:text-xs text-neutral-200">
+          <div className="flex items-center gap-1.5 sm:gap-2 font-black text-amber-500">
             {gameTime.hour >= 6 && gameTime.hour <= 18 ? (
-              <Sun size={14} className="text-yellow-400 animate-spin-slow" />
+              <Sun size={13} className="text-yellow-400 animate-spin-slow" />
             ) : (
-              <Moon size={14} className="text-blue-400 animate-pulse" />
+              <Moon size={13} className="text-blue-400 animate-pulse" />
             )}
             <span>
               {String(gameTime.hour).padStart(2, '0')}:
-              {String(gameTime.minute).padStart(2, '0')}{' '}
-              {gameTime.hour >= 12 ? 'PM' : 'AM'}
+              {String(gameTime.minute).padStart(2, '0')}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5" title="Windkraft-Turbulenz">
-            <Wind size={13} className="text-cyan-400" />
-            <span>{windSpeed} m/s</span>
+          <div className="flex items-center gap-1" title="Windkraft-Turbulenz">
+            <Wind size={12} className="text-cyan-400" />
+            <span>{windSpeed}m/s</span>
           </div>
 
-          <div className="flex items-center gap-1.5" title="Temperatur">
-            <Thermometer size={13} className="text-rose-400" />
+          <div className="flex items-center gap-1" title="Temperatur">
+            <Thermometer size={12} className="text-rose-400" />
             <span>{temperature}°C</span>
           </div>
 
-          <div className="text-[10px] font-black tracking-widest px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 uppercase">
-            {isRaining ? '🌧️ RAIN' : '☀️ CLEAR'}
+          <div className="text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 uppercase hidden sm:block">
+            {isRaining ? '🌧️ REGEN' : '☀️ KLAR'}
           </div>
         </div>
 
         {/* 3. TOP-RIGHT PANEL: COZY TUTORIAL BOX */}
-        <div className="absolute top-4 right-4 z-10 w-72 bg-emerald-950/85 border border-emerald-500/30 backdrop-blur-md rounded-2xl p-4 pointer-events-auto">
+        <div className="absolute top-4 right-4 z-10 w-72 bg-emerald-950/85 border border-emerald-500/30 backdrop-blur-md rounded-2xl p-4 pointer-events-auto hidden lg:block">
           <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2 mb-2">
             <h5 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-1.5">
               <Sparkles size={14} className="animate-pulse" />
@@ -1485,20 +1613,20 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-neutral-200 leading-relaxed font-semibold">
-            Bewege dich mit WASD-Tasten. Ernte Holz, Kohle und Ores, um passives Einkommen zu generieren. Platziere Auto-Miner im Bau-Modus! Press [B] für den Shop.
+            Bewege dich mit WASD-Tasen. Ernte Holz, Kohle und Ores, um passives Einkommen zu generieren. Platziere Auto-Miner im Bau-Modus! Press [B] für den Shop.
           </p>
         </div>
 
         {/* 4. RIGHT SIDEBAR PANEL: RESOURCE LEDGER SIDEBAR */}
-        <div className="absolute top-48 right-4 z-10 w-48 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto space-y-3.5 shadow-2xl">
+        <div className="absolute top-28 sm:top-48 right-4 z-10 w-40 sm:w-48 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-3 sm:p-4 pointer-events-auto space-y-3 shadow-2xl">
           <div className="border-b border-neutral-800 pb-1.5">
-            <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest">WALLET CASH</span>
-            <div className="text-xl font-black text-emerald-500 italic block mt-0.5" style={{ textShadow: '0 0 10px rgba(16,185,129,0.3)' }}>
-              ${coins.toLocaleString()}
+            <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest">DEINE ERZE</span>
+            <div className="text-lg sm:text-xl font-black text-amber-500 italic block mt-0.5" style={{ textShadow: '0 0 10px rgba(245,158,11,0.3)' }}>
+              {coins.toLocaleString()} 💎
             </div>
           </div>
 
-          <div className="space-y-2 text-xs">
+          <div className="space-y-1.5 text-[11px] sm:text-xs">
             <div className="flex justify-between items-center text-neutral-300">
               <span>🪵 Holz</span>
               <span className="font-extrabold text-white">{resources.wood}</span>
@@ -1523,32 +1651,41 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
               <span className="text-amber-500 font-extrabold flex items-center gap-1">
                 <Zap size={11} /> Strom
               </span>
-              <span className="font-black text-amber-400 font-mono">{resources.power} ⚡</span>
+              <span className="font-black text-amber-400 font-mono">{resources.power}⚡</span>
             </div>
           </div>
         </div>
 
         {/* 5. BOTTOM-LEFT PANEL: LIVE LOBBY CHAT WINDOW */}
-        <div className="absolute bottom-4 left-4 z-10 w-80 bg-black/75 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto shadow-2xl flex flex-col justify-end">
-          <div className="text-[10px] text-neutral-500 font-black uppercase tracking-wider mb-2 border-b border-neutral-800 pb-1">
-            💬 PUBLIC WORLD SERVER CHAT
-          </div>
-          <div className="h-32 overflow-y-auto space-y-1.5 text-[11px] font-mono mb-3 custom-scrollbar flex flex-col justify-end">
-            {logs.map((lg, i) => (
-              <p 
-                key={`log-${i}`} 
-                className={`truncate block leading-relaxed ${
-                  lg.startsWith('✨') ? 'text-emerald-400 font-bold' :
-                  lg.startsWith('💬') ? 'text-cyan-400 font-medium' :
-                  lg.startsWith('❌') || lg.startsWith('☠️') ? 'text-red-400' :
-                  lg.startsWith('🧱') ? 'text-orange-400' :
-                  'text-neutral-300'
-                }`}
+        {isChatVisible ? (
+          <div className={`absolute ${isMobileMode ? 'bottom-56 left-4 w-72' : 'bottom-4 left-4 w-80'} z-10 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto shadow-2xl flex flex-col justify-end transition-all`}>
+            <div className="flex justify-between items-center mb-2 border-b border-neutral-800 pb-1">
+              <div className="text-[10px] text-neutral-500 font-black uppercase tracking-wider">
+                💬 SER CHAT
+              </div>
+              <button 
+                onClick={() => setIsChatVisible(false)} 
+                className="text-[10px] text-neutral-400 hover:text-white font-bold"
               >
-                {lg}
-              </p>
-            ))}
-          </div>
+                [MIN]
+              </button>
+            </div>
+            <div className="h-28 overflow-y-auto space-y-1 text-[11px] font-mono mb-2 custom-scrollbar flex flex-col justify-end">
+              {logs.map((lg, i) => (
+                <p 
+                  key={`log-${i}`} 
+                  className={`truncate block leading-relaxed ${
+                    lg.startsWith('✨') ? 'text-emerald-400 font-bold' :
+                    lg.startsWith('💬') ? 'text-cyan-400 font-medium' :
+                    lg.startsWith('❌') || lg.startsWith('☠️') ? 'text-red-400' :
+                    lg.startsWith('🧱') ? 'text-orange-400' :
+                    'text-neutral-300'
+                  }`}
+                >
+                  {lg}
+                </p>
+              ))}
+            </div>
           <div className="flex gap-2">
             <input 
               id="chat-input-g"
@@ -1566,9 +1703,17 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
             </button>
           </div>
         </div>
+        ) : (
+          <button 
+            onClick={() => setIsChatVisible(true)}
+            className={`absolute ${isMobileMode ? 'bottom-56 left-4' : 'bottom-4 left-4'} z-10 bg-black/85 hover:bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white px-3 py-1.5 rounded-xl font-extrabold text-[10px] uppercase pointer-events-auto flex items-center gap-1.5 shadow-2xl`}
+          >
+            💬 CHAT ÖFFNEN
+          </button>
+        )}
 
         {/* 6. BOTTOM-CENTER PANEL: PLAYER BAR & HOTBAR MECHANIC */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-black/90 border border-neutral-800/90 backdrop-blur-md rounded-2xl p-4 w-[400px] pointer-events-auto flex flex-col items-center gap-3">
+        <div className={`absolute ${isMobileMode ? 'bottom-[115px]' : 'bottom-4'} left-1/2 -translate-x-1/2 z-10 bg-black/90 border border-neutral-800/90 backdrop-blur-md rounded-2xl p-3 sm:p-4 w-[90%] max-w-[420px] pointer-events-auto flex flex-col items-center gap-2 sm:gap-3`}>
           
           {// Vitals Drawers
           }
@@ -1639,32 +1784,140 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
           </div>
         </div>
 
+        {/* MOBILE OVERLAYS: TOUCH D-PAD AND ACTION STACK */}
+        {isMobileMode && (
+          <>
+            {/* Left Thumb Virtual Touch D-pad */}
+            <div className="absolute bottom-4 left-4 z-10 p-2 bg-black/60 border border-neutral-800/60 backdrop-blur-md rounded-2xl w-[130px] h-[130px] flex items-center justify-center pointer-events-auto shadow-2xl">
+              <div className="grid grid-cols-3 gap-1 w-full h-full">
+                <div />
+                <button 
+                  onTouchStart={() => bindDirection('w', true)} 
+                  onTouchEnd={() => bindDirection('w', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                >
+                  ▲
+                </button>
+                <div />
+                <button 
+                  onTouchStart={() => bindDirection('a', true)} 
+                  onTouchEnd={() => bindDirection('a', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                >
+                  ◀
+                </button>
+                <div className="bg-neutral-900 rounded-lg flex items-center justify-center text-[10px] text-neutral-600 font-bold select-none">🕹️</div>
+                <button 
+                  onTouchStart={() => bindDirection('d', true)} 
+                  onTouchEnd={() => bindDirection('d', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                >
+                  ▶
+                </button>
+                <div />
+                <button 
+                  onTouchStart={() => bindDirection('s', true)} 
+                  onTouchEnd={() => bindDirection('s', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                >
+                  ▼
+                </button>
+              </div>
+            </div>
+
+            {/* Right Thumb Comfortable Action Stack */}
+            <div className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2.5 pointer-events-auto">
+              {/* Shortcut Quick Triggers to circumvent missing physical keyboard */}
+              <div className="flex gap-1.5">
+                <button 
+                  onClick={() => { setIsShopOpen(true); playRetroSound('buy'); }}
+                  className="bg-amber-500 active:bg-amber-400 p-1.5 px-2.5 text-black font-black text-[9px] uppercase rounded-lg shadow-xl flex items-center gap-1 leading-none"
+                >
+                  <ShoppingBag size={11} />
+                  SHOP [B]
+                </button>
+                <button 
+                  onClick={() => { setIsClansOpen(true); playRetroSound('buy'); }}
+                  className="bg-neutral-900 border border-neutral-800 active:border-neutral-700 p-1.5 px-2.5 text-neutral-300 font-bold text-[9px] uppercase rounded-lg shadow-xl flex items-center gap-1 leading-none"
+                >
+                  <Users size={11} />
+                  CLAN [T]
+                </button>
+              </div>
+
+              {/* Action Circle Grid */}
+              <div className="flex items-center gap-2">
+                {hasJetpack && (
+                  <button 
+                    onClick={() => {
+                      setIsJetpackActive(p => {
+                        const next = !p;
+                        addLog(next ? '🚀 Jetpack gestartet! Du fliegst rasant über Lava & Gräben.' : '🚀 Jetpack abgeschaltet.');
+                        return next;
+                      });
+                      playRetroSound('powerup');
+                    }}
+                    className={`w-14 h-14 rounded-full border-2 flex items-center justify-center text-base shadow-2xl transition-all ${isJetpackActive ? 'bg-rose-500 border-rose-300 animate-pulse text-white' : 'bg-neutral-900 border-neutral-800 text-neutral-400 active:bg-neutral-800'}`}
+                    title="Jetpack Boost umschalten"
+                  >
+                    🚀
+                  </button>
+                )}
+
+                <button 
+                  onClick={triggerActionInFront}
+                  className="w-18 h-18 bg-amber-500 active:bg-amber-400 border-4 border-amber-300 text-black font-black rounded-full flex flex-col items-center justify-center shadow-2xl transition-transform active:scale-95"
+                >
+                  <span className="text-xl">{selectedHotbarIndex === 0 ? '⛏️' : '🧱'}</span>
+                  <span className="text-[8px] uppercase tracking-wider mt-0.5 font-black">{selectedHotbarIndex === 0 ? 'HAUEN' : 'BAUEN'}</span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
         {/* MODAL TRIGGERS AND NAV OVERLAYS */}
-        <div className="absolute top-4 left-[15%] pointer-events-auto z-10 flex gap-2">
+        <div className="absolute top-4 left-4 md:left-[15%] pointer-events-auto z-10 flex flex-wrap gap-1.5 sm:gap-2 max-w-[85%] md:max-w-none">
           <button 
             onClick={() => { setIsShopOpen(true); playRetroSound('buy'); }} 
-            className="bg-amber-500 hover:bg-amber-400 px-4 py-2 rounded-xl text-black font-black text-xs uppercase flex items-center gap-1.5 transition-transform hover:scale-105 shadow-2xl"
+            className="bg-amber-500 hover:bg-amber-400 px-3 py-1.5 rounded-xl text-black font-black text-xs uppercase flex items-center gap-1.5 transition-transform hover:scale-105 shadow-2xl"
           >
-            <ShoppingBag size={14} />
-            BUILD TRADE-SHOP [B]
+            <ShoppingBag size={13} />
+            TRADE-SHOP [B]
           </button>
           <button 
             onClick={() => { setIsClansOpen(true); playRetroSound('buy'); }} 
-            className="bg-black/85 border border-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-xl font-bold text-xs uppercase flex items-center gap-1.5 transition-all shadow-2xl"
+            className="bg-black/85 border border-neutral-800 text-neutral-300 hover:text-white px-3 py-1.5 rounded-xl font-bold text-xs uppercase flex items-center gap-1.5 transition-all shadow-2xl"
           >
-            <Users size={14} />
-            CLANS SYSTEM [T]
+            <Users size={13} />
+            CLANS [T]
+          </button>
+          <button 
+            onClick={() => { setIsMobileMode(p => !p); playRetroSound('buy'); }} 
+            className={`px-3 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl gap-1.5 border leading-none ${isMobileMode ? 'bg-amber-500 hover:bg-amber-400 text-black border-amber-500 font-extrabold' : 'bg-black/85 border-neutral-800 text-neutral-300 hover:text-white'}`}
+            title="Handy Touch-Steuerung umschalten"
+          >
+            <Smartphone size={13} />
+            <span className="hidden sm:inline text-[10px] font-bold">TOUCH-MODE</span>
+          </button>
+          <button 
+            onClick={toggleFullscreen} 
+            className="bg-black/85 border border-neutral-800 text-neutral-300 hover:text-white px-3 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl gap-1.5"
+            title="Vollbildmodus umschalten"
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <span className="hidden sm:inline text-[10px] font-bold">VOLLBILD</span>
           </button>
           <button 
             onClick={toggleMuted} 
-            className="bg-black/85 border border-neutral-800 text-neutral-400 hover:text-white px-3/5 py-2 rounded-xl flex items-center justify-center transition-all shadow-2xl"
+            className="bg-black/85 border border-neutral-800 text-neutral-400 hover:text-white px-2.5 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl"
             title="Lautstärken stummschalten"
           >
-            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} className="text-amber-400" />}
+            {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} className="text-amber-400" />}
           </button>
           <button 
             onClick={onClose} 
-            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center transition-all shadow-2xl"
+            className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-xl font-black text-xs uppercase flex items-center justify-center transition-all shadow-2xl"
             title="Modul beenden"
           >
             BEENDEN [X]
@@ -1762,8 +2015,8 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                   </h3>
                   <p className="text-xs text-neutral-400">Rüste dich mit überlegenen Bohrern aus, rüste Nano-Armor Suits auf oder schalte Automaten für dein Grid frei!</p>
                 </div>
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-4 py-2 font-black text-emerald-400 font-mono text-sm shrink-0">
-                  DEIN CASH: ${coins.toLocaleString()}
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl px-4 py-2 font-black text-amber-500 font-mono text-sm shrink-0">
+                  DEINE ERZE: {coins.toLocaleString()} 💎
                 </div>
               </div>
 
@@ -1801,7 +2054,9 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                   })
                   .map(item => {
                     const levelOk = lvl >= item.levelRequired;
-                    const canAfford = coins >= item.price;
+                    const costRes = item.costResource;
+                    const canAfford = (resources[costRes] || 0) >= item.price;
+                    const resGlowName = costRes === 'wood' ? '🪵 Holz' : costRes === 'stone' ? '🪨 Stein' : costRes === 'coal' ? '⬛ Kohle' : costRes === 'iron' ? '🔩 Eisen' : costRes === 'gold' ? '🟡 Gold' : costRes === 'diamond' ? '💎 Diamant' : costRes === 'uranium' ? '🔋 Uranium' : '🌌 Iridium';
 
                     return (
                       <div 
@@ -1833,19 +2088,25 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center border-t border-neutral-800/60 pt-3 mt-1.5 font-mono">
-                          <span className="text-amber-500 font-extrabold text-xs shrink-0">${item.price}</span>
-                          <button
-                            disabled={!canAfford || !levelOk}
-                            onClick={() => triggerUnlockShopItem(item)}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all font-mono ${
-                              canAfford && levelOk
-                                ? 'bg-emerald-500 hover:bg-emerald-400 text-black hover:scale-105'
-                                : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-                            }`}
-                          >
-                            Freischalten
-                          </button>
+                        <div className="flex flex-col gap-2 border-t border-neutral-800/60 pt-3 mt-1.5 font-mono">
+                          <div className="flex justify-between items-center text-[10px] text-neutral-400">
+                            <span>Kostet:</span>
+                            <span className="text-amber-500 font-extrabold">{item.price} {resGlowName}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-[8px] text-neutral-500">Du hast: {resources[costRes] || 0}</span>
+                            <button
+                              disabled={!canAfford || !levelOk}
+                              onClick={() => triggerUnlockShopItem(item)}
+                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all font-mono ${
+                                canAfford && levelOk
+                                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black hover:scale-105'
+                                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                              }`}
+                            >
+                              Kaufen
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
