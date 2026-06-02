@@ -11,13 +11,15 @@ interface QuizArenaViewProps {
     winningUser?: string | null;
     winningUid?: string | null;
     createdAt?: any;
+    answers?: string[];
   } | null;
   myProfile: any;
   user: any;
   db: any;
+  onRequestNewQuestion?: () => Promise<void>;
 }
 
-export const QuizArenaView: React.FC<QuizArenaViewProps> = ({ activeQuiz, myProfile, user, db }) => {
+export const QuizArenaView: React.FC<QuizArenaViewProps> = ({ activeQuiz, myProfile, user, db, onRequestNewQuestion }) => {
   const [answerInput, setAnswerInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -152,10 +154,21 @@ export const QuizArenaView: React.FC<QuizArenaViewProps> = ({ activeQuiz, myProf
                 <Timer size={28} className="text-neutral-500" />
               </div>
               <h3 className="text-white text-lg font-black uppercase tracking-widest italic mb-2">Quiz-Ruhephase</h3>
-              <p className="text-xs text-neutral-500 font-bold uppercase tracking-wide leading-relaxed">
+              <p className="text-xs text-neutral-500 font-bold uppercase tracking-wide leading-relaxed mb-4">
                 Der Quiz-Bot sortiert seine Karten... Alle 5 bis 10 Minuten erscheint eine neue Herausforderung automatisch direkt hier und im globalen Chat!
               </p>
-              <div className="mt-6 p-4 bg-neutral-900/40 border border-white/5 rounded-2xl w-full flex items-center justify-between">
+
+              {onRequestNewQuestion && (
+                <button
+                  type="button"
+                  onClick={onRequestNewQuestion}
+                  className="mb-6 w-full py-3 px-5 bg-gradient-to-r from-mc-gold to-yellow-500 text-black font-black uppercase rounded-2xl tracking-[0.1em] text-xs hover:scale-[1.03] active:scale-[0.98] transition-all shadow-[0_5px_15px_rgba(255,170,0,0.15)] cursor-pointer"
+                >
+                  Neue Frage anfordern 💡
+                </button>
+              )}
+
+              <div className="mt-2 p-4 bg-neutral-900/40 border border-white/5 rounded-2xl w-full flex items-center justify-between">
                 <HelpCircle size={16} className="text-mc-gold" />
                 <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest pl-3 flex-1 text-left">
                   TIPP: Behalte dieses Fenster offen, um blitzschnell antworten zu können.

@@ -427,6 +427,41 @@ const getGlowStyles = (color?: string, isStaticOverride?: boolean) => {
   }
 };
 
+const clientQuizQuestions = [
+  { question: "Wie viele Eisenbarren benötigt man für einen Amboss?", answers: ["31"] },
+  { question: "Welches Werkzeug baut Obsidian am schnellsten ab?", answers: ["diamantspitzhacke", "diamant-spitzhacke", "netheritespitzhacke", "netherite-spitzhacke", "spitzhacke"] },
+  { question: "Welche Kreatur explodiert, wenn sie dem Spieler zu nahe kommt?", answers: ["creeper", "kreeper"] },
+  { question: "Was muss man im Nether abbauen, um Netherit herzustellen?", answers: ["antiker schutt", "ancient debris", "schutt", "ancientdebris"] },
+  { question: "Wie viele Holzbretter (Planks) erhält man aus einem normalen Holzstamm?", answers: ["4", "vier"] },
+  { question: "Welcher Trank verleiht die Fähigkeit, unter Wasser zu atmen?", answers: ["wasseratmung", "wasseratmungstrank", "trank der wasseratmung"] },
+  { question: "Welches Tier liefert Wolle und Hammelfleisch?", answers: ["schaf", "schafe"] },
+  { question: "Wie heißt die Dimension, in der man den Enderdrachen bekämpft?", answers: ["the end", "end", "das end"] },
+  { question: "Aus wie vielen Obsidianblöcken besteht das kleinste Netherportal (ohne Ecken)?", answers: ["10", "zehn"] },
+  { question: "Aus wie vielen Obsidianblöcken besteht ein vollständiges Netherportal inklusive Ecken?", answers: ["14", "vierzehn"] },
+  { question: "Welcher feindliche Mob teleportiert sich, wenn man ihn anschaut?", answers: ["enderman", "endermann"] },
+  { question: "Wie zähmt man einen Wolf in Minecraft?", answers: ["knochen", "mit knochen"] },
+  { question: "Welches Material schmilzt man in einem Ofen, um Glas herzustellen?", answers: ["sand"] },
+  { question: "Wie viele Betten benötigt man, um einen Eisengolem in einem Dorf spawnen zu lassen? (Minimum)", answers: ["3", "drei"] },
+  { question: "Welcher Block zieht Feuchtigkeit an und trocknet im Ofen?", answers: ["schwamm", "sponge"] },
+  { question: "Mit welchem Gegenstand kann man ein Schwein lenken, wenn man auf ihm reitet?", answers: ["karottenrute", "karotte am stiel", "karotten-rute"] },
+  { question: "Welcher Trank erhöht die Bewegungsgeschwindigkeit?", answers: ["schnelligkeit", "geschwindigkeit", "schnelligkeitstrank", "geschwindigkeitstrank"] },
+  { question: "Was erhält man, wenn man eine Wasserquelle mit fließender Lava mischt?", answers: ["pflasterstein", "cobblestone"] },
+  { question: "Wie heißt das grüne Juwel, das zum Handeln mit Dorfbewohnern verwendet wird?", answers: ["smaragd", "emerald"] },
+  { question: "Welche Nahrung wird benötigt, um Axolotl fortzupflanzen?", answers: ["tropenfisch", "tropenfischeimer"] },
+  { question: "Welches Erz kommt nur im Extremberge-Biom natürlich vor?", answers: ["smaragderz", "smaragd"] },
+  { question: "Wie viele Goldklumpen benötigt man, um einen Goldbarren herzustellen?", answers: ["9", "neun"] },
+  { question: "Aus welchem Holz wird der dunkelste Holztyp hergestellt?", answers: ["schwarzeiche", "dark oak", "schwarzeichenholz"] },
+  { question: "Wie hoch ist die maximale Bauhöhe in Minecraft?", answers: ["320", "319", "318"] },
+  { question: "Welcher Block verhindert Fallschaden zu 100%, wenn man darauf landet?", answers: ["heuballen", "schleimblock", "wasser", "honigblock"] },
+  { question: "Welches gängige Monster verbrennt NICHT im Sonnenlicht?", answers: ["creeper", "spinne", "enderman"] },
+  { question: "In welchem Jahr wurde Minecraft 1.0 offiziell veröffentlicht?", answers: ["2011"] },
+  { question: "Mit welcher Taste schleicht man standardmäßig in Minecraft?", answers: ["shift", "umschalttaste", "schleichtaste", "umschalt"] },
+  { question: "Aus wie vielen Fäden stellt man einen Block Wolle her?", answers: ["4", "vier"] },
+  { question: "Welcher Gegenstand schützt den Spieler im Nether vor Angriffen der Piglins?", answers: ["goldrüstung", "gold", "goldhelm", "goldhose", "goldbrustplatte", "goldschuhe"] },
+  { question: "Welcher Trank schwächt feindliche Mobs und reduziert ihren Schaden?", answers: ["schwäche", "schwächetrank"] },
+  { question: "Wie viele Obsidianblöcke benötigt man, um einen Zaubertisch herzustellen?", answers: ["4", "vier"] }
+];
+
 export default function App() {
   // Quota state
   const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
@@ -1275,6 +1310,7 @@ export default function App() {
     question: string;
     reward: number;
     active: boolean;
+    answers?: string[];
     winningUser?: string | null;
     winningUid?: string | null;
     createdAt?: any;
@@ -1300,6 +1336,74 @@ export default function App() {
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 5000);
+  };
+
+  const generateNewQuizQuestionLocally = async () => {
+    try {
+      const randQuiz = clientQuizQuestions[Math.floor(Math.random() * clientQuizQuestions.length)];
+      
+      await setDoc(doc(db, 'app_config', 'active_quiz'), {
+        question: randQuiz.question,
+        answers: randQuiz.answers,
+        reward: 50,
+        active: true,
+        createdAt: serverTimestamp(),
+        winningUser: null,
+        winningUid: null
+      });
+
+      // Post New Question to Chat
+      await addDoc(collection(db, 'chat_messages'), {
+        text: `💡 **NEUE QUIZFRAGE:** ${randQuiz.question} 🤔 (Tippe die Antwort als Erste/r in den Chat für **50 Coins**!)`,
+        userId: 'quiz_bot',
+        displayName: '💡 Quiz-Bot',
+        role: 'System',
+        createdAt: serverTimestamp(),
+        tempId: `quiz-new-${Date.now()}-${Math.random()}`
+      });
+
+      console.log('[QUIZ-CLIENT] Neue Frage erfolgreich generiert:', randQuiz.question);
+    } catch (err) {
+      console.error('[QUIZ-CLIENT] Fehler beim Generieren einer neuen Frage:', err);
+    }
+  };
+
+  const processQuizVictoryLocally = async (displayName: string, userId: string, answer: string, currentQuiz: any) => {
+    try {
+      // 1. Mark quiz as inactive in DB (prevents double winning)
+      const quizRef = doc(db, 'app_config', 'active_quiz');
+      await setDoc(quizRef, {
+        active: false,
+        winningUser: displayName,
+        winningUid: userId,
+        solvedAt: serverTimestamp(),
+        question: currentQuiz.question,
+        answer: answer,
+        reward: currentQuiz.reward || 50,
+        answers: currentQuiz.answers || []
+      });
+
+      // 2. Increment stats of winning user safely
+      const userRef = doc(db, 'user_profiles', userId);
+      await updateDoc(userRef, {
+        coins: increment(currentQuiz.reward || 50),
+        quizWins: increment(1)
+      });
+
+      // 3. Post notification to global chat under 'quiz_bot' identity
+      await addDoc(collection(db, 'chat_messages'), {
+        text: `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${currentQuiz.question}*" ➜ **${answer.toUpperCase()}**! (+50 Coins 🪙)`,
+        userId: 'quiz_bot',
+        displayName: '💡 Quiz-Bot',
+        role: 'System',
+        createdAt: serverTimestamp(),
+        tempId: `quiz-win-${Date.now()}-${Math.random().toString(36).substring(7)}`
+      });
+
+      console.log('[QUIZ-BOT CLIENT] Victory successfully processed and synchronized!');
+    } catch (err) {
+      console.error('[QUIZ-BOT CLIENT] Error writing victory:', err);
+    }
   };
 
   const getLevel = (xp: number = 0) => Math.floor(Math.sqrt(xp / 100)) + 1;
@@ -2370,6 +2474,7 @@ export default function App() {
           question: data.question || '',
           reward: data.reward || 50,
           active: data.active === true,
+          answers: data.answers || [],
           winningUser: data.winningUser || null,
           winningUid: data.winningUid || null,
           createdAt: data.createdAt || null
@@ -2388,9 +2493,9 @@ export default function App() {
     };
   }, [hasQuotaExceeded]);
 
-  // Group 3: Isolated Chat Listener (only active when chat is actually open)
+  // Group 3: Isolated Chat Listener (only active when chat is actually open or quiz arena is active)
   useEffect(() => {
-    if (hasQuotaExceeded || !chatOpen) return;
+    if (hasQuotaExceeded || (!chatOpen && miningTab !== 'quiz')) return;
 
     const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
@@ -2403,6 +2508,32 @@ export default function App() {
           setLocalMessages(prev => prev.filter(m => !confirmedTempIds.includes(m.tempId)));
         }, 300);
       }
+
+      // Verify quiz answers in real-time
+      if (activeQuiz && activeQuiz.active && user) {
+        const correctAnswers = activeQuiz.answers || [];
+        if (correctAnswers.length > 0) {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const data = change.doc.data();
+              if (data && data.text && data.userId && data.userId !== 'quiz_bot' && data.userId !== 'system') {
+                const textNorm = data.text.trim().toLowerCase();
+                const matchedAnswer = correctAnswers.find((ans: string) => ans.trim().toLowerCase() === textNorm);
+                
+                if (matchedAnswer) {
+                  // Verify message freshness to avoid claiming from history
+                  const createdAtTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : null);
+                  const isFresh = !createdAtTime || (Date.now() - createdAtTime < 15000);
+                  
+                  if (isFresh && data.userId === user.uid) {
+                    processQuizVictoryLocally(data.displayName || 'Unbekannt', data.userId, matchedAnswer, activeQuiz);
+                  }
+                }
+              }
+            }
+          });
+        }
+      }
     }, (err) => {
       if (err.message.includes('Quota')) setHasQuotaExceeded(true);
       handleFirestoreError(err, OperationType.GET, 'chat_messages');
@@ -2411,7 +2542,7 @@ export default function App() {
     return () => {
       unsubscribeChat();
     };
-  }, [chatOpen, hasQuotaExceeded]);
+  }, [chatOpen, miningTab, hasQuotaExceeded, activeQuiz, user]);
 
   // Auto-Update for Discord Status Webhook
   useEffect(() => {
@@ -5855,6 +5986,7 @@ export default function App() {
                     myProfile={myProfile}
                     user={user}
                     db={db}
+                    onRequestNewQuestion={generateNewQuizQuestionLocally}
                   />
                 </div>
               )}

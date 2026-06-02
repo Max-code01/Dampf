@@ -1,4 +1,6 @@
 import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { Client, GatewayIntentBits, REST, Routes, PermissionFlagsBits, ChatInputCommandInteraction } from 'discord.js';
@@ -632,7 +634,6 @@ async function startServer() {
   let processedMessageIds = new Set<string>();
 
   // Real-time synchronization of the active quiz from Firestore.
-  // This ensures serverQuizState is always populated within milliseconds, completely eliminating any 10-second gap on boot or reload.
   onSnapshot(
     doc(db, 'app_config', 'active_quiz'),
     (snap) => {
@@ -679,7 +680,9 @@ async function startServer() {
       }
 
       if (data && data.userId !== 'quiz_bot' && data.userId !== 'system') {
-        const createdAtDate = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : null);
+        const createdAtDate = data.createdAt 
+          ? (data.createdAt.toMillis ? data.createdAt.toMillis() : (data.createdAt.getTime ? data.createdAt.getTime() : null)) 
+          : null;
         
         // Mark as fresh if there's no server timestamp yet (e.g. pending write) or was written within the last 15 seconds
         const isFresh = !createdAtDate || (createdAtDate > startQuizTime && createdAtDate > Date.now() - 15000);
@@ -690,7 +693,8 @@ async function startServer() {
           console.log('[QUIZ-BOT] Überspringe historische Nachricht:', docId, data.text);
         }
       }
-    }, (err) => {
+    },
+    (err) => {
       console.error('[QUIZ-BOT] Snapshot listen error:', err);
     }
   );
@@ -702,10 +706,10 @@ async function startServer() {
       if (curDoc.exists()) {
         const curData = curDoc.data();
         if (curData && curData.active === true && curData.createdAt) {
-          const createdTime = curData.createdAt?.toMillis ? curData.createdAt.toMillis() : (curData.createdAt ? new Date(curData.createdAt).getTime() : Date.now());
+          const createdTime = curData.createdAt.toMillis ? curData.createdAt.toMillis() : (curData.createdAt.getTime ? curData.createdAt.getTime() : Date.now());
           const ageSec = (Date.now() - createdTime) / 1000;
           if (ageSec < 15 * 60) {
-            console.log('[QUIZ-BOT] Aktive Frage existiert und ist noch gütig. Vermeide Überschreiben...');
+            console.log('[QUIZ-BOT] Aktive Frage existiert und ist noch gültig. Vermeide Überschreiben...');
             serverQuizState = {
               question: curData.question,
               answers: curData.answers || [curData.answer],
