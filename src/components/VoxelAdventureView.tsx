@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
-  Settings, 
-  HelpCircle, 
   Play, 
-  RefreshCw, 
-  Shield, 
-  Activity, 
+  HelpCircle, 
   Moon, 
   Sun, 
   Wind, 
@@ -20,10 +16,14 @@ import {
   ShoppingBag, 
   Plus, 
   Users, 
-  Sliders, 
-  AlertCircle,
-  Clock,
-  BatteryCharging
+  Send, 
+  Zap, 
+  Volume2, 
+  VolumeX, 
+  Clock, 
+  Settings, 
+  Activity,
+  ZapOff
 } from 'lucide-react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
 
@@ -39,22 +39,67 @@ interface VoxelAdventureViewProps {
 interface Tile {
   x: number;
   y: number;
-  type: 'grass' | 'tree' | 'flower' | 'stone' | 'water' | 'lava' | 'iron' | 'coal' | 'gold' | 'diamond' | 'emerald';
+  type: 'grass' | 'sand' | 'volcanic_rock' | 'tree' | 'flower' | 'stone' | 'water' | 'lava' | 'iron' | 'coal' | 'gold' | 'diamond' | 'emerald' | 'uranium' | 'iridium' | 'wall' | 'door';
   health: number;
   maxHealth: number;
   broken?: boolean;
+  biome: 'grassland' | 'desert' | 'volcanic';
+  customId?: string;
 }
 
-interface Item {
+interface ItemDrop {
+  id: string;
+  x: number;
+  y: number;
+  type: string;
+  amount: number;
+  speedX: number;
+  speedY: number;
+  collected?: boolean;
+}
+
+interface PlacedMachine {
+  id: string;
+  x: number;
+  y: number;
+  type: 'generator_solar' | 'generator_wind' | 'miner_auto' | 'seller_auto' | 'wall_iron';
+  energyLevel: number;
+  maxEnergy: number;
+  lastTick: number;
+  productionProgress: number;
+  health: number;
+  maxHealth: number;
+}
+
+interface ShopItem {
   id: string;
   name: string;
-  category: 'Spitzhaken' | 'Rüstung' | 'Jetpack' | 'Miner';
+  category: 'Spitzhaken' | 'Maschinen' | 'Basenbau' | 'Exo-Suits';
   description: string;
   price: number;
-  power: number;
+  produce: string;
+  damage?: number;
+  consume: string;
   levelRequired: number;
-  icon?: string;
-  imageColor?: string;
+  imageColor: string;
+  itemType: 'tool' | 'building' | 'armor';
+  icon: string;
+}
+
+interface OpponentBot {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  speed: number;
+  health: number;
+  maxHealth: number;
+  color: string;
+  targetX: number;
+  targetY: number;
+  isMining: boolean;
+  swingAngle: number;
+  cash: number;
 }
 
 export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
@@ -65,110 +110,158 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   triggerToast,
   userProfiles
 }) => {
-  // Game state
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [activeTab, setActiveTab] = useState<'game' | 'inventory' | 'shop' | 'teams'>('game');
-  
-  // Game Stats
-  const [coins, setCoins] = useState<number>(myProfile?.coins || 1000);
-  const [xp, setXp] = useState<number>(myProfile?.xp || 0);
-  const [blocksMined, setBlocksMined] = useState<number>(0);
-  const [energy, setEnergy] = useState<number>(100);
-  const [health, setHealth] = useState<number>(10);
-  
-  // Inventory and Equipments
-  const [ownedItems, setOwnedItems] = useState<string[]>(['wooden_pickaxe']);
+  // Sound mode state
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    return localStorage.getItem('isMuted') === 'true';
+  });
+
+  // Hotbar configurations matching prototype slots
+  // Slot 1: Tool (Pickaxe/Drill)
+  // Slot 2: Solar Panels (places generator_solar)
+  // Slot 3: Auto Miners (places miner_auto)
+  // Slot 4: Auto Sellers (places seller_auto)
+  // Slot 5: Base Walls (places wall_iron)
   const [selectedHotbarIndex, setSelectedHotbarIndex] = useState<number>(0);
-  const [equippedPickaxe, setEquippedPickaxe] = useState<any>({
-    id: 'wooden_pickaxe',
-    name: 'Wooden Pickaxe',
+
+  // Inventories tracking
+  const [coins, setCoins] = useState<number>(myProfile?.coins || 150);
+  const [xp, setXp] = useState<number>(myProfile?.xp || 0);
+  const [lvl, setLvl] = useState<number>(1);
+  const [energy, setEnergy] = useState<number>(100);
+  const [health, setHealth] = useState<number>(100);
+  const [maxHealth, setMaxHealth] = useState<number>(100);
+
+  // Raw resources values
+  const [resources, setResources] = useState<{ [key: string]: number }>({
+    wood: 15,
+    stone: 5,
+    coal: 5,
+    iron: 0,
+    gold: 0,
+    diamond: 0,
+    uranium: 0,
+    iridium: 0,
+    power: 20
+  });
+
+  // Placed automated machines tracking
+  const [placedMachines, setPlacedMachines] = useState<PlacedMachine[]>([]);
+  const [droppingParticles, setDroppingParticles] = useState<ItemDrop[]>([]);
+
+  // Building Inventory reserves (counts available for placement slot 2-5)
+  const [buildInventory, setBuildInventory] = useState<{ [key: string]: number }>({
+    solar: 2,
+    miner: 1,
+    seller: 1,
+    wall: 8
+  });
+
+  // Equipped Armors & abilities
+  const [equippedArmor, setEquippedArmor] = useState<'none' | 'nano' | 'quantum'>('none');
+  const [hasJetpack, setHasJetpack] = useState<boolean>(false);
+  const [isJetpackActive, setIsJetpackActive] = useState<boolean>(false);
+
+  // Active user tool upgrade properties
+  const [currentTool, setCurrentTool] = useState<{ id: string; name: string; damage: number; power: number; label: string; color: string }>({
+    id: 'wooden_pick',
+    name: 'Holz-Spitzhacke',
+    damage: 10,
     power: 1,
-    category: 'Spitzhaken'
+    label: '⛏️',
+    color: '#8b5a2b'
   });
 
-  const [hotbar, setHotbar] = useState<(any | null)[]>([
-    { id: 'wooden_pickaxe', name: 'Wooden Pickaxe', power: 1 },
-    null,
-    null,
-    null,
-    null
-  ]);
+  // Modal screen panels
+  const [isShopOpen, setIsShopOpen] = useState(false);
+  const [shopTab, setShopTab] = useState<'tools' | 'machines' | 'build' | 'armor'>('tools');
+  const [isClansOpen, setIsClansOpen] = useState(false);
 
-  // Player position & movement
-  const playerRef = useRef({
-    x: 400,
-    y: 300,
-    speed: 4,
-    width: 24,
-    height: 32,
-    direction: 'down',
-    isMoving: false,
-    frame: 0
-  });
+  // World environment & clima values
+  const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 11, minute: 30 });
+  const [windSpeed, setWindSpeed] = useState<number>(6);
+  const [temperature, setTemperature] = useState<number>(22);
+  const [isRaining, setIsRaining] = useState<boolean>(false);
 
-  // World grid
-  const [worldSize] = useState({ width: 2400, height: 1800 });
-  const tileSize = 48;
-  const [tiles, setTiles] = useState<Tile[]>([]);
-  
-  // Virtual joystick or movement keys pressed state
-  const keysPressed = useRef<{ [key: string]: boolean }>({});
-  
-  // Logs & Notification simulation
+  // Chat window panel data
   const [logs, setLogs] = useState<string[]>([]);
-  const [trainingTask, setTrainingTask] = useState<string>(
-    'Training: Finde Eisenerz (silber/braun) mit WASD-Tasten und baue es ab, indem du gedrückt hältst.'
-  );
+  const [chatInput, setChatInput] = useState<string>('');
 
-  // Time & Weather simulations
-  const [gameTime, setGameTime] = useState<{ hour: 9, minute: 30 }>({ hour: 9, minute: 30 });
-  const [windSpeed, setWindSpeed] = useState<number>(8);
-  const [temperature, setTemperature] = useState<number>(12);
+  // Player position states (held inside persistent refs for performance animation-loops)
+  const playerRef = useRef({
+    x: 1000,
+    y: 1000,
+    speed: 4,
+    size: 34,
+    angle: 0,
+    swinging: false,
+    swingTimer: 0
+  });
 
-  // Team Simulator State
-  const [teamName, setTeamName] = useState('');
-  const [teamMotto, setTeamMotto] = useState('');
-  const [teamsList, setTeamsList] = useState<any[]>([
-    { name: 'Redstone Legion', motto: 'Automating victory' },
-    { name: 'Diamond Rushers', motto: 'Mine deep or go home' }
+  // Arena Dimensions
+  const tileSize = 64;
+  const mapSize = 40; // 40x40 grid = 2560px arena width
+  const worldSize = { width: mapSize * tileSize, height: mapSize * tileSize };
+  const [tiles, setTiles] = useState<Tile[]>([]);
+
+  // System canvas tracking
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const keysPressed = useRef<{ [key: string]: boolean }>({});
+  const mousePosRef = useRef({ x: 0, y: 0 });
+
+  // Multiplayer opponent bots simulations
+  const [botsList, setBotsList] = useState<OpponentBot[]>([
+    { id: 'bot_1', name: 'Join11Lennon_io', x: 1200, y: 880, speed: 2.2, health: 100, maxHealth: 100, color: '#00e5ff', targetX: 1200, targetY: 880, isMining: false, swingAngle: 0, cash: 9400 },
+    { id: 'bot_2', name: 'SteveMaster', x: 800, y: 1500, speed: 1.8, health: 100, maxHealth: 100, color: '#ec4899', targetX: 780, targetY: 1520, isMining: true, swingAngle: 0, cash: 4300 },
+    { id: 'bot_3', name: 'Maximus_VIP', x: 1600, y: 1200, speed: 2.5, health: 100, maxHealth: 100, color: '#4CAF50', targetX: 1650, targetY: 1180, isMining: false, swingAngle: 0, cash: 5200 }
   ]);
-  const [activeTeam, setActiveTeam] = useState<any>(null);
 
-  // Shop Items matching spiel2.mp4 exactly!
-  const shopItems: Item[] = [
-    { id: 'wooden_pickaxe', name: 'Wooden Pickaxe', category: 'Spitzhaken', description: 'Power: 1. Allows you to mine some basic resources.', price: 50, power: 1, levelRequired: 1, imageColor: '#8a5c32' },
-    { id: 'iron_pickaxe', name: 'Iron Pickaxe', category: 'Spitzhaken', description: 'Power: 2. Mine more advanced resources like Gold.', price: 100, power: 2, levelRequired: 1, imageColor: '#d1d1d1' },
-    { id: 'golden_pickaxe', name: 'Golden Pickaxe', category: 'Spitzhaken', description: 'Power: 3. Mines extremely fast, can extract Diamonds.', price: 1000, power: 3, levelRequired: 2, imageColor: '#fcb103' },
-    { id: 'diamond_pickaxe', name: 'Diamond Pickaxe', category: 'Spitzhaken', description: 'Power: 5. Mines anything quickly. Cannot be broken.', price: 5000, power: 5, levelRequired: 5, imageColor: '#03fcfc' },
-    { id: 'drill', name: 'Mining Drill', category: 'Spitzhaken', description: 'Power: 8. Heavy machinery. Consumes lots of energy.', price: 10000, power: 8, levelRequired: 10, imageColor: '#f55d42' },
-    { id: 'diamond_drill', name: 'Diamond Drill', category: 'Spitzhaken', description: 'Power: 12. Superior mining machine tool.', price: 50000, power: 12, levelRequired: 15, imageColor: '#0ef0c2' },
-    { id: 'nano_armor', name: 'Nano Armor', category: 'Rüstung', description: 'Provides 40% reduction of damage from lava/monsters.', price: 500000, power: 0, levelRequired: 20, imageColor: '#02ba40' },
-    { id: 'quantum_armor', name: 'Quantum Armor', category: 'Rüstung', description: 'The absolute state-of-the-art protecting shield.', price: 1000000, power: 0, levelRequired: 30, imageColor: '#9d00ff' },
-    { id: 'jetpack', name: 'Heli-Jetpack', category: 'Jetpack', description: 'Allows you to hover above fields and lava without taking risk.', price: 5000000, power: 0, levelRequired: 40, imageColor: '#ff007c' }
+  // Fake static leaderboard scores list
+  const [leaderboard, setLeaderboard] = useState<any[]>([
+    { name: 'Join11Lennon_io', money: 9400 },
+    { name: 'Maximus_VIP', money: 5200 },
+    { name: 'SteveMaster', money: 4300 },
+    { name: 'Du (Spieler)', money: 150, isPlayer: true }
+  ]);
+
+  // Shop Database matching both the video specs and prototype features
+  const shopDatabase: ShopItem[] = [
+    // Tab 1: TOOLS (Spitzhacken & Bohrer)
+    { id: 'iron_pick', name: 'Eisen-Spitzhacke', category: 'Spitzhaken', description: 'Mining-Werkzeug. Baut Steine und Kohle doppelt so schnell ab.', price: 100, damage: 25, produce: '+2 Schaden pro Schlag', consume: 'Keine', levelRequired: 1, imageColor: '#cbd5e1', itemType: 'tool', icon: '⛏️' },
+    { id: 'dia_drill', name: 'Diamant-Bohrer', category: 'Spitzhaken', description: 'Elektrisches Abbauwunder. Zerschmettert Erze extrem rasant.', price: 500, damage: 60, produce: '+8 Schaden pro Takt', consume: '3 Energie pro Sek', levelRequired: 3, imageColor: '#22d3ee', itemType: 'tool', icon: '⚙️' },
+    { id: 'nano_saber', name: 'Laser Nano-Säbel', category: 'Spitzhaken', description: 'Energetisches Cyber-Schwert. Vernichtet feindliche Mobs sofort.', price: 5000, damage: 150, produce: '+150 Damage', consume: '10 Energie pro Hieb', levelRequired: 5, imageColor: '#f43f5e', itemType: 'tool', icon: '⚔️' },
+
+    // Tab 2: MACHINES (Generatoren & Wirtschaft)
+    { id: 'solar', name: 'Solarpanel Generator', category: 'Maschinen', description: 'Produziert kontinuierlich Strom (+5 Watt) während der Sonnenstunden.', price: 40, produce: '+5 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 1, imageColor: '#3b82f6', itemType: 'building', icon: '☀️' },
+    { id: 'wind', name: 'Windturbinen-Modul', category: 'Maschinen', description: 'Erzeugt Tag und Nacht Energie abhängig von den meteorologischen Windwerten.', price: 120, produce: 'Variable ⚡ Stromerzeugung', consume: 'Windstärke', levelRequired: 2, imageColor: '#10b981', itemType: 'building', icon: '🌀' },
+    { id: 'miner', name: 'Boden Auto-Miner', category: 'Maschinen', description: 'Passive Bohrstelle. Baut Erze in unmittelbarer Nähe ab. Braucht Stromanschluss.', price: 80, produce: '+1 Stein & +1 Kohle / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#37474f', itemType: 'building', icon: '🤖' },
+    { id: 'seller', name: 'Wireless Auto-Seller', category: 'Maschinen', description: 'Konvertiert geerntete Felderträge selbstständig zu hohen Cash-Preisen.', price: 60, produce: 'Automatische Ressourcen-Einnahmen', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#2e7d32', itemType: 'building', icon: '💵' },
+
+    // Tab 3: BASENBAU (Shields & Barrikaden)
+    { id: 'wall', name: 'Verstärkte Eisenmauer', category: 'Basenbau', description: 'Tiefgekühlte dichte Abgrenzung mit extrem hohen Haltbarkeitspunkten.', price: 20, produce: 'Defensiv-Schutz (HP: 2000)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🧱' },
+    { id: 'door', name: 'Sicherungstor', category: 'Basenbau', description: 'Automatische Schranke. Kann nur von dir und Verbündeten durchlaufen werden.', price: 50, produce: 'Sicherheitsbarriere (HP: 1000)', consume: 'Keine', levelRequired: 2, imageColor: '#4f46e5', itemType: 'building', icon: '🚪' },
+
+    // Tab 4: SUITS (Exoskelett & Flugkraft)
+    { id: 'suit_nano', name: 'Nano-Shield Rüstung', category: 'Exo-Suits', description: 'Integrierte Pufferbatterie. Kompensiert 40% des eingesteckten Schadens.', price: 2500, produce: '40% Schadens-Absorption', consume: '2 Energie / Treffer', levelRequired: 3, imageColor: '#16a34a', itemType: 'armor', icon: '🛡️' },
+    { id: 'suit_quantum', name: 'Quanten-Fluganzug', category: 'Exo-Suits', description: 'Das nonplusultra militärische Outfit. Absorbiert 85% Strahlenschaden.', price: 8000, produce: '85% Strahlenschutz', consume: '5 Energie / Treffer', levelRequired: 5, imageColor: '#8b5cf6', itemType: 'armor', icon: '🔮' },
+    { id: 'utility_jetpack', name: 'Jetpack Core Booster', category: 'Exo-Suits', description: 'Erlaubt freies Schweben im Raum über Lava und Abyss hinweg. Turbo-Geschwindigkeit.', price: 12000, produce: 'Fliegen über Gras & Lava', consume: '10 Energie / Laufsekunde', levelRequired: 4, imageColor: '#f43f5e', itemType: 'armor', icon: '🚀' }
   ];
 
-  // Helper for adding game feedback
-  const addLog = (message: string) => {
-    setLogs(prev => [message, ...prev.slice(0, 30)]);
+  // Helper adding clean formatted log rows
+  const addLog = (text: string) => {
+    setLogs(p => [text, ...p.slice(0, 40)]);
   };
 
-  // Synchronise coins with global context & profile state
-  useEffect(() => {
-    if (myProfile?.coins !== undefined) {
-      setCoins(myProfile.coins);
-    }
-    if (myProfile?.xp !== undefined) {
-      setXp(myProfile.xp);
-    }
-  }, [myProfile]);
+  const toggleMuted = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    localStorage.setItem('isMuted', String(next));
+  };
 
-  // Sound Synth Helper for Retro sound effects
-  const playRetroSound = (type: 'hit' | 'mine' | 'buy' | 'hurt' | 'levelUp') => {
+  // Sound Synth Generator helper
+  const playRetroSound = (type: 'hit' | 'mine' | 'buy' | 'hurt' | 'levelUp' | 'powerup' | 'place') => {
+    if (isMuted) return;
     try {
-      const isMuted = localStorage.getItem('isMuted') === 'true';
-      if (isMuted) return;
-
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -177,134 +270,213 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
       if (type === 'hit') {
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(120, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.1);
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.11);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.11);
       } else if (type === 'mine') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(250, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.15);
         gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.16);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.16);
       } else if (type === 'buy') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-        osc.frequency.setValueAtTime(600, audioCtx.currentTime + 0.08);
-        osc.frequency.setValueAtTime(900, audioCtx.currentTime + 0.16);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(330, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime + 0.08);
+        osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.16);
         gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.26);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.26);
+      } else if (type === 'place') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(90, audioCtx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.19);
       } else if (type === 'hurt') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(80, audioCtx.currentTime);
         osc.frequency.linearRampToValueAtTime(20, audioCtx.currentTime + 0.2);
         gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.22);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.23);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.23);
       } else if (type === 'levelUp') {
         osc.type = 'sine';
-        const notes = [261.63, 329.63, 392.00, 523.25];
-        notes.forEach((freq, idx) => {
-          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.1);
+        const notes = [261, 329, 392, 523, 659, 783];
+        notes.forEach((f, i) => {
+          osc.frequency.setValueAtTime(f, audioCtx.currentTime + i * 0.06);
         });
-        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.45);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.5);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.46);
+      } else if (type === 'powerup') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1000, audioCtx.currentTime + 0.25);
+        gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.31);
       }
     } catch (e) {
-      // Ignored if sound is blocked/fails
+      // Ignored browser context audio lock-guards
     }
   };
 
-  // Generate World procedural map 
+  // Sync profile data fields initially
   useEffect(() => {
-    const generatedTiles: Tile[] = [];
-    const seedX = Math.random() * 100;
-    const seedY = Math.random() * 100;
+    if (myProfile?.coins !== undefined) setCoins(myProfile.coins);
+    if (myProfile?.xp !== undefined) {
+      setXp(myProfile.xp);
+      const calculatedLvl = Math.max(1, Math.floor(Math.sqrt(myProfile.xp / 100)) + 1);
+      setLvl(calculatedLvl);
+      setMaxHealth(100 + calculatedLvl * 10);
+    }
+  }, [myProfile]);
 
-    for (let x = 0; x < worldSize.width; x += tileSize) {
-      for (let y = 0; y < worldSize.height; y += tileSize) {
-        
-        // Simple procedural biome layout using deterministic waves
-        const noiseVal = Math.sin(x * 0.003 + seedX) * Math.cos(y * 0.003 + seedY);
+  // Procedural 2D Voxel map generator of biome regions
+  useEffect(() => {
+    const generated: Tile[] = [];
+    const seedX = Math.random() * 200;
+    const seedY = Math.random() * 200;
+
+    for (let x = 0; x < mapSize; x++) {
+      for (let y = 0; y < mapSize; y++) {
+        const absX = x * tileSize;
+        const absY = y * tileSize;
+
+        // Protection map boundaries
+        if (x === 0 || y === 0 || x === mapSize - 1 || y === mapSize - 1) {
+          generated.push({ x: absX, y: absY, type: 'stone', health: 120, maxHealth: 120, biome: 'grassland' });
+          continue;
+        }
+
+        let biome: Tile['biome'] = 'grassland';
         let type: Tile['type'] = 'grass';
-        let health = 10;
-        let maxHealth = 10;
+        let health = 15;
+        let maxHealth = 15;
 
-        if (noiseVal < -0.4) {
-          // Lake reservoirs
-          type = 'water';
-          health = 9999;
-          maxHealth = 9999;
-        } else if (noiseVal < -0.2) {
-          // Rich Stone structures 
-          type = 'stone';
-          health = 6;
-          maxHealth = 6;
-        } else if (noiseVal > 0.42 && Math.random() > 0.4) {
-          // Lava structures
-          type = 'lava';
-          health = 9999;
-          maxHealth = 9999;
+        // Assign biome bands
+        if (y < 12) {
+          biome = 'desert';
+          type = 'sand';
+        } else if (y > 27) {
+          biome = 'volcanic';
+          type = 'volcanic_rock';
+        }
+
+        // Noise generators patterns simulation
+        const noise = Math.sin(x * 0.4 + seedX) * Math.cos(y * 0.4 + seedY);
+        const oreRoll = Math.random();
+
+        if (biome === 'desert') {
+          if (noise < -0.4) {
+            type = 'water'; health = 9999; maxHealth = 9999;
+          } else if (noise > 0.45) {
+            type = 'stone'; health = 25; maxHealth = 25;
+          } else if (oreRoll > 0.98) {
+            type = 'gold'; health = 30; maxHealth = 30;
+          } else if (oreRoll > 0.94) {
+            type = 'coal'; health = 20; maxHealth = 20;
+          } else if (oreRoll > 0.90) {
+            type = 'iron'; health = 25; maxHealth = 25;
+          }
+        } else if (biome === 'volcanic') {
+          if (noise < -0.35) {
+            type = 'lava'; health = 9999; maxHealth = 9999;
+          } else if (noise > 0.4) {
+            type = 'stone'; health = 40; maxHealth = 40;
+          } else if (oreRoll > 0.99) {
+            type = 'iridium'; health = 100; maxHealth = 100;
+          } else if (oreRoll > 0.97) {
+            type = 'uranium'; health = 80; maxHealth = 80;
+          } else if (oreRoll > 0.94) {
+            type = 'diamond'; health = 60; maxHealth = 60;
+          } else if (oreRoll > 0.88) {
+            type = 'coal'; health = 30; maxHealth = 30;
+          }
         } else {
-          // Scattered resource ores
-          const oreRoll = Math.random();
-          if (oreRoll > 0.992) {
-            type = 'emerald'; health = 15; maxHealth = 15;
+          // Grasslands
+          if (noise < -0.45) {
+            type = 'water'; health = 9999; maxHealth = 9999;
+          } else if (noise > 0.5) {
+            type = 'stone'; health = 30; maxHealth = 30;
           } else if (oreRoll > 0.985) {
-            type = 'diamond'; health = 12; maxHealth = 12;
-          } else if (oreRoll > 0.965) {
-            type = 'gold'; health = 8; maxHealth = 8;
-          } else if (oreRoll > 0.935) {
-            type = 'iron'; health = 5; maxHealth = 5;
-          } else if (oreRoll > 0.895) {
-            type = 'coal'; health = 4; maxHealth = 4;
-          } else if (oreRoll > 0.85) {
-            type = 'tree'; health = 3; maxHealth = 3;
-          } else if (oreRoll > 0.8) {
-            type = 'flower'; health = 1; maxHealth = 1;
+            type = 'emerald'; health = 70; maxHealth = 70;
+          } else if (oreRoll > 0.96) {
+            type = 'gold'; health = 40; maxHealth = 40;
+          } else if (oreRoll > 0.91) {
+            type = 'iron'; health = 30; maxHealth = 30;
+          } else if (oreRoll > 0.78) {
+            type = 'tree'; health = 15; maxHealth = 15;
+          } else if (oreRoll > 0.72) {
+            type = 'flower'; health = 5; maxHealth = 5;
           }
         }
 
-        // Keep player spawn point clear of high obstacle assets
-        if (x > 300 && x < 500 && y > 200 && y < 400) {
+        // Keep center spawning zone clear
+        if (x > 12 && x < 28 && y > 12 && y < 28) {
           type = 'grass';
+          biome = 'grassland';
+          if (x === 15 && y === 15) {
+            type = 'tree'; health = 15;
+          }
         }
 
-        generatedTiles.push({ x, y, type, health, maxHealth });
+        generated.push({ x: absX, y: absY, type, health, maxHealth, biome });
       }
     }
-    setTiles(generatedTiles);
-    
-    // Set up default status log
-    addLog('§6[Mines] Willkommen in der 2D Voxelwelt! Steuere mit WASD/Pfeiltasten.');
-    addLog('§7Tippe auf Items in der offenen Welt zum Interagieren.');
+
+    setTiles(generated);
+    addLog('✨ [SYSTEM] MineEnergy Arena initialisiert! WASD zum Bewegen. Tab [1-5] für Hotbar.');
+    addLog('💡 Tutorial: Baue Baumstämme 🪵 oder Steine 🪨 ab. Drücke [B] für den Trade-Shop!');
   }, []);
 
-  // Sync keyboard inputs
+  // Window resize to Canvas binding
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || !containerRef.current) return;
+      canvas.width = containerRef.current.clientWidth;
+      canvas.height = Math.max(500, containerRef.current.clientHeight);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Track Keys input events mapping
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT') {
+        if (e.key === 'Enter') handleChatSubmit();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const input = document.getElementById('chat-input-g');
+        input?.focus();
+        return;
+      }
+
       keysPressed.current[e.key.toLowerCase()] = true;
-      
-      // Numbers for hotbar selection
+
+      // Numeric hotbar hotkeys (1-5)
       if (['1', '2', '3', '4', '5'].includes(e.key)) {
-        const slotIdx = parseInt(e.key) - 1;
-        setSelectedHotbarIndex(slotIdx);
-        const itemInSlot = hotbar[slotIdx];
-        if (itemInSlot) {
-          setEquippedPickaxe(itemInSlot);
-          addLog(`§eAusgerüstet: ${itemInSlot.name} (Power: ${itemInSlot.power})`);
-        } else {
-          setEquippedPickaxe(null);
-        }
+        const idx = parseInt(e.key) - 1;
+        setSelectedHotbarIndex(idx);
+        playRetroSound('hit');
+      }
+
+      if (e.key.toLowerCase() === 'b') {
+        setIsShopOpen(p => !p);
+        playRetroSound('buy');
+      }
+      if (e.key.toLowerCase() === 't') {
+        setIsClansOpen(p => !p);
+        playRetroSound('buy');
       }
     };
 
@@ -314,344 +486,812 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [hotbar]);
+  }, [chatInput]);
 
-  // Environmental damage, day-cycle & updates loop
+  // Track cursor direction rotation
   useEffect(() => {
-    let lastTime = 0;
+    const handleMouseMove = (e: MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      mousePosRef.current = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  // Infinite physics ticks thread
+  useEffect(() => {
     let animFrame: number;
+    let autoSaveTimer = 0;
 
-    const gameLoop = (timestamp: number) => {
+    const tick = (timestamp: number) => {
       const player = playerRef.current;
-      
-      // Dynamic Day/Night Weather Update
-      setGameTime(prev => {
-        let mins = prev.minute + 1;
-        let hrs = prev.hour;
-        if (mins >= 60) {
-          mins = 0;
-          hrs = (hrs + 1) % 24;
-          // Slowly randomize wind and temp 
-          setWindSpeed(Math.max(2, Math.min(25, Math.floor(8 + Math.random() * 4 - 2))));
-          setTemperature(Math.max(-5, Math.min(38, Math.floor(12 + Math.random() * 3 - 1))));
-        }
-        return { hour: hrs as any, minute: mins as any };
-      });
 
-      // Simple player movement inside the simulated coordinates
-      let dx = 0;
-      let dy = 0;
+      // 1. Time & Weather cycles incrementor
+      autoSaveTimer++;
+      if (autoSaveTimer >= 30) {
+        autoSaveTimer = 0;
+        setGameTime(prev => {
+          let min = prev.minute + 1;
+          let hr = prev.hour;
+          if (min >= 60) {
+            min = 0;
+            hr = (hr + 1) % 24;
 
-      if (keysPressed.current['w'] || keysPressed.current['arrowup']) {
-        dy = -player.speed;
-        player.direction = 'up';
-      } else if (keysPressed.current['s'] || keysPressed.current['arrowdown']) {
-        dy = player.speed;
-        player.direction = 'down';
-      }
+            // Vary windspeed and temperature
+            setWindSpeed(Math.max(2, Math.min(22, Math.floor(windSpeed + (Math.random() * 4 - 2)))));
+            setTemperature(Math.max(-5, Math.min(42, Math.floor(temperature + (Math.random() * 2 - 1)))));
 
-      if (keysPressed.current['a'] || keysPressed.current['arrowleft']) {
-        dx = -player.speed;
-        player.direction = 'left';
-      } else if (keysPressed.current['d'] || keysPressed.current['arrowright']) {
-        dx = player.speed;
-        player.direction = 'right';
-      }
-
-      if (dx !== 0 || dy !== 0) {
-        player.isMoving = true;
-        player.frame = Math.floor(timestamp / 150) % 4;
-
-        const nextX = player.x + dx;
-        const nextY = player.y + dy;
-
-        // Collision Checks
-        let collides = false;
-        
-        // Boundaries index check
-        if (nextX < 0 || nextX + player.width > worldSize.width || nextY < 0 || nextY + player.height > worldSize.height) {
-          collides = true;
-        }
-
-        // Collide with resource block logic or obstacles
-        const playerCenterX = nextX + player.width / 2;
-        const playerCenterY = nextY + player.height / 2;
-        
-        tiles.forEach(tile => {
-          if (tile.broken || tile.type === 'grass' || tile.type === 'flower') return;
-
-          // Check if coordinates overlap with solid block tiles (except water/lava which are triggers, not walls!)
-          if (tile.type !== 'water' && tile.type !== 'lava') {
-            const pad = 2; // small threshold padding
-            if (nextX + player.width - pad > tile.x && 
-                nextX + pad < tile.x + tileSize && 
-                nextY + player.height - pad > tile.y && 
-                nextY + pad < tile.y + tileSize) {
-              collides = true;
+            // Shift rainy status
+            if (Math.random() > 0.88) {
+              const nextRainState = !isRaining;
+              setIsRaining(nextRainState);
+              addLog(nextRainState ? '🌧️ Es zieht ein Gewitter auf! Solarausbeute minimiert.' : '☀️ Der Sturm bricht! Wind turbulenzen beruhigen sich.');
             }
-          } else if (tile.type === 'lava') {
-            // Lava Hazard damage tick
-            if (nextX + player.width > tile.x && nextX < tile.x + tileSize && nextY + player.height > tile.y && nextY < tile.y + tileSize) {
-              if (Math.random() > 0.98) {
-                // Apply damage
-                setHealth(prev => {
-                  const deal = prev - 1;
-                  if (deal <= 0) {
-                    addLog('§4💀 Du bist im geschmolzenem Lava-Pool verbrannt! Teleportiert zum Spawn!');
-                    player.x = 400;
-                    player.y = 300;
+          }
+          return { hour: hr, minute: min };
+        });
+      }
+
+      // 2. Physics WASD coordinate shifting
+      let mx = 0;
+      let my = 0;
+      const activeSpeed = isJetpackActive && energy > 5 ? player.speed * 2.5 : player.speed;
+
+      if (keysPressed.current['w'] || keysPressed.current['arrowup']) my = -activeSpeed;
+      if (keysPressed.current['s'] || keysPressed.current['arrowdown']) my = activeSpeed;
+      if (keysPressed.current['a'] || keysPressed.current['arrowleft']) mx = -activeSpeed;
+      if (keysPressed.current['d'] || keysPressed.current['arrowright']) mx = activeSpeed;
+
+      // Diagonal vector normalization
+      if (mx !== 0 && my !== 0) {
+        mx *= 0.7071;
+        my *= 0.7071;
+      }
+
+      // Check Jetpack fuel drainage
+      if (isJetpackActive && (mx !== 0 || my !== 0)) {
+        setEnergy(prev => {
+          const next = Math.max(0, prev - 0.25);
+          if (next <= 0) {
+            setIsJetpackActive(false);
+            addLog('🚀 Jetpack-Kraftstoff leer! Sinkflug eingeleitet.');
+          }
+          return next;
+        });
+      }
+
+      // Check collision bounds
+      if (mx !== 0 || my !== 0) {
+        const nextX = player.x + mx;
+        const nextY = player.y + my;
+
+        let blocked = false;
+        if (nextX < tileSize || nextX > worldSize.width - tileSize || nextY < tileSize || nextY > worldSize.height - tileSize) {
+          blocked = true;
+        }
+
+        // Tile overlap wall and liquid boundaries checks
+        const pGridX = Math.floor(nextX / tileSize);
+        const pGridY = Math.floor(nextY / tileSize);
+
+        tiles.forEach(tile => {
+          if (tile.broken || tile.type === 'grass' || tile.type === 'sand' || tile.type === 'volcanic_rock' || tile.type === 'flower') return;
+          
+          const tileGridX = Math.floor(tile.x / tileSize);
+          const tileGridY = Math.floor(tile.y / tileSize);
+
+          if (pGridX === tileGridX && pGridY === tileGridY) {
+            if (tile.type === 'water' || tile.type === 'lava') {
+              if (tile.type === 'lava' && !isJetpackActive) {
+                // Lava Damage
+                setHealth(hp => {
+                  const outHp = Math.max(0, hp - 0.5);
+                  if (Math.random() < 0.15) {
                     playRetroSound('hurt');
-                    return 10;
-                  } else {
-                    addLog('§c🔥 Autsch! Du brennst in der Lava!');
-                    playRetroSound('hurt');
-                    return deal;
+                    addLog('🔥 Autsch! Du brennst in Lava! (-5 HP)');
                   }
+                  if (outHp <= 0) {
+                    addLog('☠️ Du bist in Lava geschmolzen! Respawn im Grasland.');
+                    playerRef.current.x = 1000;
+                    playerRef.current.y = 1000;
+                    return 100;
+                  }
+                  return outHp;
                 });
               }
+            } else {
+              blocked = true;
             }
           }
         });
 
-        if (!collides) {
+        if (!blocked) {
           player.x = nextX;
           player.y = nextY;
         }
-      } else {
-        player.isMoving = false;
-        player.frame = 0;
       }
 
-      // Draw the beautiful 2D Minecraft World Frame using Canvas primitives
-      renderCanvas();
+      // Passive hunger/energy decay
+      if (energy > 0) {
+        setEnergy(p => Math.max(0, p - 0.015));
+      }
 
-      animFrame = requestAnimationFrame(gameLoop);
+      // Swing timer decrementation
+      if (player.swinging) {
+        player.swingTimer--;
+        if (player.swingTimer <= 0) player.swinging = false;
+      }
+
+      // 3. Magnetic item particles drift attraction
+      if (droppingParticles.length > 0) {
+        setDroppingParticles(prev => {
+          return prev.map(p => {
+            if (p.collected) return p;
+
+            const dst = Math.hypot(player.x - p.x, player.y - p.y);
+            if (dst < 160) {
+              // Magnet pull
+              const angle = Math.atan2(player.y - p.y, player.x - p.x);
+              return {
+                ...p,
+                x: p.x + Math.cos(angle) * 8,
+                y: p.y + Math.sin(angle) * 8,
+                speedX: 0,
+                speedY: 0
+              };
+            } else {
+              // Drift friction
+              return {
+                ...p,
+                x: p.x + p.speedX,
+                y: p.y + p.speedY,
+                speedX: p.speedX * 0.95,
+                speedY: p.speedY * 0.95
+              };
+            }
+          });
+        });
+
+        // Trigger resource collection overlapping check
+        droppingParticles.forEach(p => {
+          if (p.collected) return;
+          const dstP = Math.hypot(player.x - p.x, player.y - p.y);
+          if (dstP < player.size) {
+            p.collected = true;
+            collectResource(p.type, p.amount);
+          }
+        });
+      }
+
+      // 4. Opponent Bots roaming simulation
+      setBotsList(prevBots => {
+        return prevBots.map(bot => {
+          const dst = Math.hypot(bot.targetX - bot.x, bot.targetY - bot.y);
+          let bx = bot.x;
+          let by = bot.y;
+          let tx = bot.targetX;
+          let ty = bot.targetY;
+          let mining = bot.isMining;
+
+          if (dst < 15) {
+            tx = Math.max(200, Math.min(worldSize.width - 200, bot.x + (Math.random() * 400 - 200)));
+            ty = Math.max(200, Math.min(worldSize.height - 200, bot.y + (Math.random() * 400 - 200)));
+            mining = Math.random() > 0.65;
+          } else {
+            const angle = Math.atan2(ty - by, tx - bx);
+            bx += Math.cos(angle) * bot.speed;
+            by += Math.sin(angle) * bot.speed;
+          }
+
+          // Generate randomized bot chat messages
+          if (Math.random() > 0.9982) {
+            const lines = [
+              'Leute, der Vulkan im Süden ist voller Diamanten! 💎',
+              'Ich baue mir gleich einen Big Seller auf.',
+              'Das Jetpack kostet zwar viel, lohnt sich aber total! 🚀',
+              'Vielleicht gründe ich bald einen Clan hier.',
+              'Achtung vor der Lava! Die ist brandheiß 🔥'
+            ];
+            addLog(`💬 <${bot.name}> ${lines[Math.floor(Math.random() * lines.length)]}`);
+          }
+
+          return {
+            ...bot,
+            x: bx,
+            y: by,
+            targetX: tx,
+            targetY: ty,
+            isMining: mining,
+            swingAngle: mining ? Math.sin(Date.now() / 150) * 45 : 0
+          };
+        });
+      });
+
+      // Render updated canvas layout
+      drawGame();
+
+      animFrame = requestAnimationFrame(tick);
     };
 
-    if (activeTab === 'game' && isPlaying) {
-      animFrame = requestAnimationFrame(gameLoop);
+    animFrame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animFrame);
+  }, [tiles, droppingParticles, gameTime, windSpeed, temperature, isRaining, isJetpackActive, placedMachines, selectedHotbarIndex]);
+
+  // Automated core ticking interval for passive machines (generators, miners, sellers)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let passiveEarnings = 0;
+
+      // Handle machine ticks
+      setPlacedMachines(prevList => {
+        return prevList.map(mach => {
+          let powerDrain = 0;
+          let productionProg = mach.productionProgress;
+
+          // Power generators
+          if (mach.type === 'generator_solar') {
+            const dayTime = gameTime.hour >= 6 && gameTime.hour <= 18;
+            const yieldAmt = dayTime ? (isRaining ? 1 : 5) : 0;
+            if (yieldAmt > 0) {
+              setResources(res => ({ ...res, power: Math.min(100, (res.power || 0) + yieldAmt) }));
+            }
+          }
+          if (mach.type === 'generator_wind') {
+            const yieldWind = Math.floor(windSpeed * 0.4);
+            if (yieldWind > 0) {
+              setResources(res => ({ ...res, power: Math.min(100, (res.power || 0) + yieldWind) }));
+            }
+          }
+
+          // Auto-Miners
+          if (mach.type === 'miner_auto') {
+            if (resources.power >= 2) {
+              powerDrain = 2;
+              productionProg = Math.min(100, productionProg + 20);
+              if (productionProg >= 100) {
+                productionProg = 0;
+                // yield Stone, Coal and Iron passively
+                setResources(r => ({
+                  ...r,
+                  stone: (r.stone || 0) + 1,
+                  coal: (r.coal || 0) + 1,
+                  iron: (r.iron || 0) + 1
+                }));
+                addLog('🤖 Auto-Miner hat passive Ores geerntet! (+1 Stone, +1 Coal)');
+              }
+            }
+          }
+
+          // Auto-Sellers (converts storage into coins automatically)
+          if (mach.type === 'seller_auto') {
+            if (resources.power >= 1) {
+              powerDrain = 1;
+              let profits = 0;
+              setResources(p => {
+                const draft = { ...p };
+                if (draft.wood > 0) { profits += draft.wood * 2; draft.wood = 0; }
+                if (draft.stone > 0) { profits += draft.stone * 4; draft.stone = 0; }
+                if (draft.coal > 0) { profits += draft.coal * 6; draft.coal = 0; }
+                if (draft.iron > 0) { profits += draft.iron * 12; draft.iron = 0; }
+                if (draft.gold > 0) { profits += draft.gold * 25; draft.gold = 0; }
+                return draft;
+              });
+
+              if (profits > 0) {
+                passiveEarnings += profits;
+                playRetroSound('buy');
+                addLog(`💵 Auto-Seller hat Ressourcen für $${profits} gewinnbringend abgesetzt!`);
+              }
+            }
+          }
+
+          if (powerDrain > 0) {
+            setResources(r => ({ ...r, power: Math.max(0, (r.power || 0) - powerDrain) }));
+          }
+
+          return {
+            ...mach,
+            productionProgress: productionProg,
+            lastTick: Date.now()
+          };
+        });
+      });
+
+      // Synchronize coin increase if any
+      if (passiveEarnings > 0) {
+        setCoins(c => {
+          const nextCoins = c + passiveEarnings;
+          updateLeaderboardPlayerScore(nextCoins);
+          syncCoinsWithDatabase(nextCoins);
+          return nextCoins;
+        });
+      }
+
+      // Passively increment other player bots scores
+      setBotsList(bots => {
+        return bots.map(b => {
+          const nextCash = b.cash + Math.floor(Math.random() * 8 + 3);
+          return { ...b, cash: nextCash };
+        });
+      });
+
+      // Render updated leaderboard listing
+      updateLeaderboardOrder();
+
+    }, 1800);
+
+    return () => clearInterval(interval);
+  }, [resources.power, gameTime, windSpeed, isRaining]);
+
+  // Sync leaderboard ordering
+  const updateLeaderboardOrder = () => {
+    setLeaderboard(prev => {
+      const working = prev.map(item => {
+        if (item.isPlayer) {
+          return { ...item, money: coins };
+        } else {
+          const bot = botsList.find(b => b.name === item.name);
+          return { ...item, money: bot ? bot.cash : item.money };
+        }
+      });
+      return working.sort((a, b) => b.money - a.money);
+    });
+  };
+
+  const updateLeaderboardPlayerScore = (playerCoins: number) => {
+    setLeaderboard(prev => {
+      const list = prev.map(item => item.isPlayer ? { ...item, money: playerCoins } : item);
+      return list.sort((a, b) => b.money - a.money);
+    });
+  };
+
+  const syncCoinsWithDatabase = (nextCoinsValue: number) => {
+    if (user && db) {
+      const docRef = doc(db, 'user_profiles', user.uid);
+      updateDoc(docRef, { coins: nextCoinsValue }).catch(e => console.error(e));
+    }
+  };
+
+  // Collect picked drop elements and reward points
+  const collectResource = (type: string, amount: number) => {
+    setResources(p => ({
+      ...p,
+      [type]: (p[type] || 0) + amount
+    }));
+
+    // Calculate XP bonuses
+    let xpGain = 10;
+    if (type === 'iron') xpGain = 20;
+    if (type === 'gold') xpGain = 45;
+    if (type === 'diamond') xpGain = 100;
+    if (type === 'iridium') xpGain = 300;
+
+    setXp(curXp => {
+      const nextXp = curXp + xpGain;
+      const derivedLvl = Math.max(1, Math.floor(Math.sqrt(nextXp / 100)) + 1);
+      if (derivedLvl > lvl) {
+        setLvl(derivedLvl);
+        setMaxHealth(100 + derivedLvl * 10);
+        setHealth(100 + derivedLvl * 10);
+        triggerToast('level', '🚀 LEVEL-UP UNLOCKED!', `Glückwunsch! Du bist nun Level ${derivedLvl}. Max HP aufgerüstet.`);
+        playRetroSound('levelUp');
+      }
+      return nextXp;
+    });
+
+    if (user && db) {
+      const docRef = doc(db, 'user_profiles', user.uid);
+      updateDoc(docRef, { xp: increment(xpGain) }).catch(err => console.error(err));
     }
 
-    return () => {
-      cancelAnimationFrame(animFrame);
-    };
-  }, [tiles, activeTab, isPlaying]);
+    playRetroSound('powerup');
+  };
 
-  // High-performance procedural pixel painter functions
-  const renderCanvas = () => {
+  // Mining blocks function on click
+  const mineGridBlock = (tileIndex: number, clickX: number, clickY: number) => {
+    const tile = tiles[tileIndex];
+    if (tile.broken || tile.type === 'grass' || tile.type === 'sand' || tile.type === 'volcanic_rock' || tile.type === 'water' || tile.type === 'lava') {
+      return;
+    }
+
+    // Tools validation matching levels
+    if (tile.type === 'diamond' && currentTool.power < 2) {
+      triggerToast('xp', '⛏️ WERKZEUG INSUFFIZIENT', 'Bautyp erfordert mindestens eine Eisen-Spitzhacke!');
+      playRetroSound('hurt');
+      return;
+    }
+    if ((tile.type === 'uranium' || tile.type === 'iridium') && currentTool.power < 3) {
+      triggerToast('xp', '⚙️ UPGRADE BENÖTIGT', 'Strahlenstoffe erfordern mindestens den Diamant-Bohrer!');
+      playRetroSound('hurt');
+      return;
+    }
+
+    // Trigger visual swing motion
+    playerRef.current.swinging = true;
+    playerRef.current.swingTimer = 10;
+
+    const damageInflicted = currentTool.damage;
+    const nextHp = Math.max(0, tile.health - damageInflicted);
+
+    playRetroSound('hit');
+
+    const updated = [...tiles];
+    updated[tileIndex] = { ...tile, health: nextHp };
+
+    if (nextHp <= 0) {
+      updated[tileIndex].broken = true;
+      playRetroSound('mine');
+
+      // Create drifting item drop particles
+      const rawType = tile.type === 'tree' ? 'wood' : (tile.type === 'stone' ? 'stone' : tile.type);
+      const isRare = tile.type === 'diamond' || tile.type === 'uranium' || tile.type === 'iridium';
+      const yieldAmt = isRare ? 1 : 2;
+
+      const drops: ItemDrop[] = [];
+      for (let i = 0; i < yieldAmt; i++) {
+        drops.push({
+          id: `drop_${Date.now()}_${i}_${Math.random()}`,
+          x: tile.x + tileSize / 2 + (Math.random() * 30 - 15),
+          y: tile.y + tileSize / 2 + (Math.random() * 30 - 15),
+          type: rawType,
+          amount: 1,
+          speedX: Math.random() * 6 - 3,
+          speedY: Math.random() * 6 - 3
+        });
+      }
+
+      setDroppingParticles(p => [...p, ...drops]);
+      addLog(`✨ Block abgebaut! Sammle geerntetes ${rawType.toUpperCase()} vom Boden.`);
+    }
+
+    setTiles(updated);
+  };
+
+  // Base Building Placement
+  const placeStructureOnGrid = (tileGridIndex: number) => {
+    const tile = tiles[tileGridIndex];
+    if (tile.type !== 'grass' && tile.type !== 'sand') {
+      triggerToast('xp', '❌ PLATZ BELEGT', 'Gebäude können nur auf offenem Boden platziert werden.');
+      playRetroSound('hurt');
+      return;
+    }
+
+    // Validate active slot inventories
+    let categoryKey = '';
+    let typeNameText = '';
+    let machineTypeToken: PlacedMachine['type'] = 'generator_solar';
+
+    if (selectedHotbarIndex === 1) { categoryKey = 'solar'; typeNameText = 'Solarpanel'; machineTypeToken = 'generator_solar'; }
+    if (selectedHotbarIndex === 2) { categoryKey = 'miner'; typeNameText = 'Auto-Miner'; machineTypeToken = 'miner_auto'; }
+    if (selectedHotbarIndex === 3) { categoryKey = 'seller'; typeNameText = 'Auto-Seller'; machineTypeToken = 'seller_auto'; }
+    if (selectedHotbarIndex === 4) { categoryKey = 'wall'; typeNameText = 'Eisenmauer'; machineTypeToken = 'wall_iron'; }
+
+    const availableReserves = buildInventory[categoryKey] || 0;
+    if (availableReserves < 1) {
+      triggerToast('xp', '🛍️ LAGER LEER', `Du besitzt keine ${typeNameText}-Module! Kaufe sie im Trade-Shop.`);
+      playRetroSound('hurt');
+      return;
+    }
+
+    // Deduct placement
+    setBuildInventory(prev => ({ ...prev, [categoryKey]: prev[categoryKey] - 1 }));
+
+    // Register positioned building machine
+    const cleanMach: PlacedMachine = {
+      id: `placed_${Date.now()}_${Math.random()}`,
+      x: tile.x,
+      y: tile.y,
+      type: machineTypeToken,
+      energyLevel: machineTypeToken.startsWith('generator_') ? 50 : 0,
+      maxEnergy: 100,
+      lastTick: Date.now(),
+      productionProgress: 0,
+      health: machineTypeToken === 'wall_iron' ? 2000 : 1000,
+      maxHealth: machineTypeToken === 'wall_iron' ? 2000 : 1000
+    };
+
+    setPlacedMachines(p => [...p, cleanMach]);
+
+    // Replace tile backdrop to prevent building clipping
+    const altered = [...tiles];
+    altered[tileGridIndex] = {
+      ...tile,
+      health: cleanMach.maxHealth,
+      maxHealth: cleanMach.maxHealth,
+      type: machineTypeToken === 'wall_iron' ? 'wall' : 'grass' // draw wall texture directly if wall-block
+    };
+
+    setTiles(altered);
+    playRetroSound('place');
+    addLog(`🧱 ${typeNameText} erfolgreich platziert auf Raster-Koordinaten!`);
+  };
+
+  // Canvas Drawing Loop Implementation
+  const drawGame = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.imageSmoothingEnabled = false;
 
-    // Viewport camera system centering on player coordinates
+    // Viewport relative lerping cameras positioning
     const player = playerRef.current;
-    const viewWidth = canvas.width;
-    const viewHeight = canvas.height;
+    const viewW = canvas.width;
+    const viewH = canvas.height;
 
-    const camX = Math.max(0, Math.min(worldSize.width - viewWidth, player.x - viewWidth / 2));
-    const camY = Math.max(0, Math.min(worldSize.height - viewHeight, player.y - viewHeight / 2));
+    const cameraX = Math.max(0, Math.min(worldSize.width - viewW, player.x - viewW / 2));
+    const cameraY = Math.max(0, Math.min(worldSize.height - viewH, player.y - viewH / 2));
 
-    // 1. Draw Environment tiles in viewport
+    // Clear background with Day-Night atmospheric shades shift
+    let skyHex = '#1a1a1a';
+    const hour = gameTime.hour;
+    if (hour >= 6 && hour < 17) skyHex = '#1c3127'; // Daylight emerald
+    else if (hour >= 17 && hour < 20) skyHex = '#542d4a'; // Dusk purple
+    else skyHex = '#0c0f1d'; // Starry midnight navy
+
+    ctx.fillStyle = skyHex;
+    ctx.fillRect(0, 0, viewW, viewH);
+
+    ctx.save();
+    ctx.translate(-cameraX, -cameraY);
+
+    // 1. Draw grid backdrop & environmental tiles
     tiles.forEach(tile => {
-      // Frustum culling inside viewport boundaries
-      if (tile.x + tileSize < camX || tile.x > camX + viewWidth || tile.y + tileSize < camY || tile.y > camY + viewHeight) {
+      // Frustum boundary checks for memory performance
+      if (tile.x + tileSize < cameraX || tile.x > cameraX + viewW || tile.y + tileSize < cameraY || tile.y > cameraY + viewH) {
         return;
       }
 
-      // Procedural pixel-art block draw pattern
       if (tile.broken) {
-        // Redraw underlying dirt block representing mined space
-        drawPixelBlock(ctx, tile.x - camX, tile.y - camY, 'mided');
+        ctx.fillStyle = '#221915';
+        ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
         return;
       }
 
-      drawPixelBlock(ctx, tile.x - camX, tile.y - camY, tile.type, tile.health, tile.maxHealth);
+      // Draw textures depending on types
+      let fillCol = '#2e5c1e'; // Default Grass
+      let patternText = '';
+
+      switch (tile.type) {
+        case 'sand': fillCol = '#dec481'; break;
+        case 'volcanic_rock': fillCol = '#1f1a1d'; break;
+        case 'water': fillCol = '#1e3a8a'; break;
+        case 'lava': fillCol = '#ea580c'; break;
+        case 'tree': fillCol = '#78350f'; break;
+        case 'stone': fillCol = '#52525b'; break;
+        case 'coal': fillCol = '#18181b'; break;
+        case 'iron': fillCol = '#94a3b8'; break;
+        case 'gold': fillCol = '#eab308'; break;
+        case 'diamond': fillCol = '#06b6d4'; break;
+        case 'emerald': fillCol = '#10b981'; break;
+        case 'uranium': fillCol = '#22c55e'; break;
+        case 'iridium': fillCol = '#c084fc'; break;
+        case 'flower': fillCol = '#ec4899'; break;
+        case 'wall': fillCol = '#737373'; break;
+        default: fillCol = '#2e5c1e';
+      }
+
+      ctx.fillStyle = fillCol;
+      ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+
+      // Detail accents inside terrainblocks
+      if (tile.type === 'tree') {
+        ctx.fillStyle = '#1e3f20'; 
+        ctx.beginPath();
+        ctx.arc(tile.x + tileSize / 2, tile.y + 20, 20, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tile.type === 'flower') {
+        ctx.fillStyle = '#fdbb2d';
+        ctx.fillRect(tile.x + 24, tile.y + 24, 16, 16);
+      } else if (tile.type === 'water') {
+        const waves = Math.sin(Date.now() / 300 + tile.x) * 4;
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(tile.x, tile.y + 20 + waves, tileSize, 4);
+      } else if (tile.type === 'lava') {
+        const glow = Math.sin(Date.now() / 150 + tile.x) * 50;
+        ctx.fillStyle = `rgb(${200 + glow}, 40, 20)`;
+        ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+      } else if (tile.type === 'wall') {
+        // Brick rows patterns
+        ctx.strokeStyle = '#404040';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('WALL', tile.x + tileSize/2, tile.y + tileSize - 10);
+      } else if (tile.type !== 'grass' && tile.type !== 'sand' && tile.type !== 'volcanic_rock') {
+        // Sparkling ores nuggets
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(tile.x + 12, tile.y + 12, 6, 6);
+        ctx.fillRect(tile.x + 40, tile.y + 36, 8, 8);
+        ctx.fillRect(tile.x + 22, tile.y + 44, 4, 4);
+      }
+
+      // Grid boundaries lines
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
     });
 
-    // 2. Draw other virtual players around map
-    userProfiles.slice(0, 3).forEach((prof, idx) => {
-      if (prof.userId === user?.uid) return; // ignore self
-      // Set distinct virtual coordinates to simulate dynamic multi-users (mobs or clan players)
-      const virtualX = 450 + (idx * 150) + Math.sin(Date.now() / 2000 + idx) * 32;
-      const virtualY = 320 + (idx * 110) + Math.cos(Date.now() / 2000 + idx) * 32;
+    // 2. Draw placed automation machinery nodes overlays
+    placedMachines.forEach(mach => {
+      if (mach.x + tileSize < cameraX || mach.x > cameraX + viewW || mach.y + tileSize < cameraY || mach.y > cameraY + viewH) {
+        return;
+      }
+      if (mach.type === 'wall_iron') return; // rendering wall block styled above directly
+
+      const dx = mach.x;
+      const dy = mach.y;
+
+      // Base card body
+      ctx.fillStyle = '#1e1b18';
+      ctx.fillRect(dx + 6, dy + 6, tileSize - 12, tileSize - 12);
+      ctx.strokeStyle = '#ff9800';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(dx + 6, dy + 6, tileSize - 12, tileSize - 12);
+
+      // Specific machine visual badges
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 18px Courier';
+      ctx.textAlign = 'center';
       
-      if (virtualX + player.width > camX && virtualX < camX + viewWidth && virtualY + player.height > camY && virtualY < camY + viewHeight) {
-        // Render simple player skin head
-        ctx.fillStyle = '#3a87ad';
-        ctx.fillRect(virtualX - camX, virtualY - camY + 8, player.width, player.height - 8);
-        ctx.fillStyle = '#ffccaa'; // Head
-        ctx.fillRect(virtualX - camX + 4, virtualY - camY, 16, 16);
-        ctx.fillStyle = '#fff'; // Tags background
-        ctx.font = '10px monospace';
-        ctx.fillStyle = '#4cfc35';
-        ctx.fillText(prof.displayName || 'Spieler', virtualX - camX - 10, virtualY - camY - 8);
-      }
+      let symb = '🤖';
+      if (mach.type === 'generator_solar') symb = '☀️';
+      if (mach.type === 'generator_wind') symb = '🌀';
+      if (mach.type === 'seller_auto') symb = '💵';
+
+      ctx.fillText(symb, dx + tileSize / 2, dy + tileSize / 2 + 5);
+
+      // Micro status progress bars
+      ctx.fillStyle = '#333';
+      ctx.fillRect(dx + 10, dy + tileSize - 12, tileSize - 20, 3);
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(dx + 10, dy + tileSize - 12, (tileSize - 20) * (mach.productionProgress / 100), 3);
     });
 
-    // 3. Draw player avatar & model
-    const pX = player.x - camX;
-    const pY = player.y - camY;
+    // 3. Draw physical drifting element drop stars
+    droppingParticles.forEach(p => {
+      if (p.collected) return;
+      if (p.x < cameraX || p.x > cameraX + viewW || p.y < cameraY || p.y > cameraY + viewH) return;
 
-    // Body block
-    ctx.fillStyle = '#2d54a8'; // Blue shirt
-    ctx.fillRect(pX, pY + 12, player.width, player.height - 12);
-    
-    // Pants
-    ctx.fillStyle = '#5c4033'; // Brown pants
-    ctx.fillRect(pX + 2, pY + player.height - 4, player.width - 4, 4);
+      const offsetBounce = Math.sin(Date.now() / 150 + p.x) * 5;
 
-    // Face / skin block head representation (or texture image if loaded gracefully)
-    ctx.fillStyle = '#ffdbb5';
-    ctx.fillRect(pX + 4, pY, 16, 16);
-    
-    // Hair
-    ctx.fillStyle = '#4c2e00';
-    ctx.fillRect(pX + 4, pY, 16, 4);
-
-    // Eyes
-    ctx.fillStyle = '#0a23bf';
-    ctx.fillRect(pX + 6, pY + 6, 2, 2);
-    ctx.fillRect(pX + 12, pY + 6, 2, 2);
-
-    // Draw pickaxe tool in hands if mining
-    if (keysPressed.current[' '] || keysPressed.current['l'] || keysPressed.current['z']) {
-      // Swing Animation 
-      ctx.fillStyle = equippedPickaxe?.imageColor || '#8a5c32';
-      ctx.fillRect(pX + 14, pY + 8, 12, 4); 
-    }
-
-    // Name tag
-    ctx.font = 'bold 11px monospace';
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    
-    const displayTag = `${myProfile?.displayName || user?.displayName || 'Steve'}`;
-    ctx.fillText(displayTag, pX + player.width / 2, pY - 8);
-
-    // Add visual glowing effect around their head representing clan features
-    if (myProfile?.activeGlow && myProfile.activeGlow !== 'none') {
-      ctx.strokeStyle = myProfile.activeGlow === 'rainbow' ? 'magenta' : myProfile.activeGlow;
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(pX - 2, pY - 2, player.width + 4, player.height + 4);
-    }
-  };
-
-  // Helper code to paint procedurally beautiful individual blocks
-  const drawPixelBlock = (
-    ctx: CanvasRenderingContext2D, 
-    x: number, 
-    y: number, 
-    type: string, 
-    health?: number, 
-    maxHealth?: number
-  ) => {
-    // 8x8 virtual pixel mapping inside 48px tile
-    const pSize = tileSize / 8;
-    
-    if (type === 'grass') {
-      ctx.fillStyle = '#55a630'; // Base Grass
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#2b9348'; // dark patches
-      ctx.fillRect(x + pSize * 2, y + pSize * 3, pSize * 2, pSize);
-      ctx.fillRect(x + pSize * 5, y + pSize * 5, pSize, pSize * 2);
-      ctx.fillStyle = '#80b918'; // lighter highlights
-      ctx.fillRect(x + pSize * 1, y + pSize * 1, pSize, pSize);
-      ctx.fillRect(x + pSize * 6, y + pSize * 2, pSize * 2, pSize);
-    } else if (type === 'stone') {
-      ctx.fillStyle = '#7c7c7c'; // Base Stone
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#5c5c5c'; // shadow
-      ctx.fillRect(x, y + tileSize - pSize, tileSize, pSize);
-      ctx.fillRect(x + tileSize - pSize, y, pSize, tileSize);
-      ctx.fillStyle = '#9c9c9c'; // highlight
-      ctx.fillRect(x + pSize, y + pSize, pSize * 2, pSize);
-    } else if (type === 'coal') {
-      ctx.fillStyle = '#7c7c7c'; // stone base
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#222222'; // coal spots
-      ctx.fillRect(x + pSize * 2, y + pSize * 2, pSize * 2, pSize * 2);
-      ctx.fillRect(x + pSize * 5, y + pSize * 4, pSize * 2, pSize);
-    } else if (type === 'iron') {
-      ctx.fillStyle = '#7c7c7c'; // stone base
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#d49b65'; // iron ore
-      ctx.fillRect(x + pSize * 2, y + pSize * 2, pSize * 2, pSize);
-      ctx.fillRect(x + pSize * 5, y + pSize * 5, pSize, pSize);
-    } else if (type === 'gold') {
-      ctx.fillStyle = '#7c7c7c'; // stone base
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#fcca03'; // gold shiny
-      ctx.fillRect(x + pSize * 3, y + pSize * 1, pSize * 2, pSize * 2);
-      ctx.fillRect(x + pSize * 1, y + pSize * 5, pSize, pSize);
-    } else if (type === 'diamond') {
-      ctx.fillStyle = '#7c7c7c'; // stone base
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#04f3ff'; // glowing diamond cyan
-      ctx.fillRect(x + pSize * 2, y + pSize * 2, pSize * 2, pSize * 2);
-      ctx.fillRect(x + pSize * 5, y + pSize * 5, pSize, pSize);
-    } else if (type === 'emerald') {
-      ctx.fillStyle = '#7c7c7c'; // stone base
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#06c231'; // emerald green
-      ctx.fillRect(x + pSize * 3, y + pSize * 3, pSize * 2, pSize * 2);
-    } else if (type === 'water') {
-      ctx.fillStyle = 'rgba(23, 107, 224, 0.75)'; // Water pool
-      ctx.fillRect(x, y, tileSize, tileSize);
-    } else if (type === 'lava') {
-      // Pulsing procedural lava animations
-      const wave = Math.sin(Date.now() / 400) * 10;
-      ctx.fillStyle = `rgb(${225 + wave}, ${50 + wave * 2}, 10)`;
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#ff6a00';
-      ctx.fillRect(x + pSize * 2, y + pSize * 3, pSize * 2, pSize);
-    } else if (type === 'tree') {
-      ctx.fillStyle = '#3a5a40'; // Tree leaves
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#5c4033'; // center log trunk
-      ctx.fillRect(x + tileSize/2 - pSize, y + tileSize - pSize * 3, pSize * 2, pSize * 3);
-    } else if (type === 'flower') {
-      ctx.fillStyle = '#55a630'; // grass backdrop
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#ff4d6d'; // rose petal color
-      ctx.fillRect(x + tileSize/2 - pSize, y + tileSize/2 - pSize, pSize * 2, pSize * 2);
-    } else if (type === 'mided') {
-      // Dark ground left-overs
-      ctx.fillStyle = '#402a1b';
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.fillStyle = '#22150c';
-      ctx.fillRect(x + pSize, y + pSize, pSize * 6, pSize * 6);
-    }
-
-    // 4. Paint CRACK overlay indicating structural durability decay if damaged
-    if (health !== undefined && maxHealth !== undefined && health < maxHealth) {
-      const crackRatio = health / maxHealth;
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-      ctx.lineWidth = 2.5;
+      // Outer aura
+      ctx.fillStyle = p.type === 'wood' ? '#8b5a2b' : (p.type === 'stone' ? '#71717a' : '#00ffd2');
       ctx.beginPath();
-      if (crackRatio < 0.75) {
-        ctx.moveTo(x + pSize, y + pSize); ctx.lineTo(x + tileSize - pSize, y + tileSize - pSize);
+      ctx.arc(p.x, p.y + offsetBounce, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Shiny core
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + offsetBounce, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 4. Draw wandering player bots List
+    botsList.forEach(bot => {
+      if (bot.x + player.size < cameraX || bot.x - player.size > cameraX + viewW || bot.y + player.size < cameraY || bot.y - player.size > cameraY + viewH) {
+        return;
       }
-      if (crackRatio < 0.5) {
-        ctx.moveTo(x + tileSize - pSize, y + pSize); ctx.lineTo(x + pSize, y + tileSize - pSize);
-      }
-      if (crackRatio < 0.25) {
-        ctx.moveTo(x + tileSize/2, y + pSize); ctx.lineTo(x + tileSize/2, y + tileSize - pSize);
-      }
-      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(bot.x, bot.y);
+      ctx.rotate(bot.swingAngle * Math.PI / 180);
+
+      // Minecraft boxy character look
+      ctx.fillStyle = bot.color;
+      ctx.fillRect(-bot.speed * 6, -bot.speed * 6, bot.speed * 12, bot.speed * 12);
+      ctx.fillStyle = '#ffcc99';
+      ctx.fillRect(-12, -12, 24, 24);
+
+      // Bot Face eyes
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(-8, -4, 4, 4);
+      ctx.fillRect(4, -4, 4, 4);
+
+      ctx.restore();
+
+      // Name tags and cash above bot head
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px Courier';
+      ctx.textAlign = 'center';
+      ctx.fillText(`<${bot.name}> [$${bot.cash}]`, bot.x, bot.y - bot.speed * 6 - 8);
+    });
+
+    // 5. Draw Primary Character (Minecraft block-style matching video)
+    ctx.save();
+    ctx.translate(player.x, player.y);
+
+    // Turn head angle look direction directly mirroring mouse pointers
+    const gazeAngle = Math.atan2(mousePosRef.current.y - (player.y - cameraY), mousePosRef.current.x - (player.x - cameraX));
+    ctx.rotate(gazeAngle);
+
+    // Character body color options matching custom equipped Exo armor shields
+    let suiteCol = '#2a9d8f';
+    let hairCol = '#264653';
+    let helmCol = '#e76f51';
+
+    if (equippedArmor === 'nano') { suiteCol = '#16a34a'; helmCol = '#155d27'; }
+    if (equippedArmor === 'quantum') { suiteCol = '#8b5cf6'; helmCol = '#4c1d95'; }
+
+    // Body block base trunk
+    ctx.fillStyle = suiteCol;
+    ctx.fillRect(-player.size / 2, -player.size / 2, player.size, player.size);
+
+    // Character Hair base
+    ctx.fillStyle = hairCol;
+    ctx.fillRect(-player.size / 2 + 2, -player.size / 2 + 2, 8, player.size - 4);
+
+    // Front Gaze specs
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(10, -8, 6, 6);
+    ctx.fillRect(10, 2, 6, 6);
+    ctx.fillStyle = '#0000ff'; // iris
+    ctx.fillRect(12, -6, 3, 3);
+    ctx.fillRect(12, 4, 3, 3);
+
+    // Swinging Tool / Saber representation matching the swing action
+    ctx.save();
+    ctx.translate(14, 18);
+    if (player.swinging) {
+      ctx.rotate(-Math.PI / 4 + (player.swingTimer * 0.16));
     }
+    ctx.font = '22px Courier';
+    ctx.fillText(currentTool.label, -10, 5);
+    ctx.restore();
+
+    ctx.restore();
+
+    // Above player indicator tags
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = 'bold 12px Courier';
+    ctx.textAlign = 'center';
+    const cleanNickname = myProfile?.displayName || user?.displayName || 'Du (Gast)';
+    ctx.fillText(`${cleanNickname} (lvl ${lvl})`, player.x, player.y - player.size - 8);
+
+    // Glowing radius preview mesh if machine slots (2-5) selected
+    if (selectedHotbarIndex > 0) {
+      ctx.strokeStyle = 'rgba(255, 152, 0, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, 180, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]); // clear dash
+
+      // Mouse position projected boundary cell box
+      const absMouseX = mousePosRef.current.x + cameraX;
+      const absMouseY = mousePosRef.current.y + cameraY;
+      const gridCellX = Math.floor(absMouseX / tileSize) * tileSize;
+      const gridCellY = Math.floor(absMouseY / tileSize) * tileSize;
+
+      const dstMouse = Math.hypot(player.x - (gridCellX + tileSize / 2), player.y - (gridCellY + tileSize / 2));
+      ctx.fillStyle = dstMouse <= 180 ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)';
+      ctx.fillRect(gridCellX, gridCellY, tileSize, tileSize);
+      ctx.strokeStyle = dstMouse <= 180 ? '#4CAF50' : '#f44336';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(gridCellX, gridCellY, tileSize, tileSize);
+    }
+
+    ctx.restore();
   };
 
-  // Mining Action triggered when clicking the canvas directly!
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Click Canvas dispatcher (Mining block or Placing machine)
+  const handleCanvasInteraction = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -659,763 +1299,563 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
+    const viewW = canvas.width;
+    const viewH = canvas.height;
     const player = playerRef.current;
-    const viewWidth = canvas.width;
-    const viewHeight = canvas.height;
 
-    // Map viewport coordinates back to actual absolute world coords
-    const camX = Math.max(0, Math.min(worldSize.width - viewWidth, player.x - viewWidth / 2));
-    const camY = Math.max(0, Math.min(worldSize.height - viewHeight, player.y - viewHeight / 2));
+    const cameraX = Math.max(0, Math.min(worldSize.width - viewW, player.x - viewW / 2));
+    const cameraY = Math.max(0, Math.min(worldSize.height - viewH, player.y - viewH / 2));
 
-    const worldClickX = clickX + camX;
-    const worldClickY = clickY + camY;
+    const absClickX = clickX + cameraX;
+    const absClickY = clickY + cameraY;
 
-    // 1. Identify which exact voxel coordinate was clicked
-    const targetTileIndex = tiles.findIndex(tile => {
-      return worldClickX >= tile.x && 
-             worldClickX < tile.x + tileSize && 
-             worldClickY >= tile.y && 
-             worldClickY < tile.y + tileSize;
+    // Fetch grid coordinates index intersected
+    const targetIdx = tiles.findIndex(t => 
+      absClickX >= t.x && absClickX < t.x + tileSize &&
+      absClickY >= t.y && absClickY < t.y + tileSize
+    );
+
+    if (targetIdx === -1) return;
+    const targetTile = tiles[targetIdx];
+
+    // Interaction distance range restriction
+    const centerTileX = targetTile.x + tileSize / 2;
+    const centerTileY = targetTile.y + tileSize / 2;
+    const dst = Math.hypot(player.x - centerTileX, player.y - centerTileY);
+
+    if (dst > 180) {
+      triggerToast('xp', '❌ ZU WEIT ENTFERNT', 'Gehe näher an das Erz heran! (Reichweite 180px)');
+      playRetroSound('hurt');
+      return;
+    }
+
+    // Direct selection slots action dispatcher
+    if (selectedHotbarIndex === 0) {
+      // Pickaxe Mining Modus
+      mineGridBlock(targetIdx, absClickX, absClickY);
+    } else {
+      // RTS Construction Placement of Building Slots 2-5
+      placeStructureOnGrid(targetIdx);
+    }
+  };
+
+  const handleChatSubmit = () => {
+    if (!chatInput.trim()) return;
+    const tag = myProfile?.displayName || user?.displayName || 'Spieler';
+    addLog(`💬 <${tag}> ${chatInput.trim()}`);
+    setChatInput('');
+  };
+
+  // Buy item transactional ledger
+  const triggerUnlockShopItem = (item: ShopItem) => {
+    if (coins < item.price) {
+      triggerToast('xp', '❌ NICHT GENUG GELD', `Du benötigst $${item.price} für dieses Upgrade!`);
+      playRetroSound('hurt');
+      return;
+    }
+    if (lvl < item.levelRequired) {
+      triggerToast('xp', '🔒 STUFE ZU GERING', `Upgrade setzt Spieler-Level ${item.levelRequired} voraus!`);
+      playRetroSound('hurt');
+      return;
+    }
+
+    const cost = item.price;
+    setCoins(c => {
+      const nextCoins = c - cost;
+      updateLeaderboardPlayerScore(nextCoins);
+      syncCoinsWithDatabase(nextCoins);
+      return nextCoins;
     });
 
-    if (targetTileIndex === -1) return;
-    const tile = tiles[targetTileIndex];
-
-    if (tile.broken || tile.type === 'grass' || tile.type === 'water') return;
-
-    // Check distance range from player (cannot mine blocks too far away, matching spiel2.mp4 exact physics!)
-    const playerCenterX = player.x + player.width / 2;
-    const playerCenterY = player.y + player.height / 2;
-    const tileCenterX = tile.x + tileSize / 2;
-    const tileCenterY = tile.y + tileSize / 2;
-
-    const dist = Math.sqrt(Math.pow(playerCenterX - tileCenterX, 2) + Math.pow(playerCenterY - tileCenterY, 2));
-    
-    // Check range ceiling
-    if (dist > 150) {
-      addLog('§4⚠️ Zu weit entfernt zum Abbbauen! Geh näher ran.');
-      return;
-    }
-
-    // Tools requirement safety checks - matching chat warns from video frame:
-    // "Wooden pickaxe is not suitable for extraction: diamond"
-    const toolPower = equippedPickaxe?.power || 0;
-    
-    if (tile.type === 'diamond' && toolPower < 3) {
-      addLog(`§6⚠️ Wooden pickaxe is not suitable for extraction: diamond`);
-      addLog('§4Dein aktuelles Tool ist zu schwach für Diamanterz! Kaufe eine Goldene/Diamant-Spitzhacke.');
-      playRetroSound('hurt');
-      return;
-    }
-
-    if (tile.type === 'emerald' && toolPower < 5) {
-      addLog(`§6⚠️ Iron pickaxe or wooden pickaxe is not suitable for extraction: emerald`);
-      addLog('§4Dein aktuelles Tool ist zu schwach für Smaragde! Du benötigst mindestens eine Diamant-Spitzhacke!');
-      playRetroSound('hurt');
-      return;
-    }
-
-    if (tile.type === 'gold' && toolPower < 2) {
-      addLog(`§6⚠️ Wooden pickaxe is not suitable for extraction: gold`);
-      addLog('§4Du benötigst mindestens eine Eisen-Spitzhacke für Golderz!');
-      playRetroSound('hurt');
-      return;
-    }
-
-    // Energy drain checks
-    if (energy < 2) {
-      addLog('§4⚡ Unzureichende Energie! Lasse deinen Energiekern im HUD aufladen.');
-      playRetroSound('hurt');
-      return;
-    }
-
-    // Consume Energy for hit
-    setEnergy(prev => Math.max(0, prev - 2));
-
-    // Deal damage to tile based on pickaxe power level
-    const nextHealth = Math.max(0, tile.health - toolPower);
-    playRetroSound('hit');
-
-    const updatedTiles = [...tiles];
-    updatedTiles[targetTileIndex] = { ...tile, health: nextHealth };
-
-    if (nextHealth <= 0) {
-      // Mined successfully! Break tile!
-      updatedTiles[targetTileIndex].broken = true;
-      playRetroSound('mine');
-      setBlocksMined(p => p + 1);
-
-      // Reward calculations & synchronization with actual user profile database!
-      let coinsReward = 5;
-      let xpReward = 10;
-      let successMsg = '';
-
-      switch (tile.type) {
-        case 'coal': coinsReward = 15; xpReward = 20; successMsg = '§aKohle abgebaut!'; break;
-        case 'iron': coinsReward = 45; xpReward = 60; successMsg = '§eEisenerz abgebaut! +45 Coins'; break;
-        case 'gold': coinsReward = 120; xpReward = 150; successMsg = '§6Golderz abgebaut! +120 Coins'; break;
-        case 'diamond': coinsReward = 500; xpReward = 450; successMsg = '§bDiamanterz abgebaut! +500 Coins 🔥'; break;
-        case 'emerald': coinsReward = 1200; xpReward = 1000; successMsg = '§2Smaragderz abgebaut! +1200 Coins! UNSCHLAGBAR 👑'; break;
-        case 'tree': coinsReward = 10; xpReward = 15; successMsg = 'Holz gefällt!'; break;
-        case 'flower': coinsReward = 2; xpReward = 5; successMsg = 'Blume gesammelt'; break;
-        default: coinsReward = 5; xpReward = 8; successMsg = 'Stein zerschlagen'; break;
-      }
-
-      addLog(`${successMsg} (+${coinsReward} 🪙 / +${xpReward} XP)`);
-
-      // Increment stats and sync with Firebase real-time!
-      setCoins(p => p + coinsReward);
-      setXp(p => p + xpReward);
-
-      // Simple quest progression
-      if (tile.type === 'iron' && trainingTask.includes('Eisenerz')) {
-        setTrainingTask('Herausforderung: Reist du tiefer um Diamanten? Kaufe Upgrades im Shop!');
-        triggerToast('quest', '🎮 SPIEL-QUEST ABGESCHLOSSEN', 'Du hast das erste Eisenerz abgebaut!', { amount: 100 });
-      }
-
-      // Sync safely to Firebase Firestore
-      if (user) {
-        const docRef = doc(db, 'user_profiles', user.uid);
-        updateDoc(docRef, {
-          coins: increment(coinsReward),
-          xp: increment(xpReward)
-        }).catch(err => console.error("Firebase world sync failed", err));
-      }
-    }
-
-    setTiles(updatedTiles);
-  };
-
-  // Recharging values
-  useEffect(() => {
-    const rechargeInterval = setInterval(() => {
-      setEnergy(prev => Math.min(100, prev + 4));
-      setHealth(prev => Math.min(10, prev + 1));
-    }, 3000);
-    return () => clearInterval(rechargeInterval);
-  }, []);
-
-  // Purchase dynamic store assets
-  const buyItems = (item: Item) => {
-    if (coins < item.price) {
-      triggerToast('xp', '❌ COINS REICHEN NICHT', `Du benötigst ${item.price} Coins für dieses Item.`);
-      playRetroSound('hurt');
-      return;
-    }
-
-    // Deduct coins & update owned items
-    const nextCoins = coins - item.price;
-    setCoins(nextCoins);
-    setOwnedItems(prev => [...prev, item.id]);
     playRetroSound('buy');
 
-    // Automatically slot if pickaxe
-    if (item.category === 'Spitzhaken') {
-      const emptySlot = hotbar.findIndex(s => s === null);
-      if (emptySlot !== -1) {
-        const nextHotbar = [...hotbar];
-        nextHotbar[emptySlot] = { id: item.id, name: item.name, power: item.power };
-        setHotbar(nextHotbar);
-      }
-      triggerToast('quest', '🛒 ITEM GEKAUFT', `${item.name} erfolgreich erworben und im Inventar hinterlegt!`);
-    } else {
-      triggerToast('quest', '🛒 AUSRÜSTUNG GEKAUFT', `${item.name} schützt dich jetzt im Kampf und in Lava-Zonen!`);
+    // Upgrade slot or building storage
+    if (item.itemType === 'tool') {
+      setCurrentTool({
+        id: item.id,
+        name: item.name,
+        damage: item.damage || 20,
+        power: item.id === 'iron_pick' ? 2 : 3,
+        label: item.icon,
+        color: item.imageColor
+      });
+      addLog(`⚔️ Werkzeug upgraded auf ${item.name}! Mining-Schaden massiv erhöht.`);
+    } else if (item.itemType === 'armor') {
+      if (item.id === 'suit_nano') setEquippedArmor('nano');
+      if (item.id === 'suit_quantum') setEquippedArmor('quantum');
+      if (item.id === 'utility_jetpack') setHasJetpack(true);
+      addLog(`🛡️ Exo-Suit upgraded auf ${item.name}! Fähigkeiten dauerhaft erweitert.`);
+    } else if (item.itemType === 'building') {
+      let bToken = 'solar';
+      if (item.id === 'solar') bToken = 'solar';
+      if (item.id === 'miner') bToken = 'miner';
+      if (item.id === 'seller') bToken = 'seller';
+      if (item.id === 'wall') bToken = 'wall';
+
+      setBuildInventory(prev => ({
+        ...prev,
+        [bToken]: (prev[bToken] || 0) + 1
+      }));
+      addLog(`🛍️ Module erworben: +1 ${item.name} im Baulager! (Slot ${bToken === 'solar' ? '2' : bToken === 'miner' ? '3' : bToken === 'seller' ? '4' : '5'} ausrüstbar)`);
     }
 
-    // Sync purchase with real Firestore User DB
-    if (user) {
-      const docRef = doc(db, 'user_profiles', user.uid);
-      updateDoc(docRef, {
-        coins: nextCoins
-      }).catch(err => console.error("Deduct coins failed", err));
-    }
-  };
-
-  // Skip Training trigger
-  const skipTraining = () => {
-    setTrainingTask('Abenteuer läuft: Erkunde die offene 2D Pixel-Karte!');
-    triggerToast('xp', '⚡ TRAINING ÜBERSPRUNGEN', 'Du bist nun auf dich allein gestellt.');
-  };
-
-  const handleCreateTeamSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!teamName.trim() || !teamMotto.trim()) return;
-
-    const newTeam = { name: teamName.trim(), motto: teamMotto.trim() };
-    setTeamsList(prev => [...prev, newTeam]);
-    setActiveTeam(newTeam);
-    addLog(`§eDu hast das Team [${newTeam.name}] gegründet!`);
-    setTeamName('');
-    setTeamMotto('');
-    triggerToast('level', '🛡️ CLAN TEAM GRÜNDUNG', `Erfolgreich erstellt: ${newTeam.name}`);
+    triggerToast('quest', '🛒 UPGRADE ERFOLGREICH', `${item.name} wurde freigeschaltet.`);
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#07090e] border border-white/5 relative overflow-hidden custom-scrollbar">
+    <div className="flex-1 flex flex-col bg-[#0d0d12] relative overflow-hidden font-mono min-h-0">
       
-      {/* Top HUD Panel mirroring spiel2.mp4 exactly */}
-      <div className="p-4 bg-black/80 border-b border-white/5 flex flex-wrap items-center justify-between gap-4 z-20 font-mono text-xs text-white">
-        {/* Left Side: Top players scoreboard overlay list matching spiel2.mp4 */}
-        <div className="flex items-center gap-4 bg-neutral-950/80 px-4 py-2 rounded-xl border border-white/5">
-          <Trophy size={14} className="text-mc-gold animate-bounce" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-neutral-500 font-extrabold uppercase">Top Players</span>
-            <div className="flex items-center gap-3">
-              <span className="text-mc-gold font-bold">1. Join11Lennon <span className="text-neutral-400">$2.8K</span> 🇮🇱</span>
-              <span className="text-neutral-500">|</span>
-              <span className="text-white font-bold">2. RiggedyRekt <span className="text-neutral-400 font-normal">(${(coins || 0).toLocaleString()})</span> 🇩🇪</span>
-            </div>
+      {/* 2D ARENA VIEWPORT FRAME */}
+      <div 
+        ref={containerRef} 
+        className="flex-1 w-full h-full relative cursor-crosshair overflow-hidden p-0 min-h-0"
+      >
+        <canvas 
+          ref={canvasRef} 
+          onClick={handleCanvasInteraction}
+          className="absolute inset-0 block w-full h-full border border-neutral-800"
+        />
+
+        {/* 1. TOP-LEFT PANEL: ULTIMATE SCOREBOARD LEADERBOARD */}
+        <div className="absolute top-4 left-4 z-10 w-64 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto transition-transform hover:scale-[1.01]">
+          <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-3">
+            <h4 className="text-amber-500 font-extrabold tracking-wider uppercase text-sm flex items-center gap-1.5">
+              <Trophy size={15} className="text-yellow-500 animate-pulse" />
+              TOP PLAYERS
+            </h4>
+            <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full font-black uppercase">
+              Live
+            </span>
+          </div>
+          <div className="space-y-2">
+            {leaderboard.map((u, idx) => (
+              <div 
+                key={`lb-${idx}`} 
+                className={`flex justify-between items-center text-xs ${u.isPlayer ? 'text-cyan-400 font-black' : 'text-neutral-300 font-medium'}`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="text-[10px] text-neutral-500 font-black">{idx + 1}.</span>
+                  <span className="truncate">{u.name}</span>
+                </div>
+                <span className="text-yellow-500 font-black shrink-0 font-mono">${(u.money / 1000).toFixed(1)}K</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Mid: Weather stats */}
-        <div className="flex items-center gap-5">
-          {/* Hour & clock */}
-          <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-lg border border-white/5">
-            <Clock size={12} className="text-mc-gold" />
-            <span>{String(gameTime.hour).padStart(2, '0')}:{String(gameTime.minute).padStart(2, '0')} AM</span>
+        {/* 2. TOP-CENTER PANEL: ATMOSPHERICS WEATHER & CLOCK */}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl px-6 py-2.5 pointer-events-auto flex items-center gap-6 text-xs text-neutral-200">
+          <div className="flex items-center gap-2 font-black text-amber-500">
+            {gameTime.hour >= 6 && gameTime.hour <= 18 ? (
+              <Sun size={14} className="text-yellow-400 animate-spin-slow" />
+            ) : (
+              <Moon size={14} className="text-blue-400 animate-pulse" />
+            )}
+            <span>
+              {String(gameTime.hour).padStart(2, '0')}:
+              {String(gameTime.minute).padStart(2, '0')}{' '}
+              {gameTime.hour >= 12 ? 'PM' : 'AM'}
+            </span>
           </div>
 
-          {/* Wind Speed status */}
-          <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-lg border border-white/5">
-            <Wind size={12} className="text-sky-400" />
+          <div className="flex items-center gap-1.5" title="Windkraft-Turbulenz">
+            <Wind size={13} className="text-cyan-400" />
             <span>{windSpeed} m/s</span>
           </div>
 
-          {/* Temperature status */}
-          <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-lg border border-white/5">
-            <Thermometer size={12} className="text-orange-400" />
+          <div className="flex items-center gap-1.5" title="Temperatur">
+            <Thermometer size={13} className="text-rose-400" />
             <span>{temperature}°C</span>
           </div>
+
+          <div className="text-[10px] font-black tracking-widest px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 uppercase">
+            {isRaining ? '🌧️ RAIN' : '☀️ CLEAR'}
+          </div>
         </div>
 
-        {/* Right Side: Simple training box */}
-        <div className="bg-green-950/20 border border-green-500/20 px-4 py-2 rounded-xl max-w-sm flex items-center gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] text-green-400 font-extrabold uppercase mb-0.5 animate-pulse">AKTIVITÄT</p>
-            <p className="text-[10px] text-neutral-300 font-bold leading-normal truncate">{trainingTask}</p>
+        {/* 3. TOP-RIGHT PANEL: COZY TUTORIAL BOX */}
+        <div className="absolute top-4 right-4 z-10 w-72 bg-emerald-950/85 border border-emerald-500/30 backdrop-blur-md rounded-2xl p-4 pointer-events-auto">
+          <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2 mb-2">
+            <h5 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-1.5">
+              <Sparkles size={14} className="animate-pulse" />
+              MISSION BRIEFING
+            </h5>
+            <span className="text-[9px] text-emerald-500 font-black bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+              Active
+            </span>
           </div>
+          <p className="text-xs text-neutral-200 leading-relaxed font-semibold">
+            Bewege dich mit WASD-Tasten. Ernte Holz, Kohle und Ores, um passives Einkommen zu generieren. Platziere Auto-Miner im Bau-Modus! Press [B] für den Shop.
+          </p>
+        </div>
+
+        {/* 4. RIGHT SIDEBAR PANEL: RESOURCE LEDGER SIDEBAR */}
+        <div className="absolute top-48 right-4 z-10 w-48 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto space-y-3.5 shadow-2xl">
+          <div className="border-b border-neutral-800 pb-1.5">
+            <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest">WALLET CASH</span>
+            <div className="text-xl font-black text-emerald-500 italic block mt-0.5" style={{ textShadow: '0 0 10px rgba(16,185,129,0.3)' }}>
+              ${coins.toLocaleString()}
+            </div>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between items-center text-neutral-300">
+              <span>🪵 Holz</span>
+              <span className="font-extrabold text-white">{resources.wood}</span>
+            </div>
+            <div className="flex justify-between items-center text-neutral-300">
+              <span>🪨 Stein</span>
+              <span className="font-extrabold text-white">{resources.stone}</span>
+            </div>
+            <div className="flex justify-between items-center text-neutral-300">
+              <span>⬛ Kohle</span>
+              <span className="font-extrabold text-white">{resources.coal}</span>
+            </div>
+            <div className="flex justify-between items-center text-neutral-300">
+              <span>🔩 Eisen</span>
+              <span className="font-extrabold text-white">{resources.iron}</span>
+            </div>
+            <div className="flex justify-between items-center text-neutral-300">
+              <span>💎 Diamant</span>
+              <span className="font-extrabold text-cyan-400">{resources.diamond}</span>
+            </div>
+            <div className="flex justify-between items-center text-neutral-300 border-t border-neutral-800 pt-2">
+              <span className="text-amber-500 font-extrabold flex items-center gap-1">
+                <Zap size={11} /> Strom
+              </span>
+              <span className="font-black text-amber-400 font-mono">{resources.power} ⚡</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 5. BOTTOM-LEFT PANEL: LIVE LOBBY CHAT WINDOW */}
+        <div className="absolute bottom-4 left-4 z-10 w-80 bg-black/75 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-4 pointer-events-auto shadow-2xl flex flex-col justify-end">
+          <div className="text-[10px] text-neutral-500 font-black uppercase tracking-wider mb-2 border-b border-neutral-800 pb-1">
+            💬 PUBLIC WORLD SERVER CHAT
+          </div>
+          <div className="h-32 overflow-y-auto space-y-1.5 text-[11px] font-mono mb-3 custom-scrollbar flex flex-col justify-end">
+            {logs.map((lg, i) => (
+              <p 
+                key={`log-${i}`} 
+                className={`truncate block leading-relaxed ${
+                  lg.startsWith('✨') ? 'text-emerald-400 font-bold' :
+                  lg.startsWith('💬') ? 'text-cyan-400 font-medium' :
+                  lg.startsWith('❌') || lg.startsWith('☠️') ? 'text-red-400' :
+                  lg.startsWith('🧱') ? 'text-orange-400' :
+                  'text-neutral-300'
+                }`}
+              >
+                {lg}
+              </p>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input 
+              id="chat-input-g"
+              type="text" 
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              placeholder="Sende Nachricht..." 
+              className="flex-1 bg-neutral-900 border border-neutral-800 text-[11px] px-3 py-1.5 rounded-xl text-white outline-none focus:border-amber-500 font-mono"
+            />
+            <button 
+              onClick={handleChatSubmit}
+              className="bg-amber-500 hover:bg-amber-400 px-3 rounded-xl text-black font-black flex items-center justify-center transition-transform hover:scale-105"
+            >
+              <Send size={11} className="shrink-0" />
+            </button>
+          </div>
+        </div>
+
+        {/* 6. BOTTOM-CENTER PANEL: PLAYER BAR & HOTBAR MECHANIC */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-black/90 border border-neutral-800/90 backdrop-blur-md rounded-2xl p-4 w-[400px] pointer-events-auto flex flex-col items-center gap-3">
+          
+          {// Vitals Drawers
+          }
+          <div className="w-full space-y-2">
+            {/* HP Bar */}
+            <div className="relative h-4 bg-neutral-900 border border-neutral-800 rounded-full overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-y-0 left-0 bg-red-600 transition-all duration-300" style={{ width: `${(health / maxHealth) * 100}%` }} />
+              <span className="absolute z-10 text-[10px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,1)] flex items-center gap-1 capitalize">
+                LEBEN: {Math.floor(health)}/{maxHealth}
+              </span>
+            </div>
+
+            {/* Energy Bar */}
+            <div className="relative h-4 bg-neutral-900 border border-neutral-800 rounded-full overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-y-0 left-0 bg-amber-500 transition-all duration-300" style={{ width: `${energy}%` }} />
+              <span className="absolute z-10 text-[10px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,1)] capitalize">
+                ENERGIE: {Math.floor(energy)}/100
+              </span>
+            </div>
+
+            {/* Level Bar */}
+            <div className="relative h-4 bg-neutral-900 border border-neutral-800 rounded-full overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-y-0 left-0 bg-emerald-500 transition-all duration-300" style={{ width: `${xp % 100}%` }} />
+              <span className="absolute z-10 text-[10px] font-black text-white drop-shadow-[0_1px_2px_rgba(0,0,0,1)] capitalize">
+                XP LEVEL {lvl} ({xp % 100}%)
+              </span>
+            </div>
+          </div>
+
+          {/* HOTBAR BUTTON GRIDS */}
+          <div className="flex gap-2 w-full pt-1">
+            {[
+              { id: 'mining', label: currentTool.label, name: currentTool.name, type: 'miner', key: '1' },
+              { id: 'solar', label: '☀️', name: 'Solarpanel', type: 'solar', key: '2' },
+              { id: 'miner', label: '🤖', name: 'Auto-Miner', type: 'miner', key: '3' },
+              { id: 'seller', label: '💵', name: 'Auto-Seller', type: 'seller', key: '4' },
+              { id: 'wall', label: '🧱', name: 'Eisenmauer', type: 'wall', key: '5' }
+            ].map((slot, idx) => {
+              const active = idx === selectedHotbarIndex;
+              const isPlaceable = idx > 0;
+              const count = isPlaceable ? (buildInventory[slot.id] || 0) : null;
+
+              return (
+                <button
+                  key={`hot-${idx}`}
+                  onClick={() => {
+                    setSelectedHotbarIndex(idx);
+                    playRetroSound('hit');
+                  }}
+                  className={`flex-1 h-14 rounded-xl border-2 flex flex-col items-center justify-center relative transition-all pointer-events-auto ${
+                    active 
+                      ? 'border-amber-500 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.25)] scale-105' 
+                      : 'border-neutral-800 bg-neutral-900 hover:border-neutral-600'
+                  }`}
+                  title={`${slot.name} (Hotkey ${slot.key})`}
+                >
+                  <span className="absolute top-1 left-2 text-[8px] text-neutral-500 font-bold">{slot.key}</span>
+                  <span className="text-xl">{slot.label}</span>
+                  
+                  {isPlaceable && (
+                    <span className="absolute bottom-1 right-2 text-[10px] text-emerald-400 font-black">
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* MODAL TRIGGERS AND NAV OVERLAYS */}
+        <div className="absolute top-4 left-[15%] pointer-events-auto z-10 flex gap-2">
           <button 
-            onClick={skipTraining}
-            className="px-2 py-1 bg-green-500 text-black rounded text-[9px] font-black hover:bg-green-400 transition-colors"
+            onClick={() => { setIsShopOpen(true); playRetroSound('buy'); }} 
+            className="bg-amber-500 hover:bg-amber-400 px-4 py-2 rounded-xl text-black font-black text-xs uppercase flex items-center gap-1.5 transition-transform hover:scale-105 shadow-2xl"
           >
-            SKIP
+            <ShoppingBag size={14} />
+            BUILD TRADE-SHOP [B]
+          </button>
+          <button 
+            onClick={() => { setIsClansOpen(true); playRetroSound('buy'); }} 
+            className="bg-black/85 border border-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-xl font-bold text-xs uppercase flex items-center gap-1.5 transition-all shadow-2xl"
+          >
+            <Users size={14} />
+            CLANS SYSTEM [T]
+          </button>
+          <button 
+            onClick={toggleMuted} 
+            className="bg-black/85 border border-neutral-800 text-neutral-400 hover:text-white px-3/5 py-2 rounded-xl flex items-center justify-center transition-all shadow-2xl"
+            title="Lautstärken stummschalten"
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} className="text-amber-400" />}
+          </button>
+          <button 
+            onClick={onClose} 
+            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center transition-all shadow-2xl"
+            title="Modul beenden"
+          >
+            BEENDEN [X]
           </button>
         </div>
+
       </div>
 
-      {/* Interactive Navigation System for Panels */}
-      <div className="p-3 bg-neutral-950 border-b border-white/5 flex gap-2 relative z-20">
-        <button
-          onClick={() => setActiveTab('game')}
-          className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all rounded-lg border flex items-center justify-center gap-2 ${
-            activeTab === 'game'
-              ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
-              : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Play size={12} fill="currentColor" />
-          Spiel-Feld
-        </button>
-        <button
-          onClick={() => setActiveTab('shop')}
-          className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all rounded-lg border flex items-center justify-center gap-2 ${
-            activeTab === 'shop'
-              ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
-              : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <ShoppingBag size={12} />
-          Minecraft Shop ( spiel2.mp4 )
-        </button>
-        <button
-          onClick={() => setActiveTab('inventory')}
-          className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all rounded-lg border flex items-center justify-center gap-2 ${
-            activeTab === 'inventory'
-              ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
-              : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Layers size={12} />
-          Inventar & Ausrüstung
-        </button>
-        <button
-          onClick={() => setActiveTab('teams')}
-          className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all rounded-lg border flex items-center justify-center gap-2 ${
-            activeTab === 'teams'
-              ? 'bg-mc-gold/25 border-mc-gold text-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.15)]'
-              : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Users size={12} />
-          Team gründen
-        </button>
-      </div>
+      {/* RETHINK DIALOG MODAL: BUILDING CLANS */}
+      <AnimatePresence>
+        {isClansOpen && (
+          <div className="fixed inset-0 z-50 bg-black/9D/80 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-neutral-950 border border-neutral-800 w-full max-w-lg rounded-3xl p-6 relative overflow-hidden"
+            >
+              <button 
+                onClick={() => setIsClansOpen(false)}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
 
-      <AnimatePresence mode="wait">
-        {activeTab === 'game' && (
-          <motion.div 
-            key="voxel-adventure-gameplay"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            className="flex-1 flex flex-col md:flex-row relative outline-none min-h-0"
-          >
-            {/* The Actual Canvas Render */}
-            <div className="flex-1 bg-[#151515] flex flex-col justify-center items-center relative overflow-hidden p-2">
-              <canvas 
-                ref={canvasRef} 
-                width={700} 
-                height={460}
-                onClick={handleCanvasClick}
-                className="max-w-full block bg-black/50 rounded-2xl border-2 border-neutral-800 shadow-2xl cursor-crosshair hover:border-mc-gold transition-colors"
-                title="Spielfeld: Tippe auf einen Block in der Nähe zum Abbauen!"
-              />
+              <h3 className="text-base font-black text-white uppercase tracking-widest flex items-center gap-2 mb-4">
+                <Users className="text-amber-500" />
+                GLADIATOR CLANS COHESION SYSTEM
+              </h3>
+              
+              <p className="text-xs text-neutral-400 leading-relaxed mb-6 font-mono">
+                Gründe mit Gladiator-Spielern einen Team-Clan! Teammitglieder durchschreiten gebaute Sicherheitstore automatisch barrierefrei, koppeln ihre Stromnetze auf der Karte und beschützen sich gegenseitig vor feindseligen Starthaken.
+              </p>
 
-              {/* Dynamic Movement Tips */}
-              <div className="absolute bottom-4 left-4 right-4 text-center pointer-events-none md:block hidden">
-                <p className="text-[10px] text-neutral-500 font-mono">
-                  Bewege dich mit <kbd className="bg-neutral-800 text-white border border-neutral-700 px-1 py-0.5 rounded text-[8px] font-bold">W</kbd> <kbd className="bg-neutral-800 text-white border border-neutral-700 px-1 py-0.5 rounded text-[8px] font-bold">A</kbd> <kbd className="bg-neutral-800 text-white border border-neutral-700 px-1 py-0.5 rounded text-[8px] font-bold">S</kbd> <kbd className="bg-neutral-800 text-white border border-neutral-700 px-1 py-0.5 rounded text-[8px] font-bold">D</kbd> oder den Pfeiltasten. <strong className="text-mc-gold">Klicke/Tappe direkte Erze an</strong>, um sie mit deiner hotbar-aktiven Spitzhacke zu minen!
-                </p>
-              </div>
-
-              {/* Touch controllers for smartphone fallback screens */}
-              <div className="absolute bottom-4 right-4 flex flex-col items-center gap-1 pointer-events-auto md:hidden z-20">
-                <button 
-                  onTouchStart={() => { keysPressed.current['w'] = true; }}
-                  onTouchEnd={() => { keysPressed.current['w'] = false; }}
-                  className="w-10 h-10 bg-black/80 border border-neutral-700 text-white flex items-center justify-center rounded-xl text-sm font-black active:scale-95"
-                >
-                  ▲
-                </button>
-                <div className="flex gap-1">
-                  <button 
-                    onTouchStart={() => { keysPressed.current['a'] = true; }}
-                    onTouchEnd={() => { keysPressed.current['a'] = false; }}
-                    className="w-10 h-10 bg-black/80 border border-neutral-700 text-white flex items-center justify-center rounded-xl text-sm font-black active:scale-95"
-                  >
-                    ◀
-                  </button>
-                  <button 
-                    onTouchStart={() => { keysPressed.current['s'] = true; }}
-                    onTouchEnd={() => { keysPressed.current['s'] = false; }}
-                    className="w-10 h-10 bg-black/80 border border-neutral-700 text-white flex items-center justify-center rounded-xl text-sm font-black active:scale-95"
-                  >
-                    ▼
-                  </button>
-                  <button 
-                    onTouchStart={() => { keysPressed.current['d'] = true; }}
-                    onTouchEnd={() => { keysPressed.current['d'] = false; }}
-                    className="w-10 h-10 bg-black/80 border border-neutral-700 text-white flex items-center justify-center rounded-xl text-sm font-black active:scale-95"
-                  >
-                    ▶
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Sidebar with log messages and user progress indicators */}
-            <div className="w-full md:w-80 bg-neutral-950/90 border-t md:border-t-0 md:border-l border-white/5 flex flex-col justify-between shrink-0 p-5 font-mono text-xs text-white">
               <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                  <Activity size={14} className="text-mc-gold animate-pulse" />
-                  <span className="font-extrabold uppercase text-[10px]">Spieler Status</span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {/* Energy core */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-neutral-400">
-                      <span>⚡ Energiekern</span>
-                      <span className="text-mc-gold">{energy}%</span>
-                    </div>
-                    <div className="h-2 bg-neutral-900 border border-white/5 rounded-full overflow-hidden">
-                      <div className="h-full bg-mc-gold transition-all duration-300" style={{ width: `${energy}%` }} />
-                    </div>
+                <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex items-center justify-between text-xs font-mono">
+                  <div>
+                    <span className="font-extrabold text-cyan-400">PVP Arena Legion (Mitglieder: 6/25)</span>
+                    <p className="text-[10px] text-neutral-500 mt-1 italic">"We mine deep or we go home!"</p>
                   </div>
-
-                  {/* Health hearts system */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] text-neutral-400">
-                      <span>❤️ Vitalität</span>
-                      <span>{health}/10</span>
-                    </div>
-                    <div className="flex gap-1">
-                      {Array.from({ length: 10 }).map((_, i) => (
-                        <Heart 
-                          key={`heart-${i}`} 
-                          size={12} 
-                          className={i < health ? 'text-mc-red fill-mc-red animate-pulse' : 'text-neutral-800'} 
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Active Tool equipped status display */}
-                  <div className="pt-2 flex justify-between items-center text-[11px] bg-white/5 p-2 rounded-lg border border-white/5">
-                    <span className="text-neutral-400 font-bold uppercase text-[9px]">Tool aktiv:</span>
-                    <span className="text-mc-gold font-extrabold tracking-wide uppercase italic">
-                      {equippedPickaxe ? equippedPickaxe.name : 'Kein Tool'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Chat action logbox matching spiel2.mp4 exact overlay printouts */}
-              <div className="flex-1 min-h-[140px] max-h-[220px] bg-black/40 border border-white/5 rounded-xl p-3 my-4 overflow-y-auto font-mono text-[10px] leading-relaxed select-none">
-                <p className="text-neutral-500 border-b border-white/5 pb-1 mb-1 font-extrabold uppercase text-[8px] tracking-[0.2em]">Game Chat Logs</p>
-                {logs.length === 0 ? (
-                  <p className="text-neutral-600 italic">No logs generated yet...</p>
-                ) : (
-                  logs.map((logMsg, lIdx) => (
-                    <p 
-                      key={`game-log-${lIdx}`} 
-                      className={`mb-1 truncate ${
-                        logMsg.includes('§4') ? 'text-rose-500 font-bold' :
-                        logMsg.includes('§a') ? 'text-green-400 font-bold' :
-                        logMsg.includes('§6') ? 'text-mc-gold font-bold' :
-                        logMsg.includes('§e') ? 'text-yellow-400 font-bold' :
-                        logMsg.includes('§b') ? 'text-cyan-400 font-bold font-mono' :
-                        'text-neutral-400 font-medium'
-                      }`}
-                    >
-                      {logMsg.replace(/§[4-9a-fklmnor]/g, '')}
-                    </p>
-                  ))
-                )}
-              </div>
-
-              {/* Dynamic Coins/XP indicators syncing with main Firestore databases */}
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
-                <div className="bg-[#0f1420] border border-white/5 p-2 rounded-xl text-center">
-                  <span className="text-[8px] text-neutral-500 uppercase font-black block tracking-widest mb-0.5">Mines-Guthaben</span>
-                  <span className="text-mc-gold font-black text-sm italic">{coins.toLocaleString()} 🪙</span>
-                </div>
-                <div className="bg-[#0f1420] border border-white/5 p-2 rounded-xl text-center">
-                  <span className="text-[8px] text-neutral-500 uppercase font-black block tracking-widest mb-0.5">Zentrums-XP</span>
-                  <span className="text-green-400 font-black text-sm font-mono block truncate">{xp.toLocaleString()} XP</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* SHOP SCREEN: Mirroring shop view layout cards from spiel2.mp4 perfectly */}
-        {activeTab === 'shop' && (
-          <motion.div 
-            key="voxel-adventure-shop"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-white/5 pb-4">
-              <div>
-                <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
-                  <ShoppingBag size={18} className="text-mc-gold animate-pulse" />
-                  Minecraft Shop (spiel2.mp4)
-                </h3>
-                <p className="text-neutral-500 text-xs">Schalte stärkere Spitzhaken, Bohrer, Rüstungsteile oder Nano-Säbel frei, um seltene Erze abzubauen!</p>
-              </div>
-              <div className="bg-[#121926] px-4 py-2 border border-mc-gold/20 rounded-2xl flex items-center gap-2 font-mono">
-                <span className="text-[10px] text-neutral-500 font-bold uppercase">Dein Guthaben:</span>
-                <span className="text-sm font-black text-mc-gold animate-pulse">{coins.toLocaleString()} Coins 🪙</span>
-              </div>
-            </div>
-
-            {/* Shop Grid List replicating spiel2.mp4 visuals */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {shopItems.map(item => {
-                const isOwned = ownedItems.includes(item.id);
-                return (
-                  <div 
-                    key={item.id}
-                    className={`bg-neutral-950/40 border rounded-3xl p-5 flex flex-col justify-between transition-all group overflow-hidden relative ${
-                      isOwned 
-                        ? 'border-green-500/20 bg-green-950/5' 
-                        : 'border-white/5 hover:border-mc-gold/40'
-                    }`}
+                  <button 
+                    onClick={() => {
+                      triggerToast('quest', 'CLAN BEITRITT', 'Du bist erfolgreich der PVP Arena Legion beigetreten!');
+                      setIsClansOpen(false);
+                    }}
+                    className="bg-amber-500 text-black font-black uppercase text-[10px] px-3 py-1.5 rounded-xl hover:bg-amber-400 transition-all font-mono"
                   >
-                    {/* Item category badge */}
-                    <span className="absolute top-4 right-4 text-[8px] bg-white/5 border border-white/10 text-neutral-400 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-widest">
-                      {item.category}
-                    </span>
-
-                    <div className="space-y-4">
-                      {/* Pickaxe/Armor block icon placeholder drawn like 2D retro */}
-                      <div className="w-16 h-16 rounded-2xl bg-neutral-900 border border-white/5 flex items-center justify-center relative overflow-hidden shrink-0">
-                        <div 
-                          className="w-10 h-10 rounded-lg shadow-inner flex items-center justify-center font-black text-xl italic" 
-                          style={{ backgroundColor: `${item.imageColor}20`, color: item.imageColor }}
-                        >
-                          ⛏️
-                        </div>
-                      </div>
-
-                      <div>
-                        <h4 className="text-white font-black text-sm uppercase tracking-wide flex items-center gap-1.5 leading-none">
-                          {item.name}
-                          {isOwned && <span className="text-[9px] text-green-400 lowercase font-mono">(besessen)</span>}
-                        </h4>
-                        <p className="text-neutral-400 text-[11px] leading-relaxed mt-2">{item.description}</p>
-                      </div>
-
-                      {/* Performance values matching table logs from spiel2.mp4 shop pages */}
-                      <div className="pt-3 border-t border-white/5 flex justify-between items-center font-mono text-[10px]">
-                        <span className="text-neutral-500 font-bold">STÄRKE / EFFEKT:</span>
-                        <span className="text-mc-gold font-extrabold flex items-center gap-1">
-                          +{item.power} Abbau-Power
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-5 mt-4 border-t border-white/5 flex items-center justify-between gap-3">
-                      <div className="flex flex-col">
-                        <span className="text-[9px] text-neutral-500 font-bold uppercase">Preis</span>
-                        <span className="text-mc-gold font-extrabold text-sm italic">{item.price.toLocaleString()} Coins</span>
-                      </div>
-
-                      <button
-                        onClick={() => buyItems(item)}
-                        disabled={isOwned}
-                        className={`py-2 px-4 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all min-w-[90px] ${
-                          isOwned 
-                            ? 'bg-neutral-900 text-neutral-500 border border-white/5 cursor-not-allowed'
-                            : 'bg-[#ffaa00] text-black hover:bg-[#ffbb22] font-black hover:scale-105 active:scale-95'
-                        }`}
-                      >
-                        {isOwned ? 'Verkauft' : 'Kaufen'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
-
-        {/* INVENTORY & SLOTS ASSIGNMENTS SCREEN: Replicating inventory overlay grid list */}
-        {activeTab === 'inventory' && (
-          <motion.div 
-            key="voxel-adventure-inventory"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-white/5 pb-4">
-              <div>
-                <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
-                  <Layers size={18} className="text-sky-400 animate-pulse" />
-                  Mein Rucksack & Inventar-Zuweisung
-                </h3>
-                <p className="text-neutral-500 text-xs">Ordne deine Items den 5 Hotbar-Slots zu, um sie im Spielfeld über die Zahlentasten (1-5) oder Touch-Eingaben auszurüsten!</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-              {/* Inventargitter-Grid */}
-              <div className="md:col-span-7 bg-[#080d16]/30 border border-white/5 rounded-3xl p-6 space-y-4">
-                <h4 className="text-white font-extrabold text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Sliders size={14} className="text-sky-400" />
-                  Rucksack-Inhalt ({ownedItems.length} Items)
-                </h4>
-
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
-                  {ownedItems.map((itemId, idx) => {
-                    const shopItemRef = shopItems.find(i => i.id === itemId);
-                    if (!shopItemRef) return null;
-
-                    return (
-                      <button
-                        key={`inventory-item-${itemId}-${idx}`}
-                        className="aspect-square rounded-2xl bg-black/60 border border-neutral-800 hover:border-sky-400 p-2 flex flex-col justify-center items-center gap-1.5 transition-all group active:scale-95 relative"
-                        onClick={() => {
-                          // Drag item or direct assign to next empty slot inside hotbar
-                          const emptySlotIdx = hotbar.findIndex(s => s === null);
-                          if (emptySlotIdx !== -1) {
-                            const nextHotbar = [...hotbar];
-                            nextHotbar[emptySlotIdx] = { id: shopItemRef.id, name: shopItemRef.name, power: shopItemRef.power, imageColor: shopItemRef.imageColor };
-                            setHotbar(nextHotbar);
-                            addLog(`§a${shopItemRef.name} wurde Hotbar Slot ${emptySlotIdx+1} zugewiesen!`);
-                          } else {
-                            triggerToast('xp', '❌ HOTBAR VOLL', 'Bitte entferne erst ein Item aus deiner Hotbar, um Platz zu schaffen.');
-                          }
-                        }}
-                        title={`Klick zum Ausrüsten auf freien Hotbar Slot`}
-                      >
-                        <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center font-black text-lg select-none group-hover:scale-110 transition-transform">
-                          ⛏️
-                        </div>
-                        <span className="text-[8px] font-bold text-center text-neutral-400 block truncate w-full group-hover:text-white transition-colors">
-                          {shopItemRef.name}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Hotbar-Belegung */}
-              <div className="md:col-span-5 bg-[#080d16]/30 border border-white/5 rounded-3xl p-6 space-y-4 flex flex-col justify-between">
-                <div>
-                  <h4 className="text-white font-extrabold text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
-                    <Sliders size={14} className="text-mc-gold" />
-                    Aktive Schnellzugriff-Hotbar (Slots 1 bis 5)
-                  </h4>
-                  <p className="text-neutral-500 text-[10px] leading-relaxed">
-                    Spielfeld-Hotbars weisen den physischen Zahlentasten deines PC-Keyboards die Werkzeuge zu. Klicke ein Hotbar Slot Item zum un-staken (entfernen)!
-                  </p>
-                </div>
-
-                {/* Hotbar Slots Draw matches spiel2.mp4 design */}
-                <div className="space-y-3 pt-4">
-                  {hotbar.map((slotItem, sIdx) => (
-                    <div 
-                      key={`hotbar-assign-slot-${sIdx}`}
-                      className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
-                        selectedHotbarIndex === sIdx
-                          ? 'bg-mc-gold/10 border-mc-gold shadow-[0_0_15px_rgba(255,170,0,0.1)]'
-                          : 'bg-black/60 border-neutral-800 hover:border-neutral-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded bg-neutral-900 border border-white/5 text-[10px] font-mono text-center flex items-center justify-center font-black text-neutral-400">
-                          {sIdx + 1}
-                        </span>
-                        {slotItem ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-white/5 flex items-center justify-center rounded">⛏️</div>
-                            <span className="text-xs font-black text-white">{slotItem.name}</span>
-                            <span className="text-[10px] font-mono text-neutral-500">(Power +{slotItem.power})</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs font-mono text-neutral-600 italic">-- Leer --</span>
-                        )}
-                      </div>
-
-                      {slotItem && (
-                        <button
-                          onClick={() => {
-                            const nextHotbar = [...hotbar];
-                            nextHotbar[sIdx] = null;
-                            setHotbar(nextHotbar);
-                            // Reset equipped pickaxe if unequipped the current one
-                            if (equippedPickaxe?.id === slotItem.id) {
-                              setEquippedPickaxe(null);
-                            }
-                            addLog(`§7Item aus Hotbar Slot ${sIdx+1} entfernt.`);
-                          }}
-                          className="px-2 py-1 bg-red-950/40 border border-red-500/30 rounded text-[9px] font-black text-red-400 hover:bg-red-500 hover:text-black transition-all"
-                        >
-                          UNSTAKE
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* TEAM MANAGER: matching create team popup from spiel2.mp4 directly */}
-        {activeTab === 'teams' && (
-          <motion.div 
-            key="voxel-adventure-teams"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            className="flex-1 p-6 md:p-8 space-y-6 overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-white/5 pb-4">
-              <div>
-                <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
-                  <Users size={18} className="text-mc-gold animate-pulse" />
-                  Clan Teamgründer-Zentrum ( spiel2.mp4 )
-                </h3>
-                <p className="text-neutral-500 text-xs">Schließe Allianzen mit Mitspielern des Minecraft Clans, um Territorien, Grundstücke und Ressourcen gemeinsam zu verwalten.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-              {/* Formular to create a team exactly styled matching spill2.mp4 Popup overlay */}
-              <div className="md:col-span-7 bg-[#0b0f19] border-2 border-mc-gold/20 p-6 rounded-[2rem] space-y-6 shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-mc-gold via-yellow-500 to-amber-500" />
-                
-                <div className="space-y-1.5 pb-2 border-b border-white/5">
-                  <h4 className="text-white font-extrabold text-sm uppercase tracking-wider">Bündnis oder Team erstellen</h4>
-                  <p className="text-[10px] text-neutral-400 leading-normal">
-                    If a teammate leaves the game or disc., his blocks will go to another teammate, if the new owner's limits are not exceeded. ( spiel2.mp4 )
-                  </p>
-                </div>
-
-                <form onSubmit={handleCreateTeamSubmit} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-black text-neutral-400">Team-Name ( Allianz )</label>
-                    <input 
-                      type="text" 
-                      placeholder="z.B. Nether_Warriors"
-                      value={teamName}
-                      onChange={(e) => setTeamName(e.target.value)}
-                      className="w-full bg-black border border-neutral-800 hover:border-mc-gold rounded-xl px-4 py-3 text-xs outline-none text-white font-bold transition-all"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-black text-neutral-400">Team-Motto oder Clan-Beschreibung</label>
-                    <input 
-                      type="text" 
-                      placeholder="z.B. Gemeinsam bis an das Bedrock-Ende"
-                      value={teamMotto}
-                      onChange={(e) => setTeamMotto(e.target.value)}
-                      className="w-full bg-black border border-neutral-800 hover:border-mc-gold rounded-xl px-4 py-3 text-xs outline-none text-white font-bold transition-all"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-4 rounded-2xl bg-mc-gold text-black hover:bg-yellow-400 font-black text-xs uppercase tracking-widest transition-all shadow-lg active:scale-95"
-                  >
-                    BÜNDNIS GRÜNDEN
+                    BEITRETEN
                   </button>
-                </form>
-              </div>
+                </div>
 
-              {/* List of active teams */}
-              <div className="md:col-span-5 bg-neutral-950/40 border border-white/5 p-6 rounded-3xl space-y-4">
-                <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-white/5 pb-2">Active Other Alliances</h4>
-
-                <div className="space-y-3">
-                  {teamsList.map((team, tIdx) => (
-                    <div 
-                      key={`active-team-list-${tIdx}`}
-                      className="p-3.5 rounded-2xl bg-black border border-neutral-800 hover:border-mc-gold transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h5 className="font-extrabold text-white text-xs">{team.name}</h5>
-                          <p className="text-[10px] text-neutral-400 italic mt-0.5">"{team.motto}"</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setActiveTeam(team);
-                            addLog(`§eDu bist der Allianz [${team.name}] beigetreten!`);
-                            triggerToast('quest', '🛡️ ALLIANZ BEIGETRETEN', `Willkommen im Team ${team.name}`);
-                          }}
-                          className="py-1 px-3 bg-neutral-900 hover:bg-mc-gold hover:text-black rounded text-[9px] font-black text-neutral-400 transition-colors"
-                        >
-                          JOIN
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl flex items-center justify-between text-xs font-mono">
+                  <div>
+                    <span className="font-extrabold text-[#9c27b0]">Redstone Legion (Mitglieder: 4/12)</span>
+                    <p className="text-[10px] text-neutral-500 mt-1 italic">"Automating victory through clean power grids"</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      triggerToast('quest', 'CLAN BEITRITT', 'Du bist erfolgreich der Redstone Legion beigetreten!');
+                      setIsClansOpen(false);
+                    }}
+                    className="bg-amber-500 text-black font-black uppercase text-[10px] px-3 py-1.5 rounded-xl hover:bg-amber-400 transition-all font-mono"
+                  >
+                    BEITRETEN
+                  </button>
                 </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
+      {/* RETRO MODAL OVERLAY: TRADE SHOP SYSTEM */}
+      <AnimatePresence>
+        {isShopOpen && (
+          <div className="fixed inset-0 z-50 bg-black/9D/80 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-neutral-950 border border-neutral-800 w-full max-w-4xl h-[600px] rounded-3xl p-6 relative overflow-hidden flex flex-col"
+            >
+              <button 
+                onClick={() => setIsShopOpen(false)}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="flex justify-between items-start border-b border-neutral-800 pb-4 mb-4">
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <ShoppingBag className="text-amber-500 animate-pulse" />
+                    MINEENERGY PRO TRADE-SHOP
+                  </h3>
+                  <p className="text-xs text-neutral-400">Rüste dich mit überlegenen Bohrern aus, rüste Nano-Armor Suits auf oder schalte Automaten für dein Grid frei!</p>
+                </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-4 py-2 font-black text-emerald-400 font-mono text-sm shrink-0">
+                  DEIN CASH: ${coins.toLocaleString()}
+                </div>
+              </div>
+
+              {/* TABS SELECTOR */}
+              <div className="flex gap-2 border-b border-neutral-900 pb-3 mb-4">
+                {[
+                  { id: 'tools', label: '⛏️ Spitzhaken' },
+                  { id: 'machines', label: '⚙️ Generatoren' },
+                  { id: 'build', label: '🧱 Basenbau' },
+                  { id: 'armor', label: '🛡️ Exo-Suits' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setShopTab(tab.id as any); playRetroSound('hit'); }}
+                    className={`px-4 py-2 rounded-xl font-black text-xs uppercase transition-all ${
+                      shopTab === tab.id 
+                        ? 'bg-amber-500 text-black' 
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ITEMS DRAW LISTINGS */}
+              <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-1 custom-scrollbar">
+                {shopDatabase
+                  .filter(item => {
+                    if (shopTab === 'tools') return item.itemType === 'tool';
+                    if (shopTab === 'machines') return item.id === 'solar' || item.id === 'wind' || item.id === 'miner' || item.id === 'seller';
+                    if (shopTab === 'build') return item.id === 'wall' || item.id === 'door';
+                    if (shopTab === 'armor') return item.itemType === 'armor';
+                    return true;
+                  })
+                  .map(item => {
+                    const levelOk = lvl >= item.levelRequired;
+                    const canAfford = coins >= item.price;
+
+                    return (
+                      <div 
+                        key={item.id}
+                        className="bg-neutral-900 border border-neutral-800 hover:border-amber-500/40 rounded-2xl p-4 flex flex-col justify-between transition-all"
+                      >
+                        <div>
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-[18px]">{item.icon}</span>
+                            {!levelOk && (
+                              <span className="text-[8px] bg-red-600/10 border border-red-600/20 text-red-500 px-2 py-0.5 rounded font-black uppercase">
+                                Lvl {item.levelRequired} nötig
+                              </span>
+                            )}
+                          </div>
+                          
+                          <h4 className="text-xs font-black text-white uppercase tracking-wide">{item.name}</h4>
+                          <p className="text-[10px] text-neutral-400 leading-relaxed font-mono mt-1 mb-3">{item.description}</p>
+                          
+                          <div className="bg-black/50 border border-neutral-950 p-2 rounded-xl space-y-1 text-[9px] font-mono mb-4 text-neutral-300">
+                            <div className="flex justify-between">
+                              <span>Taktung:</span>
+                              <span className="text-emerald-400 font-bold">{item.produce}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Betriebskosten:</span>
+                              <span className="text-amber-500">{item.consume}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center border-t border-neutral-800/60 pt-3 mt-1.5 font-mono">
+                          <span className="text-amber-500 font-extrabold text-xs shrink-0">${item.price}</span>
+                          <button
+                            disabled={!canAfford || !levelOk}
+                            onClick={() => triggerUnlockShopItem(item)}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all font-mono ${
+                              canAfford && levelOk
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-black hover:scale-105'
+                                : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                            }`}
+                          >
+                            Freischalten
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };
