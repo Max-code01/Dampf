@@ -183,7 +183,8 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   const [isMobileMode, setIsMobileMode] = useState<boolean>(() => {
     return ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   });
-  const [isChatVisible, setIsChatVisible] = useState(true);
+  const [isChatVisible, setIsChatVisible] = useState(() => !('ontouchstart' in window || navigator.maxTouchPoints > 0));
+  const [isInventoryVisible, setIsInventoryVisible] = useState(() => !('ontouchstart' in window || navigator.maxTouchPoints > 0));
 
   // World environment & clima values
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 11, minute: 30 });
@@ -1304,7 +1305,7 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
     // Turn head angle look direction directly mirroring mouse pointers or default player orientation
     let gazeAngle = player.angle;
-    if (mousePosRef.current.x !== 0 || mousePosRef.current.y !== 0) {
+    if (!isMobileMode && (mousePosRef.current.x !== 0 || mousePosRef.current.y !== 0)) {
       gazeAngle = Math.atan2(mousePosRef.current.y - (player.y - cameraY), mousePosRef.current.x - (player.x - cameraX));
       // update persistent angle
       player.angle = gazeAngle;
@@ -1399,6 +1400,13 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
     const absClickX = clickX + cameraX;
     const absClickY = clickY + cameraY;
+
+    // Direct Character face vector turn towards target point
+    if (isMobileMode) {
+      player.angle = Math.atan2(absClickY - player.y, absClickX - player.x);
+    } else {
+      mousePosRef.current = { x: clickX, y: clickY };
+    }
 
     // Fetch grid coordinates index intersected
     const targetIdx = tiles.findIndex(t => 
@@ -1643,43 +1651,45 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         </div>
 
         {/* 4. RIGHT SIDEBAR PANEL: RESOURCE LEDGER SIDEBAR */}
-        <div className="absolute top-28 sm:top-48 right-4 z-10 w-40 sm:w-48 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-3 sm:p-4 pointer-events-auto space-y-3 shadow-2xl">
-          <div className="border-b border-neutral-800 pb-1.5">
-            <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest">DEINE ERZE</span>
-            <div className="text-lg sm:text-xl font-black text-amber-500 italic block mt-0.5" style={{ textShadow: '0 0 10px rgba(245,158,11,0.3)' }}>
-              {coins.toLocaleString()} 💎
+        {isInventoryVisible && (
+          <div className="absolute top-28 sm:top-48 right-4 z-10 w-40 sm:w-48 bg-black/85 border border-neutral-800/80 backdrop-blur-md rounded-2xl p-3 sm:p-4 pointer-events-auto space-y-3 shadow-2xl">
+            <div className="border-b border-neutral-800 pb-1.5">
+              <span className="text-[10px] text-neutral-500 font-black uppercase tracking-widest">DEINE ERZE</span>
+              <div className="text-lg sm:text-xl font-black text-amber-500 italic block mt-0.5" style={{ textShadow: '0 0 10px rgba(245,158,11,0.3)' }}>
+                {coins.toLocaleString()} 💎
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-1.5 text-[11px] sm:text-xs">
-            <div className="flex justify-between items-center text-neutral-300">
-              <span>🪵 Holz</span>
-              <span className="font-extrabold text-white">{resources.wood}</span>
-            </div>
-            <div className="flex justify-between items-center text-neutral-300">
-              <span>🪨 Stein</span>
-              <span className="font-extrabold text-white">{resources.stone}</span>
-            </div>
-            <div className="flex justify-between items-center text-neutral-300">
-              <span>⬛ Kohle</span>
-              <span className="font-extrabold text-white">{resources.coal}</span>
-            </div>
-            <div className="flex justify-between items-center text-neutral-300">
-              <span>🔩 Eisen</span>
-              <span className="font-extrabold text-white">{resources.iron}</span>
-            </div>
-            <div className="flex justify-between items-center text-neutral-300">
-              <span>💎 Diamant</span>
-              <span className="font-extrabold text-cyan-400">{resources.diamond}</span>
-            </div>
-            <div className="flex justify-between items-center text-neutral-300 border-t border-neutral-800 pt-2">
-              <span className="text-amber-500 font-extrabold flex items-center gap-1">
-                <Zap size={11} /> Strom
-              </span>
-              <span className="font-black text-amber-400 font-mono">{resources.power}⚡</span>
+            <div className="space-y-1.5 text-[11px] sm:text-xs">
+              <div className="flex justify-between items-center text-neutral-300">
+                <span>🪵 Holz</span>
+                <span className="font-extrabold text-white">{resources.wood}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-300">
+                <span>🪨 Stein</span>
+                <span className="font-extrabold text-white">{resources.stone}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-300">
+                <span>⬛ Kohle</span>
+                <span className="font-extrabold text-white">{resources.coal}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-300">
+                <span>🔩 Eisen</span>
+                <span className="font-extrabold text-white">{resources.iron}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-300">
+                <span>💎 Diamant</span>
+                <span className="font-extrabold text-cyan-400">{resources.diamond}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-300 border-t border-neutral-800 pt-2">
+                <span className="text-amber-500 font-extrabold flex items-center gap-1">
+                  <Zap size={11} /> Strom
+                </span>
+                <span className="font-black text-amber-400 font-mono">{resources.power}⚡</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 5. BOTTOM-LEFT PANEL: LIVE LOBBY CHAT WINDOW */}
         {isChatVisible ? (
@@ -1813,13 +1823,17 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         {isMobileMode && (
           <>
             {/* Left Thumb Virtual Touch D-pad */}
-            <div className="absolute bottom-4 left-4 z-10 p-2 bg-black/60 border border-neutral-800/60 backdrop-blur-md rounded-2xl w-[130px] h-[130px] flex items-center justify-center pointer-events-auto shadow-2xl">
-              <div className="grid grid-cols-3 gap-1 w-full h-full">
+            <div className="absolute bottom-4 left-4 z-10 p-2 bg-black/75 border border-neutral-800/80 backdrop-blur-md rounded-2xl w-[140px] h-[140px] flex items-center justify-center pointer-events-auto shadow-2xl select-none">
+              <div className="grid grid-cols-3 gap-1.5 w-full h-full select-none">
                 <div />
                 <button 
                   onTouchStart={() => bindDirection('w', true)} 
                   onTouchEnd={() => bindDirection('w', false)}
-                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                  onTouchCancel={() => bindDirection('w', false)}
+                  onMouseDown={() => bindDirection('w', true)}
+                  onMouseUp={() => bindDirection('w', false)}
+                  onMouseLeave={() => bindDirection('w', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-xl flex items-center justify-center text-sm font-black transition-colors select-none shadow-md border border-neutral-700/45 hover:bg-neutral-700"
                 >
                   ▲
                 </button>
@@ -1827,15 +1841,23 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                 <button 
                   onTouchStart={() => bindDirection('a', true)} 
                   onTouchEnd={() => bindDirection('a', false)}
-                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                  onTouchCancel={() => bindDirection('a', false)}
+                  onMouseDown={() => bindDirection('a', true)}
+                  onMouseUp={() => bindDirection('a', false)}
+                  onMouseLeave={() => bindDirection('a', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-xl flex items-center justify-center text-sm font-black transition-colors select-none shadow-md border border-neutral-700/45 hover:bg-neutral-700"
                 >
                   ◀
                 </button>
-                <div className="bg-neutral-900 rounded-lg flex items-center justify-center text-[10px] text-neutral-600 font-bold select-none">🕹️</div>
+                <div className="bg-neutral-900 rounded-xl flex items-center justify-center text-[11px] text-neutral-400 font-bold select-none border border-neutral-800 animate-pulse">🕹️</div>
                 <button 
                   onTouchStart={() => bindDirection('d', true)} 
                   onTouchEnd={() => bindDirection('d', false)}
-                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                  onTouchCancel={() => bindDirection('d', false)}
+                  onMouseDown={() => bindDirection('d', true)}
+                  onMouseUp={() => bindDirection('d', false)}
+                  onMouseLeave={() => bindDirection('d', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-xl flex items-center justify-center text-sm font-black transition-colors select-none shadow-md border border-neutral-700/45 hover:bg-neutral-700"
                 >
                   ▶
                 </button>
@@ -1843,7 +1865,11 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
                 <button 
                   onTouchStart={() => bindDirection('s', true)} 
                   onTouchEnd={() => bindDirection('s', false)}
-                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-lg flex items-center justify-center text-xs font-black transition-colors"
+                  onTouchCancel={() => bindDirection('s', false)}
+                  onMouseDown={() => bindDirection('s', true)}
+                  onMouseUp={() => bindDirection('s', false)}
+                  onMouseLeave={() => bindDirection('s', false)}
+                  className="bg-neutral-800 active:bg-amber-500 text-white rounded-xl flex items-center justify-center text-sm font-black transition-colors select-none shadow-md border border-neutral-700/45 hover:bg-neutral-700"
                 >
                   ▼
                 </button>
@@ -1918,6 +1944,22 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
             CLANS [T]
           </button>
           <button 
+            onClick={() => { setIsInventoryVisible(p => !p); playRetroSound('hit'); }} 
+            className={`px-3 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl gap-1.5 border leading-none ${isInventoryVisible ? 'bg-indigo-600 text-white border-indigo-500 font-extrabold' : 'bg-black/85 border-neutral-800 text-neutral-300 hover:text-white'}`}
+            title="Inventar / Erze einblenden"
+          >
+            <Layers size={13} />
+            🎒 ERZE
+          </button>
+          <button 
+            onClick={() => { setIsChatVisible(p => !p); playRetroSound('hit'); }} 
+            className={`px-3 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl gap-1.5 border leading-none ${isChatVisible ? 'bg-cyan-600 text-white border-cyan-500 font-extrabold' : 'bg-black/85 border-neutral-800 text-neutral-300 hover:text-white'}`}
+            title="Chat einblenden"
+          >
+            <Send size={13} />
+            💬 CHAT
+          </button>
+          <button 
             onClick={() => { setIsMobileMode(p => !p); playRetroSound('buy'); }} 
             className={`px-3 py-1.5 rounded-xl flex items-center justify-center transition-all shadow-2xl gap-1.5 border leading-none ${isMobileMode ? 'bg-amber-500 hover:bg-amber-400 text-black border-amber-500 font-extrabold' : 'bg-black/85 border-neutral-800 text-neutral-300 hover:text-white'}`}
             title="Handy Touch-Steuerung umschalten"
@@ -1952,12 +1994,12 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       {/* RETHINK DIALOG MODAL: BUILDING CLANS */}
       <AnimatePresence>
         {isClansOpen && (
-          <div className="fixed inset-0 z-50 bg-black/9D/80 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto">
+          <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 pointer-events-auto">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-neutral-950 border border-neutral-800 w-full max-w-lg rounded-3xl p-6 relative overflow-hidden"
+              className="bg-neutral-950 border border-neutral-800 w-full max-w-lg max-h-full overflow-y-auto rounded-3xl p-6 relative"
             >
               <button 
                 onClick={() => setIsClansOpen(false)}
@@ -2016,12 +2058,12 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       {/* RETRO MODAL OVERLAY: TRADE SHOP SYSTEM */}
       <AnimatePresence>
         {isShopOpen && (
-          <div className="fixed inset-0 z-50 bg-black/9D/80 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto">
+          <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 pointer-events-auto">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-neutral-950 border border-neutral-800 w-full max-w-4xl h-[600px] rounded-3xl p-6 relative overflow-hidden flex flex-col"
+              className="bg-neutral-950 border border-neutral-800 w-full max-w-4xl h-full max-h-full sm:h-[600px] rounded-2xl sm:rounded-3xl p-4 sm:p-6 relative overflow-hidden flex flex-col"
             >
               <button 
                 onClick={() => setIsShopOpen(false)}

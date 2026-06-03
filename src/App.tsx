@@ -8116,8 +8116,7 @@ export default function App() {
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
                 onClick={() => {
-                  setShowMiningModal(true);
-                  setMiningTab('world');
+                  window.location.href = "https://dampf.mypi.co/?play=true";
                 }}
                 className="mc-button bg-emerald-500 text-black font-extrabold hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center gap-2 group px-6 py-3 rounded-xl hover:scale-105"
               >
@@ -8125,9 +8124,9 @@ export default function App() {
               </button>
               <button 
                 onClick={() => {
-                  const directLink = window.location.origin + window.location.pathname + "?play=true";
+                  const directLink = "https://dampf.mypi.co/?play=true";
                   navigator.clipboard.writeText(directLink);
-                  triggerToast('quest', 'LINK KOPIERT 📋', 'Der Direktspiel-Link wurde kopiert!');
+                  triggerToast('quest', 'LINK KOPIERT 📋', 'Der Direktspiel-Link (https://dampf.mypi.co/?play=true) wurde kopiert!');
                 }}
                 className="mc-button mc-button-secondary flex items-center gap-2 px-6 py-3 rounded-xl border border-neutral-800 hover:border-emerald-500 hover:text-emerald-400 transition-all"
                 title="Diesen Link kopieren oder Lesezeichen für direkten Spielstart erstellen!"
