@@ -359,86 +359,8 @@ async function startServer() {
     }
   });
 
-  // --- AI ORACLE ENDPOINT (Server-Side proxy for Gemini) ---
-  let aiClient: GoogleGenAI | null = null;
-  function getAiClient() {
-    if (!aiClient) {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("GEMINI_API_KEY environment variable is required");
-      }
-      aiClient = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
-    }
-    return aiClient;
-  }
-
-  app.post('/api/oracle', async (req, res) => {
-    const { prompt, history } = req.body;
-    if (!prompt) {
-      return res.status(400).json({ error: "Parameter 'prompt' ist erforderlich." });
-    }
-
-    try {
-      const aiInstance = getAiClient();
-      const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
-        role: h.role,
-        parts: h.parts.map((p: any) => ({ text: p.text }))
-      })) : [];
-
-      let response;
-      try {
-        response = await aiInstance.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: [
-            ...formattedHistory,
-            { role: 'user', parts: [{ text: prompt }] }
-          ],
-          config: {
-            systemInstruction: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown."
-          }
-        });
-      } catch (primaryError: any) {
-        console.warn("[ORACLE] Hauptmodell ist ausgelastet, probiere Ausweichmodell...", primaryError.message);
-        try {
-          response = await aiInstance.models.generateContent({
-            model: "gemini-3.1-flash-lite",
-            contents: [
-              ...formattedHistory,
-              { role: 'user', parts: [{ text: prompt }] }
-            ],
-            config: {
-              systemInstruction: "You are the 'Ancient Server Oracle' for a Minecraft Community Dashboard. Your tone is wise, helpful, and slightly mysterious. Help users with server questions, Minecraft tips, or marketing/SEO advice. Keep responses concise and formatted in Markdown."
-            }
-          });
-        } catch (secondaryError: any) {
-          console.error("[ORACLE] Beide Modelle sind ausgelastet", secondaryError);
-          throw secondaryError;
-        }
-      }
-
-      res.json({ text: response.text });
-    } catch (error: any) {
-      console.error("[ORACLE FEHLER]", error);
-      let errorMsg = "📜 *Das Orakel meditiert tief im Nether...*\n\nDie Geister des Servers sind gerade sehr unruhig und die Verbindung zur Astralebene ist vorübergehend blockiert (503 Hohe Auslastung).\n\n**Hier ist ein weiser Tipp während du wartest:**\n*Nutze das **Abenteuer-Menü** rechts unten, um Erze in den Deep Mines abzubauen, abzustimmen oder den Shop zu erkunden! Versuche es in Kürze noch einmal.* ✨";
-      
-      const isMissingKey = !process.env.GEMINI_API_KEY || error?.message?.includes("GEMINI_API_KEY") || String(error).includes("API_KEY");
-      if (isMissingKey) {
-        errorMsg = "📜 *Das Orakel schläft noch tief im Nether...* 🔮\n\n**Hinweis:** Der **GEMINI_API_KEY** ist für den Online-Betrieb nicht konfiguriert oder ungültig.\n\n*Bitte klicke oben rechts im Google AI Studio auf **Settings > Secrets** (oder Zahnrad-Einstellungen) und hinterlege dort deinen `GEMINI_API_KEY`, damit das Orakel auch online zum Leben erwacht!* 🚀✨";
-      }
-      
-      res.status(500).json({
-        error: errorMsg,
-        text: errorMsg
-      });
-    }
-  });
+  // --- AI ORACLE (MIGRATED TO CLIENT-SIDE MAIN SCRIPT) ---
+  // The oracle resides fully in the main frontend script now (src/services/geminiService.ts) as requested.
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', mode: 'full-stack' });

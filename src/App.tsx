@@ -1759,6 +1759,15 @@ export default function App() {
     const text = input || aiInput;
     if (!text.trim() || isAiLoading) return;
 
+    // Play magical oracle summoning sounds
+    try {
+      initAudioCtx();
+      playSynthNote(330, 'sine', 0.12, 0.2); // Mi (330Hz)
+      setTimeout(() => playSynthNote(440, 'sine', 0.18, 0.2), 100); // La (440Hz)
+    } catch (e) {
+      // Audio fallback silent
+    }
+
     const userMsg: GeminiChatMessage = { role: 'user', parts: [{ text }] };
     const newHistory = [...aiHistory, userMsg];
     
@@ -1769,8 +1778,22 @@ export default function App() {
     try {
       const response = await getGeminiResponse(text, aiHistory);
       setAiHistory(prev => [...prev, { role: 'model', parts: [{ text: response || 'Entschuldige, ich habe gerade eine Vision blockiert...' }] }]);
+      
+      // Play magical arpeggio sound sequence on successful response
+      try {
+        initAudioCtx();
+        playSynthNote(523.25, 'sine', 0.1, 0.15); // C5
+        setTimeout(() => playSynthNote(659.25, 'sine', 0.1, 0.15), 80); // E5
+        setTimeout(() => playSynthNote(783.99, 'sine', 0.12, 0.15), 160); // G5
+        setTimeout(() => playSynthNote(1046.50, 'sine', 0.2, 0.2), 240); // C6
+      } catch (ae) {}
     } catch (err) {
       setAiHistory(prev => [...prev, { role: 'model', parts: [{ text: '⚠️ [ERROR] Die Geister sind gerade unruhig. Versuche es später erneut.' }] }]);
+      // Play warning low chord on failure
+      try {
+        initAudioCtx();
+        playSynthNote(180, 'sawtooth', 0.4, 0.2);
+      } catch (ae) {}
     } finally {
       setIsAiLoading(false);
     }
@@ -7572,10 +7595,34 @@ export default function App() {
 
               <div className="flex-1 overflow-y-auto p-6 scroll-smooth space-y-6 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
                 {aiHistory.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-12">
-                     <Brain size={64} className="mb-4 text-mc-gold animate-pulse" />
-                     <p className="text-lg font-black italic">Warte auf deine Fragen...</p>
-                     <p className="max-w-[280px] text-[10px] uppercase font-bold tracking-widest mt-2">Frag mich nach News, Minecraft-Tips oder wie du dein Projekt bekannter machst!</p>
+                  <div className="h-full flex flex-col items-center justify-center text-center py-12 px-4">
+                     <Brain size={64} className="mb-4 text-mc-gold animate-pulse opacity-80" />
+                     <p className="text-xl font-black italic text-neutral-100">Befrage das weise Orakel...</p>
+                     <p className="max-w-[320px] text-[10px] uppercase font-bold tracking-widest mt-2 text-neutral-400">
+                       Frag mich nach Geheimnissen, Minecraft-Tipps oder wie du im Dashboard aufsteigst!
+                     </p>
+                     
+                     <div className="mt-8 w-full max-w-sm space-y-3">
+                        <p className="text-[10px] uppercase font-black tracking-[0.2em] text-mc-gold animate-pulse">Schnellvorschläge:</p>
+                        <div className="grid grid-cols-2 gap-2.5">
+                           {[
+                              { label: "🏰 Bauideen", prompt: "Gib mir 3 epische Bauideen für meine Survival Base" },
+                              { label: "🪙 Mehr Münzen", prompt: "Wie kann ich hier am schnellsten Coins verdienen?" },
+                              { label: "⚔️ Server Welten", prompt: "Erkläre mir die Welten PVP und Survival" },
+                              { label: "🚀 Updates & News", prompt: "Gib mir die aktuellsten Server-Neuigkeiten" },
+                           ].map((item, idx) => (
+                              <button
+                                 key={idx}
+                                 type="button"
+                                 onClick={() => handleAiChat(item.prompt)}
+                                 className="p-3 text-left rounded-xl border border-neutral-800 bg-neutral-900/80 hover:bg-neutral-800 active:scale-95 text-xs font-bold text-neutral-300 hover:text-white hover:border-mc-gold/40 transition-all cursor-pointer flex items-start gap-1.5 shadow-md"
+                              >
+                                 <Sparkles size={11} className="text-mc-gold mt-1 shrink-0" />
+                                 <span>{item.label}</span>
+                              </button>
+                           ))}
+                        </div>
+                     </div>
                   </div>
                 )}
                 {aiHistory.map((msg, i) => (
