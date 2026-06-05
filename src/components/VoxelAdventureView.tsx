@@ -239,23 +239,62 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   const shopDatabase: ShopItem[] = [
     // Tab 1: TOOLS (Spitzhacken & Bohrer)
     { id: 'iron_pick', name: 'Eisen-Spitzhacke', category: 'Spitzhaken', description: 'Mining-Werkzeug. Baut Steine und Kohle doppelt so schnell ab.', price: 100, costResource: 'stone', damage: 25, produce: '+2 Schaden pro Schlag', consume: 'Keine', levelRequired: 1, imageColor: '#cbd5e1', itemType: 'tool', icon: '⛏️' },
-    { id: 'dia_drill', name: 'Diamant-Bohrer', category: 'Spitzhaken', description: 'Elektrisches Abbauwunder. Zerschmettert Erze extrem rasant.', price: 250, costResource: 'iron', damage: 60, produce: '+8 Schaden pro Takt', consume: '3 Energie pro Sek', levelRequired: 3, imageColor: '#22d3ee', itemType: 'tool', icon: '⚙️' },
-    { id: 'nano_saber', name: 'Laser Nano-Säbel', category: 'Spitzhaken', description: 'Energetisches Cyber-Schwert. Vernichtet feindliche Mobs sofort.', price: 500, costResource: 'gold', damage: 150, produce: '+150 Damage', consume: '10 Energie pro Hieb', levelRequired: 5, imageColor: '#f43f5e', itemType: 'tool', icon: '⚔️' },
+    { id: 'drill', name: 'Drill', category: 'Spitzhaken', description: 'Elektrisches Bohrwerkzeug.', price: 1500, costResource: 'coal', damage: 40, produce: '+5 Schaden', consume: '1 Energie pro Sek', levelRequired: 2, imageColor: '#fb923c', itemType: 'tool', icon: '🔧' },
+    { id: 'dia_drill', name: 'Diamond drill', category: 'Spitzhaken', description: 'Elektrisches Abbauwunder. Zerschmettert Erze extrem rasant.', price: 25000, costResource: 'iron', damage: 60, produce: '+8 Schaden pro Takt', consume: '3 Energie pro Sek', levelRequired: 3, imageColor: '#22d3ee', itemType: 'tool', icon: '⚙️' },
+    { id: 'iridium_drill', name: 'Iridium drill', category: 'Spitzhaken', description: 'Bester Bohrer im Spiel.', price: 1000000, costResource: 'gold', damage: 150, produce: '+20 Schaden', consume: '5 Energie pro Sek', levelRequired: 5, imageColor: '#f43f5e', itemType: 'tool', icon: '🔩' },
+    { id: 'wrench', name: 'Wrench', category: 'Spitzhaken', description: 'Schraubenschlüssel zur Reparatur.', price: 500, costResource: 'iron', damage: 10, produce: 'Repariert Blocks', consume: 'Keine', levelRequired: 1, imageColor: '#94a3b8', itemType: 'tool', icon: '🔧' },
+    { id: 'trowel', name: 'Trowel', category: 'Spitzhaken', description: 'Maurerkelle.', price: 200, costResource: 'wood', damage: 5, produce: 'Baut Wände', consume: 'Keine', levelRequired: 1, imageColor: '#d6d3d1', itemType: 'tool', icon: '⛏️' },
 
-    // Tab 2: MACHINES (Generatoren & Wirtschaft)
-    { id: 'solar', name: 'Solarpanel Generator', category: 'Maschinen', description: 'Produziert kontinuierlich Strom (+5 Watt) während der Sonnenstunden.', price: 40, costResource: 'wood', produce: '+5 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 1, imageColor: '#3b82f6', itemType: 'building', icon: '☀️' },
-    { id: 'wind', name: 'Windturbinen-Modul', category: 'Maschinen', description: 'Erzeugt Tag und Nacht Energie abhängig von den meteorologischen Windwerten.', price: 120, costResource: 'stone', produce: 'Variable ⚡ Stromerzeugung', consume: 'Windstärke', levelRequired: 2, imageColor: '#10b981', itemType: 'building', icon: '🌀' },
-    { id: 'miner', name: 'Boden Auto-Miner', category: 'Maschinen', description: 'Passive Bohrstelle. Baut Erze in unmittelbarer Nähe ab. Braucht Stromanschluss.', price: 80, costResource: 'wood', produce: '+1 Stein & +1 Kohle / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#37474f', itemType: 'building', icon: '🤖' },
-    { id: 'seller', name: 'Wireless Auto-Seller', category: 'Maschinen', description: 'Konvertiert geerntete Felderträge selbstständig zu hohen Cash-Preisen.', price: 60, costResource: 'wood', produce: 'Automatische Ressourcen-Einnahmen', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#2e7d32', itemType: 'building', icon: '💵' },
+    // Tab 2: MACHINES (Generatoren & Wirtschaft - Sellers)
+    { id: 'seller', name: 'Small seller', category: 'Maschinen', description: 'Verkauft Ressourcen.', price: 100, costResource: 'wood', produce: '+1 Cash / Tick', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#a3e635', itemType: 'building', icon: '💵' },
+    { id: 'big_seller', name: 'Big seller', category: 'Maschinen', description: 'Verkauft mehr Ressourcen.', price: 1500, costResource: 'stone', produce: '+5 Cash / Tick', consume: '4 ⚡ Strom / Tick', levelRequired: 2, imageColor: '#4ade80', itemType: 'building', icon: '💰' },
+    { id: 'coal_seller', name: 'Coal seller', category: 'Maschinen', description: 'Verkauft Kohle automatisch.', price: 5000, costResource: 'coal', produce: '+10 Cash / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 3, imageColor: '#374151', itemType: 'building', icon: '⬛' },
+    { id: 'iron_seller', name: 'Iron seller', category: 'Maschinen', description: 'Verkauft Eisen automatisch.', price: 20000, costResource: 'iron', produce: '+25 Cash / Tick', consume: '3 ⚡ Strom / Tick', levelRequired: 4, imageColor: '#94a3b8', itemType: 'building', icon: '⬜' },
+    { id: 'gold_seller', name: 'Gold seller', category: 'Maschinen', description: 'Verkauft Gold automatisch.', price: 100000, costResource: 'gold', produce: '+50 Cash / Tick', consume: '5 ⚡ Strom / Tick', levelRequired: 5, imageColor: '#facc15', itemType: 'building', icon: '🟨' },
+    { id: 'diamond_seller', name: 'Diamond seller', category: 'Maschinen', description: 'Verkauft Diamanten automatisch.', price: 500000, costResource: 'diamond', produce: '+150 Cash / Tick', consume: '10 ⚡ Strom / Tick', levelRequired: 6, imageColor: '#22d3ee', itemType: 'building', icon: '💎' },
+    { id: 'uranium_seller', name: 'Uranium seller', category: 'Maschinen', description: 'Verkauft Uran automatisch.', price: 2000000, costResource: 'uranium', produce: '+400 Cash / Tick', consume: '20 ⚡ Strom / Tick', levelRequired: 7, imageColor: '#4ade80', itemType: 'building', icon: '☢️' },
+    { id: 'iridium_seller', name: 'Iridium seller', category: 'Maschinen', description: 'Verkauft Iridium.', price: 10000000, costResource: 'iridium', produce: '+1000 Cash / Tick', consume: '50 ⚡ Strom / Tick', levelRequired: 8, imageColor: '#f43f5e', itemType: 'building', icon: '🟣' },
+
+    // Tab 2: MACHINES (Miners)
+    { id: 'miner', name: 'Coal miner', category: 'Maschinen', description: 'Baut automatisch Kohle ab.', price: 100, costResource: 'wood', produce: '+1 Kohle / Tick', consume: '1 ⚡ Strom / Tick', levelRequired: 1, imageColor: '#374151', itemType: 'building', icon: '⛏️' },
+    { id: 'iron_miner', name: 'Iron miner', category: 'Maschinen', description: 'Baut automatisch Eisen ab.', price: 800, costResource: 'stone', produce: '+1 Eisen / Tick', consume: '2 ⚡ Strom / Tick', levelRequired: 2, imageColor: '#94a3b8', itemType: 'building', icon: '⛏️' },
+    { id: 'gold_miner', name: 'Gold miner', category: 'Maschinen', description: 'Baut Gold ab.', price: 5000, costResource: 'iron', produce: '+1 Gold / Tick', consume: '5 ⚡ Strom / Tick', levelRequired: 3, imageColor: '#facc15', itemType: 'building', icon: '⛏️' },
+    { id: 'diamond_miner', name: 'Diamond miner', category: 'Maschinen', description: 'Baut Diamanten ab.', price: 20000, costResource: 'gold', produce: '+1 Diamant / Tick', consume: '10 ⚡ Strom / Tick', levelRequired: 4, imageColor: '#22d3ee', itemType: 'building', icon: '⛏️' },
+    { id: 'uranium_miner', name: 'Uranium miner', category: 'Maschinen', description: 'Baut Uran ab.', price: 100000, costResource: 'diamond', produce: '+1 Uran / Tick', consume: '25 ⚡ Strom / Tick', levelRequired: 5, imageColor: '#4ade80', itemType: 'building', icon: '⛏️' },
+    { id: 'iridium_miner', name: 'Iridium miner', category: 'Maschinen', description: 'Baut Iridium ab.', price: 500000, costResource: 'uranium', produce: '+1 Iridium / Tick', consume: '50 ⚡ Strom / Tick', levelRequired: 6, imageColor: '#f43f5e', itemType: 'building', icon: '⛏️' },
+
+    // Tab 2: MACHINES (Generators)
+    { id: 'solar', name: 'Solar panel', category: 'Maschinen', description: 'Produziert kontinuierlich Strom (+5 Watt) während der Sonnenstunden.', price: 100, costResource: 'wood', produce: '+5 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 1, imageColor: '#3b82f6', itemType: 'building', icon: '☀️' },
+    { id: 'adv_solar', name: 'Advanced solar panel', category: 'Maschinen', description: 'Stärkeres Solarpanel.', price: 5000, costResource: 'stone', produce: '+15 ⚡ Strom / Tick', consume: 'Tageslicht', levelRequired: 2, imageColor: '#2563eb', itemType: 'building', icon: '🌞' },
+    { id: 'wind', name: 'Wind generator', category: 'Maschinen', description: 'Erzeugt Energie abhängig von Wind.', price: 200, costResource: 'stone', produce: 'Variable ⚡ Strom', consume: 'Windstärke', levelRequired: 2, imageColor: '#10b981', itemType: 'building', icon: '🌀' },
+    { id: 'coal_gen', name: 'Coal generator', category: 'Maschinen', description: 'Verbrennt Kohle für Strom.', price: 100, costResource: 'wood', produce: '+10 ⚡ Strom / Tick', consume: 'Kohle', levelRequired: 1, imageColor: '#4b5563', itemType: 'building', icon: '🔥' },
+    { id: 'geo_gen', name: 'Geothermal generator', category: 'Maschinen', description: 'Nutzt Erdwärme.', price: 5000, costResource: 'iron', produce: '+20 ⚡ Strom / Tick', consume: 'Lava Nähe', levelRequired: 3, imageColor: '#ef4444', itemType: 'building', icon: '🌋' },
+    { id: 'water_gen', name: 'Water generator', category: 'Maschinen', description: 'Nutzt Wasserkraft.', price: 5000, costResource: 'iron', produce: '+15 ⚡ Strom / Tick', consume: 'Wasser Nähe', levelRequired: 3, imageColor: '#3b82f6', itemType: 'building', icon: '🌊' },
+    { id: 'oil_gen', name: 'Oil generator', category: 'Maschinen', description: 'Verbrennt Öl.', price: 50000, costResource: 'gold', produce: '+50 ⚡ Strom / Tick', consume: 'Öl', levelRequired: 5, imageColor: '#1f2937', itemType: 'building', icon: '🛢️' },
+    { id: 'nuke_gen', name: 'Nuclear reactor', category: 'Maschinen', description: 'Kernreaktor für massig Energie.', price: 1000000, costResource: 'uranium', produce: '+500 ⚡ Strom / Tick', consume: 'Uranium, Wasser', levelRequired: 7, imageColor: '#22c55e', itemType: 'building', icon: '☢️' },
 
     // Tab 3: BASENBAU (Shields & Barrikaden)
-    { id: 'wall', name: 'Verstärkte Eisenmauer', category: 'Basenbau', description: 'Tiefgekühlte dichte Abgrenzung mit extrem hohen Haltbarkeitspunkten.', price: 20, costResource: 'wood', produce: 'Defensiv-Schutz (HP: 2000)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🧱' },
-    { id: 'door', name: 'Sicherungstor', category: 'Basenbau', description: 'Automatische Schranke. Kann nur von dir und Verbündeten durchlaufen werden.', price: 50, costResource: 'stone', produce: 'Sicherheitsbarriere (HP: 1000)', consume: 'Keine', levelRequired: 2, imageColor: '#4f46e5', itemType: 'building', icon: '🚪' },
+    { id: 'wall', name: 'Iron wall', category: 'Basenbau', description: 'Grundlegende Mauer.', price: 50, costResource: 'wood', produce: 'Defensiv-Schutz (HP: 100)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🧱' },
+    { id: 'obsidian_wall', name: 'Obsidian wall', category: 'Basenbau', description: 'Stabile Mauer.', price: 1000, costResource: 'stone', produce: 'Defensiv-Schutz (HP: 500)', consume: 'Keine', levelRequired: 2, imageColor: '#3b0764', itemType: 'building', icon: '🧱' },
+    { id: 'reinforced_wall', name: 'Reinforced wall', category: 'Basenbau', description: 'Sehr starke Mauer.', price: 5000, costResource: 'iron', produce: 'Defensiv-Schutz (HP: 1000)', consume: 'Keine', levelRequired: 3, imageColor: '#475569', itemType: 'building', icon: '🧱' },
+    { id: 'iron_door', name: 'Iron door', category: 'Basenbau', description: 'Eisentür.', price: 100, costResource: 'wood', produce: 'Tür (HP: 100)', consume: 'Keine', levelRequired: 1, imageColor: '#9e9e9e', itemType: 'building', icon: '🚪' },
+    { id: 'obsidian_door', name: 'Obsidian door', category: 'Basenbau', description: 'Obsidiantür.', price: 2000, costResource: 'stone', produce: 'Tür (HP: 500)', consume: 'Keine', levelRequired: 2, imageColor: '#3b0764', itemType: 'building', icon: '🚪' },
+    { id: 'reinforced_door', name: 'Reinforced door', category: 'Basenbau', description: 'Verstärkte Tür.', price: 10000, costResource: 'iron', produce: 'Tür (HP: 1000)', consume: 'Keine', levelRequired: 3, imageColor: '#475569', itemType: 'building', icon: '🚪' },
+    { id: 'electric_door', name: 'Electric Iridium door', category: 'Basenbau', description: 'Beste Tür.', price: 50000, costResource: 'iridium', produce: 'Tür (HP: 2000)', consume: '1 ⚡ Strom / Tick', levelRequired: 5, imageColor: '#f43f5e', itemType: 'building', icon: '🚪' },
+    { id: 'tesla_1000', name: 'Tesla coil 1000', category: 'Basenbau', description: 'Schießt auf Feinde.', price: 5000, costResource: 'iron', produce: 'Schaden: 25', consume: '5 ⚡ Strom', levelRequired: 4, imageColor: '#3b82f6', itemType: 'building', icon: '⚡' },
+    { id: 'tesla_2000', name: 'Tesla coil 2000', category: 'Basenbau', description: 'Stärkere Tesla Spule.', price: 25000, costResource: 'gold', produce: 'Schaden: 50', consume: '10 ⚡ Strom', levelRequired: 5, imageColor: '#2563eb', itemType: 'building', icon: '⚡' },
+    { id: 'tesla_3000', name: 'Tesla coil 3000', category: 'Basenbau', description: 'Stärkste Tesla Spule.', price: 500000, costResource: 'diamond', produce: 'Schaden: 100', consume: '20 ⚡ Strom', levelRequired: 7, imageColor: '#1d4ed8', itemType: 'building', icon: '⚡' },
+    { id: 'bed', name: 'Bed', category: 'Basenbau', description: 'Respawn Punkt.', price: 1000, costResource: 'wood', produce: 'Respawn', consume: 'Keine', levelRequired: 1, imageColor: '#ef4444', itemType: 'building', icon: '🛏️' },
+    { id: 'sign', name: 'Sign', category: 'Basenbau', description: 'Schild zum Schreiben.', price: 300, costResource: 'wood', produce: 'Text', consume: 'Keine', levelRequired: 1, imageColor: '#d97706', itemType: 'building', icon: '📝' },
 
     // Tab 4: SUITS (Exoskelett & Flugkraft)
-    { id: 'suit_nano', name: 'Nano-Shield Rüstung', category: 'Exo-Suits', description: 'Integrierte Pufferbatterie. Kompensiert 40% des eingesteckten Schadens.', price: 1000, costResource: 'coal', produce: '40% Schadens-Absorption', consume: '2 Energie / Treffer', levelRequired: 3, imageColor: '#16a34a', itemType: 'armor', icon: '🛡️' },
-    { id: 'suit_quantum', name: 'Quanten-Fluganzug', category: 'Exo-Suits', description: 'Das nonplusultra militärische Outfit. Absorbiert 85% Strahlenschaden.', price: 2000, costResource: 'iron', produce: '85% Strahlenschutz', consume: '5 Energie / Treffer', levelRequired: 5, imageColor: '#8b5cf6', itemType: 'armor', icon: '🔮' },
-    { id: 'utility_jetpack', name: 'Jetpack Core Booster', category: 'Exo-Suits', description: 'Erlaubt freies Schweben im Raum über Lava und Abyss hinweg. Turbo-Geschwindigkeit.', price: 300, costResource: 'diamond', produce: 'Fliegen über Gras & Lava', consume: '10 Energie / Laufsekunde', levelRequired: 4, imageColor: '#f43f5e', itemType: 'armor', icon: '🚀' }
+    { id: 'leather_armor', name: 'Leather armor', category: 'Exo-Suits', description: 'Einfache Rüstung.', price: 50, costResource: 'wood', produce: '10% Schutz', consume: 'Keine', levelRequired: 1, imageColor: '#8b5a2b', itemType: 'armor', icon: '👕' },
+    { id: 'iron_armor', name: 'Iron armor', category: 'Exo-Suits', description: 'Eisen Rüstung.', price: 1000, costResource: 'iron', produce: '20% Schutz', consume: 'Keine', levelRequired: 2, imageColor: '#cbd5e1', itemType: 'armor', icon: '🛡️' },
+    { id: 'gold_armor', name: 'Gold armor', category: 'Exo-Suits', description: 'Gold Rüstung.', price: 5000, costResource: 'gold', produce: '30% Schutz', consume: 'Keine', levelRequired: 3, imageColor: '#facc15', itemType: 'armor', icon: '🛡️' },
+    { id: 'diamond_armor', name: 'Diamond armor', category: 'Exo-Suits', description: 'Diamant Rüstung.', price: 25000, costResource: 'diamond', produce: '50% Schutz', consume: 'Keine', levelRequired: 4, imageColor: '#22d3ee', itemType: 'armor', icon: '🛡️' },
+    { id: 'suit_nano', name: 'Nano armor', category: 'Exo-Suits', description: 'Integrierte Pufferbatterie. Kompensiert 40% des eingesteckten Schadens.', price: 1000000, costResource: 'coal', produce: '40% Schadens-Absorption', consume: '2 Energie / Treffer', levelRequired: 5, imageColor: '#16a34a', itemType: 'armor', icon: '🤖' },
+    { id: 'suit_quantum', name: 'Quantum armor', category: 'Exo-Suits', description: 'Das nonplusultra militärische Outfit. Absorbiert 85% Strahlenschaden.', price: 5000000, costResource: 'iron', produce: '85% Strahlenschutz', consume: '5 Energie / Treffer', levelRequired: 6, imageColor: '#8b5cf6', itemType: 'armor', icon: '🔮' },
+    { id: 'utility_jetpack', name: 'Jetpack', category: 'Exo-Suits', description: 'Erlaubt freies Schweben im Raum über Lava und Abyss hinweg. Turbo-Geschwindigkeit.', price: 3000000, costResource: 'diamond', produce: 'Fliegen über Gras & Lava', consume: '10 Energie / Laufsekunde', levelRequired: 5, imageColor: '#f43f5e', itemType: 'armor', icon: '🚀' }
   ];
 
   // Helper adding clean formatted log rows
@@ -1563,17 +1602,13 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       if (item.id === 'utility_jetpack') setHasJetpack(true);
       addLog(`🛡️ Exo-Suit upgraded auf ${item.name}! Fähigkeiten dauerhaft erweitert.`);
     } else if (item.itemType === 'building') {
-      let bToken = 'solar';
-      if (item.id === 'solar') bToken = 'solar';
-      if (item.id === 'miner') bToken = 'miner';
-      if (item.id === 'seller') bToken = 'seller';
-      if (item.id === 'wall') bToken = 'wall';
+      const bToken = item.id;
 
       setBuildInventory(prev => ({
         ...prev,
         [bToken]: (prev[bToken] || 0) + 1
       }));
-      addLog(`🛍️ Module erworben: +1 ${item.name} im Baulager! (Slot ${bToken === 'solar' ? '2' : bToken === 'miner' ? '3' : bToken === 'seller' ? '4' : '5'} ausrüstbar)`);
+      addLog(`🛍️ Module erworben: +1 ${item.name} im Baulager! (Slot ausgerüstet)`);
     }
 
     triggerToast('quest', '🛒 UPGRADE ERFOLGREICH', `${item.name} wurde freigeschaltet.`);
@@ -2161,10 +2196,10 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
               <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-1 custom-scrollbar">
                 {shopDatabase
                   .filter(item => {
-                    if (shopTab === 'tools') return item.itemType === 'tool';
-                    if (shopTab === 'machines') return item.id === 'solar' || item.id === 'wind' || item.id === 'miner' || item.id === 'seller';
-                    if (shopTab === 'build') return item.id === 'wall' || item.id === 'door';
-                    if (shopTab === 'armor') return item.itemType === 'armor';
+                    if (shopTab === 'tools') return item.category === 'Spitzhaken';
+                    if (shopTab === 'machines') return item.category === 'Maschinen';
+                    if (shopTab === 'build') return item.category === 'Basenbau';
+                    if (shopTab === 'armor') return item.category === 'Exo-Suits';
                     return true;
                   })
                   .map(item => {
