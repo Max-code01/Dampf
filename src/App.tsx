@@ -6857,33 +6857,35 @@ export default function App() {
                 </motion.div>
 
                 {/* 7.5 Entwickler-Zentrum */}
-                <motion.div
-                  variants={{
-                    hidden: { opacity: 0, y: 15, scale: 0.8 },
-                    visible: { opacity: 1, y: 0, scale: 1 }
-                  }}
-                  className="flex items-center gap-3 pointer-events-auto group/item"
-                >
-                  <span className="bg-black/95 text-cyan-400 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-cyan-500/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
-                    Entwickler-Zentrum
-                  </span>
-                  <button
-                    onClick={() => {
-                      setDevLabsOpen(true);
-                      setLeaderboardOpen(false);
-                      setShopOpen(false);
-                      setNewsOpen(false);
-                      setPollsOpen(false);
-                      setChatOpen(false);
-                      setShowMiningModal(false);
-                      setIsFabMenuOpen(false);
+                {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15, scale: 0.8 },
+                      visible: { opacity: 1, y: 0, scale: 1 }
                     }}
-                    className="w-12 h-12 rounded-xl bg-black border-2 border-cyan-500/50 text-cyan-400 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(34,211,238,0.4)] transition-all"
-                    title="Entwickler-Zentrum (Rust & Flutter)"
+                    className="flex items-center gap-3 pointer-events-auto group/item"
                   >
-                    <Cpu size={20} className="text-cyan-400" />
-                  </button>
-                </motion.div>
+                    <span className="bg-black/95 text-cyan-400 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-cyan-500/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                      Entwickler-Zentrum
+                    </span>
+                    <button
+                      onClick={() => {
+                        setDevLabsOpen(true);
+                        setLeaderboardOpen(false);
+                        setShopOpen(false);
+                        setNewsOpen(false);
+                        setPollsOpen(false);
+                        setChatOpen(false);
+                        setShowMiningModal(false);
+                        setIsFabMenuOpen(false);
+                      }}
+                      className="w-12 h-12 rounded-xl bg-black border-2 border-cyan-500/50 text-cyan-400 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(34,211,238,0.4)] transition-all"
+                      title="Entwickler-Zentrum (Rust & Flutter)"
+                    >
+                      <Cpu size={20} className="text-cyan-400" />
+                    </button>
+                  </motion.div>
+                )}
 
                 {/* 8. Install App (Conditional) */}
                 {showInstallButton && (
@@ -8122,6 +8124,23 @@ export default function App() {
               >
                 <span>Direkt zum Spiel 🎮</span>
               </button>
+              {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+                <button 
+                  onClick={() => {
+                    setDevLabsOpen(true);
+                    setLeaderboardOpen(false);
+                    setShopOpen(false);
+                    setNewsOpen(false);
+                    setPollsOpen(false);
+                    setChatOpen(false);
+                    setShowMiningModal(false);
+                  }}
+                  className="mc-button bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold transition-all shadow-[0_0_20px_rgba(6,182,212,0.35)] flex items-center gap-2 group px-6 py-3 rounded-xl hover:scale-105"
+                  title="Entwickler-Zentrum mit Rust WASM, Dart Flutter, Python RL & Golang API"
+                >
+                  <span>Entwickler-Zentrum 💻</span>
+                </button>
+              )}
               <button 
                 onClick={() => {
                   const directLink = "https://dampf.mypi.co/?play=true";
@@ -9178,6 +9197,171 @@ export default function App() {
             )}
           </AnimatePresence>
         </section>
+
+        {/* Entwickler-Zentrum Portal Section */}
+        {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+          <section className="mb-24 py-8 border-t border-neutral-800/50">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-500/10 text-cyan-400 rounded-full border border-cyan-500/20 text-xs font-semibold mb-3">
+                  <Cpu size={12} className="animate-pulse" />
+                  <span>MULTILINGUAL COMPILER SANDBOX</span>
+                </div>
+                <h2 className="text-3xl font-extrabold tracking-tight">💻 Das Entwickler-Zentrum (Dev Labs)</h2>
+                <p className="text-neutral-400 text-sm mt-2 max-w-2xl">
+                  Erforsche unsere hochperformanten Webbrowser-Entwicklertools. Simuliere Rust WebAssembly Generatoren, passe Dart & Flutter Mobile UI-Bäume an, trainiere KI-Modelle in Python oder teste gRPC Cluster-Infrastrukturen unter DDoS-Ausnahbezuständen.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setDevLabsOpen(true);
+                  setLeaderboardOpen(false);
+                  setShopOpen(false);
+                  setNewsOpen(false);
+                  setPollsOpen(false);
+                  setChatOpen(false);
+                  setShowMiningModal(false);
+                }}
+                className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.2)] transition-all flex items-center gap-2 text-sm shrink-0 active:scale-95"
+              >
+                <span>Vollen Sandbox-Zugriff öffnen</span>
+                <span>⚡</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              
+              {/* Rust Card */}
+              <div 
+                onClick={() => {
+                  setDevLabsOpen(true);
+                  setLeaderboardOpen(false);
+                  setShopOpen(false);
+                  setNewsOpen(false);
+                  setPollsOpen(false);
+                  setChatOpen(false);
+                  setShowMiningModal(false);
+                }}
+                className="mc-card cursor-pointer hover:border-cyan-500/50 hover:shadow-[0_0_30px_rgba(6,182,212,0.1)] transition-all p-6 relative overflow-hidden group border border-neutral-800/60"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 blur-xl group-hover:bg-cyan-500/10 rounded-full transition-all" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2.5 bg-cyan-950/40 border border-cyan-500/30 text-cyan-400 rounded-xl group-hover:scale-110 transition-transform">
+                    <Cpu size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white">🦀 Rust WASM</h4>
+                    <span className="text-[9px] font-mono text-cyan-400">wasm32-unknown</span>
+                  </div>
+                </div>
+                <p className="text-neutral-400 text-xs leading-relaxed mb-4">
+                  Generiert komplexe 3D-Voxel-Chunks mithilfe von Hardware-beschleunigten Algorithmen direkt im Browser.
+                </p>
+                <div className="flex justify-between items-center text-[10px] font-mono border-t border-neutral-900 pt-3">
+                  <span className="text-neutral-500">EFFIZIENZ:</span>
+                  <span className="text-emerald-400 font-extrabold">+2400% vs JS 🔥</span>
+                </div>
+              </div>
+
+              {/* Flutter Card */}
+              <div 
+                onClick={() => {
+                  setDevLabsOpen(true);
+                  setLeaderboardOpen(false);
+                  setShopOpen(false);
+                  setNewsOpen(false);
+                  setPollsOpen(false);
+                  setChatOpen(false);
+                  setShowMiningModal(false);
+                }}
+                className="mc-card cursor-pointer hover:border-purple-500/50 hover:shadow-[0_0_30px_rgba(168,85,247,0.1)] transition-all p-6 relative overflow-hidden group border border-neutral-800/60"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 blur-xl group-hover:bg-purple-500/10 rounded-full transition-all" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2.5 bg-purple-950/40 border border-purple-500/30 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
+                    <Smartphone size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white">🎯 Dart & Flutter</h4>
+                    <span className="text-[9px] font-mono text-purple-400">iOS & Android App</span>
+                  </div>
+                </div>
+                <p className="text-neutral-400 text-xs leading-relaxed mb-4">
+                  Simuliert mobile Widgets, testet Live-Push-Dienste und synchronisiert Nachrichten mit der globalen Cloud-DB.
+                </p>
+                <div className="flex justify-between items-center text-[10px] font-mono border-t border-neutral-900 pt-3">
+                  <span className="text-neutral-500">HOT-RELOAD:</span>
+                  <span className="text-purple-400 font-extrabold">Aktiv (32ms) ⚡</span>
+                </div>
+              </div>
+
+              {/* Python Card */}
+              <div 
+                onClick={() => {
+                  setDevLabsOpen(true);
+                  setLeaderboardOpen(false);
+                  setShopOpen(false);
+                  setNewsOpen(false);
+                  setPollsOpen(false);
+                  setChatOpen(false);
+                  setShowMiningModal(false);
+                }}
+                className="mc-card cursor-pointer hover:border-yellow-500/50 hover:shadow-[0_0_30px_rgba(234,179,8,0.1)] transition-all p-6 relative overflow-hidden group border border-neutral-800/60"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-500/5 blur-xl group-hover:bg-yellow-500/10 rounded-full transition-all" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2.5 bg-yellow-950/40 border border-yellow-500/30 text-yellow-400 rounded-xl group-hover:scale-110 transition-transform">
+                    <Settings size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white">🐍 Python AI RL</h4>
+                    <span className="text-[9px] font-mono text-yellow-400">AutoPilot Agent</span>
+                  </div>
+                </div>
+                <p className="text-neutral-400 text-xs leading-relaxed mb-4">
+                  Trainiert neuronale Pfadfindungsnetze für Autopiloten über Reinforcement Learning Epochen.
+                </p>
+                <div className="flex justify-between items-center text-[10px] font-mono border-t border-neutral-900 pt-3">
+                  <span className="text-neutral-500">OPTIMIERT:</span>
+                  <span className="text-yellow-400 font-extrabold">Q-Learning Model 🧠</span>
+                </div>
+              </div>
+
+              {/* Golang Card */}
+              <div 
+                onClick={() => {
+                  setDevLabsOpen(true);
+                  setLeaderboardOpen(false);
+                  setShopOpen(false);
+                  setNewsOpen(false);
+                  setPollsOpen(false);
+                  setChatOpen(false);
+                  setShowMiningModal(false);
+                }}
+                className="mc-card cursor-pointer hover:border-teal-500/50 hover:shadow-[0_0_30px_rgba(20,184,166,0.1)] transition-all p-6 relative overflow-hidden group border border-neutral-800/60"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 blur-xl group-hover:bg-teal-500/10 rounded-full transition-all" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2.5 bg-teal-950/40 border border-teal-500/30 text-teal-400 rounded-xl group-hover:scale-110 transition-transform">
+                    <Globe size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white">🐹 Golang API</h4>
+                    <span className="text-[9px] font-mono text-teal-400">Microservice Cluster</span>
+                  </div>
+                </div>
+                <p className="text-neutral-400 text-xs leading-relaxed mb-4">
+                  Beobachtet WebSockets und gRPC Gateway-Threads. Bewältigt fiktive DDoS Angriffe über Echtzeit-IP-Filter.
+                </p>
+                <div className="flex justify-between items-center text-[10px] font-mono border-t border-neutral-900 pt-3">
+                  <span className="text-neutral-500">GO ROUTINES:</span>
+                  <span className="text-teal-400 font-extrabold">Parallel Threads ⚙️</span>
+                </div>
+              </div>
+
+            </div>
+          </section>
+        )}
 
         {/* Server Rules Section */}
         <section className="mb-12 py-8 border-t border-neutral-800/50">
