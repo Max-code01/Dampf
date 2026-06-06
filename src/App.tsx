@@ -1304,7 +1304,8 @@ export default function App() {
 
   const filteredMessages = useMemo(() => {
     return combinedMessages.filter(msg => {
-      const isQuizRelated = msg.channel === 'quiz' || msg.userId === 'quiz_bot' || msg.text.includes('QUIZFRAGE') || msg.text.includes('Richtig!') || msg.text.includes('gelöst');
+      const text = msg.text || '';
+      const isQuizRelated = msg.channel === 'quiz' || msg.userId === 'quiz_bot' || text.includes('QUIZFRAGE') || text.includes('Richtig!') || text.includes('gelöst');
       if (chatChannel === 'quiz') {
         return isQuizRelated;
       } else {
@@ -2554,9 +2555,9 @@ export default function App() {
     };
   }, [hasQuotaExceeded]);
 
-  // Group 3: Isolated Chat Listener (only active when chat is actually open or quiz arena is active)
+  // Group 3: Real-Time Chat & Quiz Listener (runs globally when a user is signed in)
   useEffect(() => {
-    if (hasQuotaExceeded || (!chatOpen && miningTab !== 'quiz')) return;
+    if (hasQuotaExceeded || !user) return;
 
     const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
@@ -2571,7 +2572,7 @@ export default function App() {
       }
 
       // Verify quiz answers in real-time
-      if (activeQuiz && activeQuiz.active && user) {
+      if (activeQuiz && activeQuiz.active) {
         const correctAnswers = activeQuiz.answers || [];
         if (correctAnswers.length > 0) {
           snapshot.docChanges().forEach((change) => {
@@ -2587,7 +2588,7 @@ export default function App() {
                   const isFresh = !createdAtTime || (Date.now() - createdAtTime < 15000);
                   
                   if (isFresh && data.userId === user.uid) {
-                    processQuizVictoryLocally(data.displayName || 'Unbekannt', data.userId, matchedAnswer, activeQuiz);
+                     processQuizVictoryLocally(data.displayName || 'Unbekannt', data.userId, matchedAnswer, activeQuiz);
                   }
                 }
               }
@@ -2603,7 +2604,7 @@ export default function App() {
     return () => {
       unsubscribeChat();
     };
-  }, [chatOpen, miningTab, hasQuotaExceeded, activeQuiz, user]);
+  }, [hasQuotaExceeded, activeQuiz, user]);
 
   // Auto-Update for Discord Status Webhook
   useEffect(() => {
@@ -6880,7 +6881,7 @@ export default function App() {
                 </motion.div>
 
                 {/* 7.5 Entwickler-Zentrum */}
-                {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+                {(false && (myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin)) && (
                   <motion.div
                     variants={{
                       hidden: { opacity: 0, y: 15, scale: 0.8 },
@@ -8171,7 +8172,7 @@ export default function App() {
               >
                 <span>Direkt zum Spiel 🎮</span>
               </button>
-              {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+              {(false && (myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin)) && (
                 <button 
                   onClick={() => {
                     setDevLabsOpen(true);
@@ -9246,7 +9247,7 @@ export default function App() {
         </section>
 
         {/* Entwickler-Zentrum Portal Section */}
-        {(myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin) && (
+        {(false && (myProfile?.role === 'Owner' || myProfile?.role === 'Root' || isOwner || isSuperAdmin)) && (
           <section className="mb-24 py-8 border-t border-neutral-800/50">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
               <div>

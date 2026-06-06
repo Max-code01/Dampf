@@ -119,7 +119,7 @@ function getLocalMysticalResponse(prompt: string): string {
     `Du fragst mich nach: "*${prompt}*"\n\n` +
     "Die Geister flüstern geheimnisvolle Weisheiten in dein Ohr. Minecraft ist ein unendliches Abenteuer der Kreativität!\n\n" +
     "**Was willst du als nächstes tun?**\n" +
-    "- Frage mich nach **'Bauideen'** oder **'Minecraft-Updates'**.\n" +
-    "- Klicke unten rechts auf **DevLabs** oder gewinne das **Quiz-Duell**!\n\n" +
+    "- Befrage mich nach **'Bauideen'** oder **'Minecraft-Updates'**.\n" +
+    "- Klicke unten rechts auf das Abenteuer-Menü oder gewinne das **Quiz-Duell**!\n\n" +
     "✨ *Die Sterne stehen günstig für deine Reise.*";
 }
