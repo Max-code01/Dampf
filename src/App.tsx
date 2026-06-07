@@ -2559,9 +2559,9 @@ export default function App() {
   useEffect(() => {
     if (hasQuotaExceeded || !user) return;
 
-    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(50));
+    const chatQuery = query(collection(db, 'chat_messages'), orderBy('createdAt', 'desc'), limit(200));
     const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage)).reverse();
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data({ serverTimestamps: 'estimate' }) } as ChatMessage)).reverse();
       setChatMessages(msgs);
       
       const confirmedTempIds = msgs.filter(m => m.tempId).map(m => m.tempId);
@@ -2583,11 +2583,22 @@ export default function App() {
                 const matchedAnswer = correctAnswers.find((ans: string) => ans.trim().toLowerCase() === textNorm);
                 
                 if (matchedAnswer) {
-                  // Verify message freshness to avoid claiming from history
-                  const createdAtTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt ? new Date(data.createdAt).getTime() : null);
-                  const isFresh = !createdAtTime || (Date.now() - createdAtTime < 15000);
+                  // Verify that the message was sent after or at the same time as the active quiz started
+                  const getTimestampMillis = (ts: any) => {
+                    if (!ts) return null;
+                    if (ts.toMillis) return ts.toMillis();
+                    if (ts.seconds) return ts.seconds * 1000;
+                    if (ts instanceof Date) return ts.getTime();
+                    if (typeof ts === 'string') return new Date(ts).getTime();
+                    if (typeof ts === 'number') return ts;
+                    return null;
+                  };
+
+                  const msgTime = getTimestampMillis(data.createdAt);
+                  const quizTime = getTimestampMillis(activeQuiz.createdAt);
+                  const isEligible = !msgTime || !quizTime || (msgTime >= quizTime - 5000);
                   
-                  if (isFresh && data.userId === user.uid) {
+                  if (isEligible && data.userId === user.uid) {
                      processQuizVictoryLocally(data.displayName || 'Unbekannt', data.userId, matchedAnswer, activeQuiz);
                   }
                 }

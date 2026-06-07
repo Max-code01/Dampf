@@ -77,14 +77,16 @@ service cloud.firestore {
       return data.keys().hasAll(['text', 'userId', 'displayName', 'createdAt']) &&
              data.keys().size() <= 15 &&
              data.text is string && data.text.size() <= 2000 &&
-             (data.userId == request.auth.uid || data.userId == "system") &&
+             (data.userId == request.auth.uid || data.userId == "system" || data.userId == "quiz_bot") &&
              data.displayName is string && data.displayName.size() <= 64 &&
              (data.createdAt == request.time || data.createdAt is timestamp) &&
              (!('tempId' in data) || (data.tempId is string && data.tempId.size() <= 256)) &&
              (!('role' in data) || (data.role is string && data.role.size() <= 64)) &&
              (!('isAction' in data) || (data.isAction is bool)) &&
              (!('isLocal' in data) || (data.isLocal is bool)) &&
-             (!('isStaffOnly' in data) || (data.isStaffOnly is bool));
+             (!('isStaffOnly' in data) || (data.isStaffOnly is bool)) &&
+             (!('channel' in data) || (data.channel is string && data.channel.size() <= 64)) &&
+             (!('purchasedRank' in data) || (data.purchasedRank is string && data.purchasedRank.size() <= 64));
     }
 
     // Player Validation
