@@ -27,22 +27,12 @@ import {
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
-import admin from 'firebase-admin';
 
 // Load Firebase Config
 const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
 const authClient = getAuth(fbApp);
-
-// Initialize Firebase Admin SDK for super-user Firestore operations
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId
-  });
-}
-const adminDb = admin.firestore();
-adminDb.settings({ databaseId: firebaseConfig.firestoreDatabaseId });
 
 async function startServer() {
   const app = express();
@@ -201,8 +191,7 @@ async function startServer() {
           let foundUser = null;
 
           if (targetUser) {
-            const q = query(collection(db, 'user_profiles'), where('discordId', '==', targetUser.id));
-            const snapshot = await getDocs(q);
+            const snapshot = await getDocs(query(collection(db, 'user_profiles'), where('discordId', '==', targetUser.id)));
             if (!snapshot.empty) {
               const batch = writeBatch(db);
               snapshot.forEach(docSnap => {
@@ -214,9 +203,10 @@ async function startServer() {
             }
           } else if (webId) {
             // Search by ID or Name
-            const qByName = query(collection(db, 'user_profiles'), where('minecraftUsername', '==', webId));
-            const qById = query(collection(db, 'user_profiles'), where('userId', '==', webId));
-            const [snapName, snapId] = await Promise.all([getDocs(qByName), getDocs(qById)]);
+            const [snapName, snapId] = await Promise.all([
+              getDocs(query(collection(db, 'user_profiles'), where('minecraftUsername', '==', webId))),
+              getDocs(query(collection(db, 'user_profiles'), where('userId', '==', webId)))
+            ]);
             
             const batch = writeBatch(db);
             const snaps = [...snapName.docs, ...snapId.docs];
@@ -254,8 +244,7 @@ async function startServer() {
         await interaction.deferReply();
 
         try {
-          const q = query(collection(db, 'user_profiles'), where('discordId', '==', targetUser.id));
-          const snapshot = await getDocs(q);
+          const snapshot = await getDocs(query(collection(db, 'user_profiles'), where('discordId', '==', targetUser.id)));
 
           if (snapshot.empty) {
             return interaction.editReply({ content: `❌ Kein verknüpfter Website-Account für **${targetUser.tag}** gefunden.` });

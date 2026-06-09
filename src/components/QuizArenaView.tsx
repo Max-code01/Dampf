@@ -43,7 +43,8 @@ export const QuizArenaView: React.FC<QuizArenaViewProps> = ({ activeQuiz, myProf
         role: (myProfile?.role || 'Member').substring(0, 64),
         purchasedRank: myProfile?.purchasedRank || "",
         createdAt: serverTimestamp(),
-        tempId: tempId
+        tempId: tempId,
+        channel: 'quiz'
       });
 
       // Show temporary positive feedback

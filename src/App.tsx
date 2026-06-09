@@ -488,6 +488,10 @@ export default function App() {
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
   const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showClientsModal, setShowClientsModal] = useState(false);
+  const [clientActiveTab, setClientActiveTab] = useState<'lunar' | 'badlion' | 'labymod' | 'vanilla' | 'browser-mod'>('lunar');
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [invitedClanId, setInvitedClanId] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const activeEditingProfId = editingProfileId || user?.uid || null;
   const editingProfile = activeEditingProfId 
@@ -1683,6 +1687,7 @@ export default function App() {
 
   // Clan State
   const [clans, setClans] = useState<Clan[]>([]);
+  const invitedClan = clans.find(c => c.id === invitedClanId);
   const [myClan, setMyClan] = useState<Clan | null>(null);
   const [clanMembers, setClanMembers] = useState<ClanMember[]>([]);
   const [showCreateClan, setShowCreateClan] = useState(false);
@@ -2242,6 +2247,13 @@ export default function App() {
       setShowMiningModal(true);
       setMiningTab('world');
     }
+
+    // Check for clan invitation link ?invite=clan_id
+    const invite = params.get('invite');
+    if (invite) {
+      setInvitedClanId(invite);
+      setShowInviteModal(true);
+    }
   }, []);
 
   // Auth Listener & Role Detection
@@ -2688,7 +2700,7 @@ export default function App() {
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -4404,6 +4416,42 @@ export default function App() {
       alert('Anfrage gesendet!');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `clans/${clanId}/requests`);
+    }
+  };
+
+  const acceptDirectInvite = async (clanId: string) => {
+    if (!user || !myProfile) return;
+    const targetClan = clans.find(c => c.id === clanId);
+    if (!targetClan) return;
+
+    try {
+      // 1. Add player as standard member to members subcollection
+      await setDoc(doc(db, 'clans', clanId, 'members', user.uid), {
+        userId: user.uid,
+        role: 'Member',
+        joinedAt: serverTimestamp(),
+        xpContribution: 0
+      });
+
+      // 2. Increment member count of the clan
+      await setDoc(doc(db, 'clans', clanId), {
+        memberCount: (targetClan.memberCount || 0) + 1
+      }, { merge: true });
+
+      // 3. Delete any prospective request is also cleaned
+      try {
+        await deleteDoc(doc(db, 'clans', clanId, 'requests', user.uid));
+      } catch (e) {
+        // Tolerable if doesn't exist
+      }
+
+      setActiveClanId(clanId);
+      setIsClansOpen(true);
+      setShowInviteModal(false);
+      triggerToast('xp', 'CLAN BEIGETRETEN! 🎉', `Willkommen im Clan "${targetClan.name}"!`);
+      fetchClans();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `clans/${clanId}/members`);
     }
   };
 
@@ -8465,6 +8513,28 @@ export default function App() {
                   <p className="text-neutral-400 mb-6 leading-relaxed">
                     {realmNames.pvp === 'PvP Arena' ? 'Der offizielle Realm für unsere PvP-Turniere. Kämpfe gegen andere, verbessere deine Skills und dominiere.' : `Willkommen auf dem ${realmNames.pvp} Realm!`}
                   </p>
+
+                  {/* Capacity Progress Bar */}
+                  <div className="mb-6 bg-black/30 border border-neutral-800/40 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Realm Auslastung</span>
+                      <span className="text-xs font-mono font-bold" style={{ color: realmColors.pvp }}>
+                        {Math.round((combinedPvpPlayers.length / (pvpStatus.maxPlayers || 10)) * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/50">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, (combinedPvpPlayers.length / (pvpStatus.maxPlayers || 10)) * 100)}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                        className="h-full rounded-full"
+                        style={{ 
+                          backgroundColor: realmColors.pvp,
+                          boxShadow: `0 0 8px ${realmColors.pvp}80`
+                        }}
+                      />
+                    </div>
+                  </div>
                   
                   {/* Player List */}
                   <div className="mb-8 min-h-[40px]">
@@ -8555,6 +8625,28 @@ export default function App() {
                   <p className="text-neutral-400 mb-6 leading-relaxed text-wrap">
                     {realmNames.survival === 'Survival World' ? 'Entspanntes Vanilla-Survival. Erforsche, baue gemeinsam und genieße die Welt.' : `Willkommen auf dem ${realmNames.survival} Realm!`}
                   </p>
+
+                  {/* Capacity Progress Bar */}
+                  <div className="mb-6 bg-black/30 border border-neutral-800/40 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Realm Auslastung</span>
+                      <span className="text-xs font-mono font-bold" style={{ color: realmColors.survival }}>
+                        {Math.round((combinedSurvivalPlayers.length / (survivalStatus.maxPlayers || 10)) * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/50">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, (combinedSurvivalPlayers.length / (survivalStatus.maxPlayers || 10)) * 100)}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                        className="h-full rounded-full"
+                        style={{ 
+                          backgroundColor: realmColors.survival,
+                          boxShadow: `0 0 8px ${realmColors.survival}80`
+                        }}
+                      />
+                    </div>
+                  </div>
 
                    {/* Player List */}
                    <div className="mb-8 min-h-[40px]">
@@ -8885,6 +8977,19 @@ export default function App() {
                         </div>
 
                         <div className="flex gap-2 w-full md:w-auto">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const link = `https://dampf.mypi.co/?invite=${clan.id}`;
+                              navigator.clipboard.writeText(link);
+                              triggerToast('quest', 'LINK KOPIERT ⚡', `Einladungslink für "${clan.name}" kopiert!`);
+                            }}
+                            className="p-3 bg-neutral-900 border border-neutral-800 text-neutral-400 rounded-xl hover:border-neutral-700 hover:text-white transition-colors flex items-center justify-center"
+                            title="Einladungslink kopieren"
+                          >
+                            <Copy size={16} />
+                          </button>
                           {(user?.uid === clan.leaderId || isAdmin) ? (
                             <button 
                               onClick={(e) => { e.stopPropagation(); deleteClan(clan.id); }}
@@ -9002,6 +9107,27 @@ export default function App() {
                                       Bearbeiten
                                     </button>
                                   )}
+                                </div>
+
+                                {/* Invitation Join Link */}
+                                <div className="mt-3 bg-neutral-950/40 border border-neutral-800 p-3 rounded-xl flex items-center justify-between gap-3">
+                                  <div className="truncate">
+                                    <span className="text-[9px] font-extrabold text-neutral-500 uppercase tracking-widest block mb-0.5">Eindeutiger Beitrittslink ⚡</span>
+                                    <p className="text-[10px] font-mono text-zinc-400 truncate select-all">
+                                      dampf.mypi.co/?invite={activeClanId}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      const url = `https://dampf.mypi.co/?invite=${activeClanId}`;
+                                      navigator.clipboard.writeText(url);
+                                      triggerToast('quest', 'LINK KOPIERT ⚡', 'Dein Clan-Einladungslink wurde in deine Zwischenablage kopiert.');
+                                    }}
+                                    className="p-2 bg-mc-gold/10 text-mc-gold rounded-lg hover:bg-mc-gold hover:text-black transition-all shrink-0 flex items-center justify-center border border-mc-gold/20"
+                                    title="Beitrittslink kopieren"
+                                  >
+                                    <Copy size={13} />
+                                  </button>
                                 </div>
                               </div>
 
@@ -10306,6 +10432,557 @@ export default function App() {
                   Belohnungen Einsammeln
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Clients Modal */}
+      <AnimatePresence>
+        {showClientsModal && (
+          <div key="clients-modal-container" className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-left">
+            <motion.div 
+              key="clients-modal-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowClientsModal(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="clients-modal-content"
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-4xl overflow-hidden shadow-[0_0_50px_rgba(147,51,234,0.15)] max-h-[92vh] flex flex-col z-10"
+            >
+              {/* Header */}
+              <div className="p-6 md:p-8 border-b border-neutral-800/80 flex items-center justify-between shrink-0 bg-neutral-900 relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-indigo-500/5 pointer-events-none" />
+                <div className="relative z-10">
+                  <span className="text-[10px] font-black tracking-[0.2em] uppercase text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20">Website & Client Integration</span>
+                  <h3 className="text-2xl md:text-3xl font-black uppercase text-white mt-2.5 flex items-center gap-2.5">
+                    <Cpu className="text-purple-400" size={26} />
+                    MC HUB mit Clients nutzen
+                  </h3>
+                  <p className="text-neutral-500 text-xs md:text-sm mt-1">Hier erfährst du, wie du das Dashboard und unsere Server direkt über Minecraft-Clients aufrufen kannst!</p>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setShowClientsModal(false)}
+                  className="p-2.5 hover:bg-neutral-800 rounded-xl text-neutral-400 hover:text-white transition-all hover:rotate-90 duration-300"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Sub-navigation inside modal */}
+              <div className="flex overflow-x-auto border-b border-neutral-800/60 bg-neutral-950/40 p-2 gap-1.5 shrink-0 scrollbar-none">
+                <button
+                  onClick={() => setClientActiveTab('lunar')}
+                  className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
+                    clientActiveTab === 'lunar' 
+                      ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30 shadow-[0_0_15px_rgba(147,51,234,0.1)]' 
+                      : 'text-neutral-400 hover:text-white border border-transparent hover:bg-neutral-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                  Lunar Client
+                </button>
+                <button
+                  onClick={() => setClientActiveTab('badlion')}
+                  className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
+                    clientActiveTab === 'badlion' 
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' 
+                      : 'text-neutral-400 hover:text-white border border-transparent hover:bg-neutral-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  Badlion Client
+                </button>
+                <button
+                  onClick={() => setClientActiveTab('labymod')}
+                  className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
+                    clientActiveTab === 'labymod' 
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                      : 'text-neutral-400 hover:text-white border border-transparent hover:bg-neutral-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  LabyMod 4
+                </button>
+                <button
+                  onClick={() => setClientActiveTab('vanilla')}
+                  className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
+                    clientActiveTab === 'vanilla' 
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                      : 'text-neutral-400 hover:text-white border border-transparent hover:bg-neutral-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  Vanilla & Launcher
+                </button>
+                <button
+                  onClick={() => setClientActiveTab('browser-mod')}
+                  className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
+                    clientActiveTab === 'browser-mod' 
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.1)]' 
+                      : 'text-neutral-400 hover:text-white border border-transparent hover:bg-neutral-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                  In-Game Browser Mod
+                </button>
+              </div>
+
+              {/* Scrollable Modal Content */}
+              <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 text-neutral-300">
+                
+                {clientActiveTab === 'lunar' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="space-y-6 text-left"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-purple-500/10 text-purple-400 rounded-2xl border border-purple-500/20 shrink-0">
+                        <Zap size={28} />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-white uppercase tracking-tight">Lunar Client Integration</h4>
+                        <p className="text-neutral-400 text-sm mt-1">Lunar Client ist der beliebteste PvP-Client für Minecraft und bietet eine fantastische FPS-Performance.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-black/40 border border-neutral-800/80 rounded-2xl space-y-4">
+                      <div className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
+                        <div>
+                          <p className="text-sm font-bold text-white">Lunar Client starten</p>
+                          <p className="text-xs text-neutral-400 mt-1">Stelle sicher, dass du die neueste Version von Lunar Client nutzt und weise genügend RAM in den Einstellungen zu.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
+                        <div>
+                          <p className="text-sm font-bold text-white">Web-Verbindung aktivieren</p>
+                          <p className="text-xs text-neutral-400 mt-1">Mit Lunar Client kannst du MC HUB direkt als Server-IP hinzufügen. Nutze den Realm-Zugangscode für die Registrierung deiner Minecraft-UUID.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">3</span>
+                        <div>
+                          <p className="text-sm font-bold text-white">Web-Hud auf der Website abrufen</p>
+                          <p className="text-xs text-neutral-400 mt-1">Richte deine Spielertastatur, Cosmetics und HUD-Overlay-Farbe in deinem Profil ein. Sie wird automatisch für kompatible Clients synchronisiert!</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="mc-card p-5 border-purple-500/10 hover:border-purple-500/30 transition-all flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider">Download</span>
+                          <h5 className="font-bold text-white mt-1 text-sm">Download Lunar Client</h5>
+                          <p className="text-xs text-neutral-505 mt-1">Hol dir den Client für Windows, macOS oder Linux für die beste Performance.</p>
+                        </div>
+                        <a href="https://www.lunarclient.com/" target="_blank" rel="noreferrer" className="mc-button mc-button-secondary py-2 mt-4 text-xs font-bold w-full border-purple-500/20 text-purple-400 hover:bg-purple-500/10 flex items-center justify-center gap-1">
+                          Zur Lunar-Website <ExternalLink size={12} />
+                        </a>
+                      </div>
+
+                      <div className="mc-card p-5 border-purple-500/10 hover:border-purple-500/30 transition-all flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider">Skin-Sync</span>
+                          <h5 className="font-bold text-white mt-1 text-sm">Automatischer Skin-Sync</h5>
+                          <p className="text-xs text-neutral-505 mt-1">Deine Web-Anpassungen (Skins, Name, Glow) werden in Echtzeit als Minecraft Skin-Referenz bereitgestellt.</p>
+                        </div>
+                        <button type="button" onClick={() => triggerToast('xp', 'SKIN SYNCED 🎭', 'Deine Skins und Farben wurden für Lunar Client erfolgreich bereitgestellt!')} className="mc-button bg-purple-600 text-white font-bold py-2 mt-4 text-xs w-full hover:bg-purple-500 transition-colors">
+                          Skin jetzt synchronisieren
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {clientActiveTab === 'badlion' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="space-y-6 text-left"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20 shrink-0">
+                        <Award size={28} />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-white uppercase tracking-tight">Badlion Client Support</h4>
+                        <p className="text-neutral-400 text-sm mt-1">Badlion bietet herausragende Mod-Pakete, unübertroffenen Anticheat-Schutz und weitreichende Personalisierung.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-black/40 border border-neutral-800/80 rounded-2xl space-y-4">
+                      <div className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
+                        <div>
+                          <p className="text-sm font-bold text-white">Client-Verbindung</p>
+                          <p className="text-xs text-neutral-400 mt-1">Gib unter Mehrspieler-Servern die Zugangs-Ip deines Realms an. Badlion verbindet dich verschlüsselt.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
+                        <div>
+                          <p className="text-sm font-bold text-white">In-Game HUD Mods</p>
+                          <p className="text-xs text-neutral-400 mt-1">Badlion bietet über 70 Mods direkt im Client. Installiere dir Keystrokes und Minimapas für die beste Arena-Erfahrung.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="mc-card p-5 border-amber-500/10 hover:border-amber-500/30 transition-all flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Offizielle Seite</span>
+                          <h5 className="font-bold text-white mt-1 text-sm">Download Badlion Client</h5>
+                          <p className="text-xs text-neutral-505 mt-1">Hunderte kostenlose Mods bereits integriert im Launcher.</p>
+                        </div>
+                        <a href="https://www.badlion.net/" target="_blank" rel="noreferrer" className="mc-button mc-button-secondary py-2 mt-4 text-xs font-bold w-full border-amber-500/20 text-amber-400 hover:bg-amber-500/10 flex items-center justify-center gap-1">
+                          Zur Badlion-Website <ExternalLink size={12} />
+                        </a>
+                      </div>
+
+                      <div className="mc-card p-5 border-amber-500/10 hover:border-amber-500/30 transition-all flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Anticheat</span>
+                          <h5 className="font-bold text-white mt-1 text-sm">BAC Schutz auf unseren Servern</h5>
+                          <p className="text-xs text-neutral-505 mt-1">Unsere Realms nutzen serverseitige Verifikation, um ein sicheres und faires Gameplay zu garantieren.</p>
+                        </div>
+                        <div className="text-[10px] font-black text-amber-400 uppercase tracking-widest bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 text-center mt-4">
+                          BAC GESCHÜTZT 🛡️
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {clientActiveTab === 'labymod' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="space-y-6 text-left"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/20 shrink-0">
+                        <Users size={28} />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-white uppercase tracking-tight">LabyMod 4 Voice Chat & Cosmetics</h4>
+                        <p className="text-neutral-400 text-sm mt-1">LabyMod 4 bietet dir einen nahtlosen In-game Sprachchat, eigene Cosmetics und erstklassige Anpassbarkeit.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-black/40 border border-neutral-800/80 rounded-2xl space-y-4">
+                      <p className="text-xs text-neutral-400 italic">Nutze diese genialen Features von LabyMod, um dich mit deinen Freunden auf den Realms zu koordinieren:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div className="bg-neutral-900/50 p-3 rounded-xl border border-neutral-800">
+                          <p className="font-bold text-white mb-1">🎙️ Positional Voice Chat</p>
+                          <p className="text-neutral-500">Höre deine Mates im Clan-Team-Chat räumlich, je nachdem wo sie stehen!</p>
+                        </div>
+                        <div className="bg-neutral-900/50 p-3 rounded-xl border border-neutral-800">
+                          <p className="font-bold text-white mb-1">🎭 Custom Emotes & Skins</p>
+                          <p className="text-neutral-500">Präsentiere deine im Web-Shop errungenen Ränge und Abzeichen direkt ingame.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mc-card p-5 border-emerald-500/10 hover:border-emerald-500/30 transition-all flex flex-col justify-between">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Sprachchat</span>
+                        <h5 className="font-bold text-white mt-1 text-sm">Download LabyMod 4</h5>
+                        <p className="text-xs text-neutral-505 mt-1">Hol dir den flexibelsten Mod-Client mit erstklassiger Performance und unzähligen Addons.</p>
+                      </div>
+                      <a href="https://www.labymod.net/" target="_blank" rel="noreferrer" className="mc-button bg-emerald-600 text-black font-extrabold py-2 mt-4 text-xs w-full hover:bg-emerald-500 transition-all flex items-center justify-center gap-1">
+                        Zur LabyMod-Website <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </motion.div>
+                )}
+
+                {clientActiveTab === 'vanilla' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="space-y-6 text-left"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-red-500/10 text-red-400 rounded-2xl border border-red-500/20 shrink-0">
+                        <Gamepad2 size={24} />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-white uppercase tracking-tight">Vanilla Minecraft & Multi-Platform Launcher</h4>
+                        <p className="text-neutral-400 text-sm mt-1">Egal ober Java Edition auf dem PC oder Bedrock (Pocket Edition) auf deinem Handy/Tablet – der Zugang steht dir rund um die Uhr offen.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-black/40 border border-neutral-850 p-5 rounded-2xl space-y-3">
+                        <span className="px-2 py-0.5 rounded text-[8px] font-black tracking-widest uppercase bg-red-600 text-white">JAVA EDITION</span>
+                        <h5 className="font-bold text-white text-sm">PC / Mac / Linux</h5>
+                        <ul className="text-xs text-neutral-500 space-y-1 list-disc list-inside">
+                          <li>Starte den offiziellen Launcher</li>
+                          <li>Wähle die neueste Version (Vanilla)</li>
+                          <li>Unter Mehrspieler ➜ Server hinzufügen</li>
+                          <li>Verwende den Zugangscode unten!</li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-black/40 border border-neutral-850 p-5 rounded-2xl space-y-3">
+                        <span className="px-2 py-0.5 rounded text-[8px] font-black tracking-widest uppercase bg-sky-600 text-white">BEDROCK EDITION</span>
+                        <h5 className="font-bold text-white text-sm">Handy / Playstation / XBOX</h5>
+                        <ul className="text-xs text-neutral-500 space-y-1 list-disc list-inside">
+                          <li>Öffne Minecraft auf deinem Device</li>
+                          <li>Klicke auf Spielen ➜ Reiter "Server"</li>
+                          <li>Scrolle ganz nach unten ➜ Server hinzufügen</li>
+                          <li>Egal ob iOS/Android – absolut crossplay!</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {clientActiveTab === 'browser-mod' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="space-y-6 text-left"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-2xl border border-cyan-500/20 shrink-0">
+                        <Globe size={28} />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-white uppercase tracking-tight">Website direkt im Minecraft-Spiel aufrufen</h4>
+                        <p className="text-neutral-400 text-sm mt-1">Hol dir das MC HUB Dashboard als echtes in-game Terminal direkt in deine Minecraft-Welt mit Minecraft-Browser-Mods!</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-black/40 border border-neutral-800/80 p-5 rounded-2xl space-y-3">
+                        <h5 className="font-bold text-white text-sm flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-cyan-450" />
+                          Web Displays Mod (Forge)
+                        </h5>
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          Mit dieser legendären Mod kannst du gigantische Bildschirme in deiner Minecraft-Welt bauen! Erstelle einen Web-Screen (3x5 bis 16x16 Blöcke), klicke ihn mit der rechten Maustaste an und tippe unsere Website ein.
+                        </p>
+                        <div className="p-2 border border-neutral-800 rounded bg-neutral-950 font-mono text-[10px] text-zinc-400 flex justify-between items-center select-all">
+                          <span>{window.location.origin}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-black/40 border border-neutral-800/80 p-5 rounded-2xl space-y-3">
+                        <h5 className="font-bold text-white text-sm flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-cyan-450" />
+                          In-Game Web Browser (Fabric)
+                        </h5>
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          Öffne ein in-game Tablet, Laptop oder füge ein transparentes Overlay direkt an den Bildschirmrand, um Münzen zu farmen, Musik abzuspielen oder zu chatten, während du Holz hackst!
+                        </p>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const origin = window.location.origin;
+                            navigator.clipboard.writeText(origin);
+                            triggerToast('quest', 'ADRESSE KOPIERT 📌', 'Die Portal-Webadresse wurde in deine Zwischenablage kopiert.');
+                          }} 
+                          className="mc-button mc-button-secondary py-1 text-[10px] font-black uppercase text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/10 transition-colors w-full flex items-center justify-center gap-1.5"
+                        >
+                          Echtzeit-URL kopieren <Copy size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-cyan-950/20 border border-cyan-550/20 rounded-2xl text-center">
+                      <p className="text-xs text-cyan-200 font-bold">
+                        💡 Tipp: Melde dich einmalig mit deiner E-Mail und Passwort an – so speichert das In-game-Terminal dein Profil dauerhaft ab!
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+
+              </div>
+
+              {/* Fixed Footer with general connections / PWA Quick installer */}
+              <div className="p-6 bg-neutral-955 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                    <Rocket size={16} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-bold text-white leading-none">Lieber als eigene Anwendung?</p>
+                    <p className="text-[10px] text-neutral-500 mt-1">Installiere den MC HUB direkt als Standalone-Client auf deinem Desktop.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 w-full sm:w-auto">
+                  {showInstallButton ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInstallClick();
+                        setShowClientsModal(false);
+                      }}
+                      className="mc-button bg-emerald-600 hover:bg-emerald-500 text-black font-extrabold px-5 py-2 rounded-xl text-xs uppercase tracking-wider grow sm:grow-0"
+                    >
+                      Desktop-App Installieren
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="mc-button border border-neutral-800 text-neutral-500 px-5 py-2 rounded-xl text-xs uppercase tracking-wider grow sm:grow-0 cursor-not-allowed"
+                    >
+                      Desktop-App Bereits installiert
+                    </button>
+                  )}
+                  <button 
+                    type="button"
+                    onClick={() => setShowClientsModal(false)}
+                    className="mc-button bg-neutral-800 hover:bg-neutral-700 text-white px-5 py-2 rounded-xl text-xs uppercase tracking-wider grow sm:grow-0"
+                  >
+                    Schließen
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Clan Invite Modal */}
+      <AnimatePresence>
+        {showInviteModal && (
+          <div key="clan-invite-modal-container" className="fixed inset-0 z-[120] flex items-center justify-center p-6 text-left">
+            <motion.div 
+              key="clan-invite-modal-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowInviteModal(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="clan-invite-modal-content"
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              className="relative bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-md overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)] flex flex-col z-10 p-6 md:p-8"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-4 border-b border-neutral-800 pb-5 mb-6">
+                <div className="p-3 bg-mc-gold/10 text-mc-gold rounded-2xl border border-mc-gold/20 shrink-0 animate-pulse">
+                  <Sparkles size={24} />
+                </div>
+                <div>
+                  <h4 className="text-lg font-black text-white uppercase tracking-wider">Clan-Einladung</h4>
+                  <p className="text-neutral-500 text-[10px] uppercase font-bold tracking-widest mt-0.5">Exklusiver Direktlink</p>
+                </div>
+              </div>
+
+              {/* Clan Information Card */}
+              {invitedClan ? (
+                <div className="space-y-6">
+                  <div className="bg-neutral-950/50 border border-neutral-800 p-5 rounded-2xl text-center space-y-4">
+                    <div className="w-16 h-16 bg-neutral-900 mx-auto rounded-2xl border border-neutral-800 flex items-center justify-center text-3xl font-bold text-mc-gold shadow-[0_0_20px_rgba(245,158,11,0.05)] font-mono">
+                      {invitedClan.tag}
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-extrabold text-white">{invitedClan.name}</h3>
+                      <p className="text-xs font-mono text-mc-gold mt-1">[{invitedClan.tag}] • Level {invitedClan.level || 1}</p>
+                    </div>
+                    {invitedClan.description && (
+                      <p className="text-neutral-400 text-xs italic bg-neutral-900/40 p-3 rounded-xl border border-neutral-800/50">
+                        "{invitedClan.description}"
+                      </p>
+                    )}
+                    <div className="flex justify-around items-center pt-2 text-[10px] font-black uppercase text-neutral-500 tracking-wider">
+                      <div>
+                        <span className="block text-white text-base font-bold font-mono">{invitedClan.memberCount}</span>
+                        Mitglieder
+                      </div>
+                      <div className="w-px h-6 bg-neutral-800" />
+                      <div>
+                        <span className="block text-white text-base font-bold font-mono">{(invitedClan.totalKills || 0).toLocaleString()}</span>
+                        Kills
+                      </div>
+                    </div>
+                  </div>
+
+                  {!user ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-2xl text-center text-orange-400">
+                        <p className="text-xs font-bold">
+                          ⚠️ Du bist aktuell nicht angemeldet. Bitte logge dich ein, um dieser Clan-Einladung beizutreten!
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowInviteModal(false);
+                          setShowLoginModal(true);
+                        }}
+                        className="w-full py-4 mc-button bg-mc-gold text-black font-extrabold tracking-widest uppercase text-xs hover:bg-amber-400 rounded-xl"
+                      >
+                        Jetzt einloggen & beitreten ⚡
+                      </button>
+                    </div>
+                  ) : myClan ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-center text-red-400">
+                        <p className="text-xs font-bold">
+                          ⚠️ Du bist bereits Mitglied im Clan "{myClan.name}". Du musst deinen aktuellen Clan verlassen, um der Einladung beizutreten!
+                        </p>
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => {
+                            leaveClan(myClan.id);
+                          }}
+                          className="flex-1 py-3 border border-red-500/20 text-red-500 font-bold text-xs uppercase rounded-xl hover:bg-red-500/5"
+                        >
+                          Clan verlassen
+                        </button>
+                        <button
+                          onClick={() => setShowInviteModal(false)}
+                          className="flex-1 py-3 bg-neutral-800 text-neutral-400 font-bold text-xs uppercase rounded-xl hover:bg-neutral-700"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => acceptDirectInvite(invitedClan.id)}
+                        className="w-full py-4 mc-button bg-emerald-500 text-black font-black uppercase tracking-widest text-xs hover:bg-emerald-400 transition-all shadow-[0_0_30px_rgba(16,185,129,0.2)] rounded-2xl flex items-center justify-center gap-2"
+                      >
+                        <span>Einladung annehmen & beitreten ⚡</span>
+                      </button>
+                      <button
+                        onClick={() => setShowInviteModal(false)}
+                        className="w-full py-3 bg-neutral-800 text-neutral-400 uppercase font-black tracking-widest text-[10px] rounded-xl hover:bg-neutral-700 transition"
+                      >
+                        Später
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12 space-y-4 text-neutral-500">
+                  <div className="w-10 h-10 border-4 border-mc-gold border-t-transparent rounded-full animate-spin mx-auto mr-auto" />
+                  <p className="text-sm italic animate-pulse">Lade Clan-Einladungsdaten...</p>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
