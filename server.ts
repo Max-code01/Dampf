@@ -437,7 +437,7 @@ async function startServer() {
   // --- CHAT QUIZ BOT (SYSTEM BOT) ---
   const quizQuestions = [
     { question: "Wie viele Eisenbarren benötigt man für einen Amboss?", answers: ["31"] },
-    { question: "Welches Werkzeug baut Obsidian am schnellsten ab?", answers: ["diamantspitzhacke", "diamant-spitzhacke", "netheritespitzhacke", "netherite-spitzhacke", "spitzhacke"] },
+    { question: "Welches Werkzeug baut Obsidian am schnellsten ab?", answers: ["netheritspitzhacke", "netherit-spitzhacke", "netherit spitzhacke", "netheritespitzhacke", "netherite-spitzhacke", "netherite spitzhacke", "diamantspitzhacke", "diamant-spitzhacke", "diamant spitzhacke", "spitzhacke"] },
     { question: "Welche Kreatur explodiert, wenn sie dem Spieler zu nahe kommt?", answers: ["creeper", "kreeper"] },
     { question: "Was muss man im Nether abbauen, um Netherit herzustellen?", answers: ["antiker schutt", "ancient debris", "schutt", "ancientdebris"] },
     { question: "Wie viele Holzbretter (Planks) erhält man aus einem normalen Holzstamm?", answers: ["4", "vier"] },
