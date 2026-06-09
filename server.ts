@@ -529,8 +529,18 @@ async function startServer() {
         });
 
         // 3. Post notification to global chat
+        let customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙)`;
+        const cleanAnswer = correctAns.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "").replace(/\s+/g, '').trim();
+        if (solvedQuiz.question.includes("Obsidian") && solvedQuiz.question.includes("Werkzeug") && solvedQuiz.question.includes("schnellsten")) {
+          if (cleanAnswer.includes("netherit")) {
+            customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙) *– Absolut korrekt! Netherit ist tatsächlich noch flinker als Diamant! ✨*`;
+          } else if (cleanAnswer.includes("diamant")) {
+            customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙) *– Korrekt! Diamant ist super, aber mit Netherit geht es sogar noch ein bisschen schneller! ⛏️*`;
+          }
+        }
+
         await addDoc(collection(db, 'chat_messages'), {
-          text: `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${solvedQuiz.question}*" ➜ **${correctAns.toUpperCase()}**! (+50 Coins 🪙)`,
+          text: customAnnouncement,
           userId: 'quiz_bot',
           displayName: '💡 Quiz-Bot',
           role: 'System',

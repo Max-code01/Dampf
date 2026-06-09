@@ -1417,8 +1417,18 @@ export default function App() {
       });
 
       // 3. Post notification to global chat under 'quiz_bot' identity
+      let customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${currentQuiz.question}*" ➜ **${answer.toUpperCase()}**! (+50 Coins 🪙)`;
+      const cleanAnswer = answer.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "").replace(/\s+/g, '').trim();
+      if (currentQuiz.question.includes("Obsidian") && currentQuiz.question.includes("Werkzeug") && currentQuiz.question.includes("schnellsten")) {
+        if (cleanAnswer.includes("netherit")) {
+          customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${currentQuiz.question}*" ➜ **${answer.toUpperCase()}**! (+50 Coins 🪙) *– Absolut korrekt! Netherit ist tatsächlich noch flinker als Diamant! ✨*`;
+        } else if (cleanAnswer.includes("diamant")) {
+          customAnnouncement = `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${currentQuiz.question}*" ➜ **${answer.toUpperCase()}**! (+50 Coins 🪙) *– Korrekt! Diamant ist super, aber mit Netherit geht es sogar noch ein bisschen schneller! ⛏️*`;
+        }
+      }
+
       await addDoc(collection(db, 'chat_messages'), {
-        text: `🏆 **Richtig!** **${displayName}** hat die Quizfrage am schnellsten beantwortet: "*${currentQuiz.question}*" ➜ **${answer.toUpperCase()}**! (+50 Coins 🪙)`,
+        text: customAnnouncement,
         userId: 'quiz_bot',
         displayName: '💡 Quiz-Bot',
         role: 'System',
@@ -2591,8 +2601,9 @@ export default function App() {
             if (change.type === 'added') {
               const data = change.doc.data();
               if (data && data.text && data.userId && data.userId !== 'quiz_bot' && data.userId !== 'system') {
-                const textNorm = data.text.trim().toLowerCase();
-                const matchedAnswer = correctAnswers.find((ans: string) => ans.trim().toLowerCase() === textNorm);
+                const cleanStr = (s: string) => s.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "").replace(/\s+/g, ' ').trim();
+                const userClean = cleanStr(data.text);
+                const matchedAnswer = correctAnswers.find((ans: string) => cleanStr(ans) === userClean);
                 
                 if (matchedAnswer) {
                   // Verify that the message was sent after or at the same time as the active quiz started
