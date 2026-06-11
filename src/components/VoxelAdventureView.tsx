@@ -66,7 +66,7 @@ interface PlacedMachine {
   id: string;
   x: number;
   y: number;
-  type: 'generator_solar' | 'generator_wind' | 'miner_auto' | 'seller_auto' | 'wall_iron';
+  type: string;
   energyLevel: number;
   maxEnergy: number;
   lastTick: number;
@@ -122,11 +122,27 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
   // Hotbar configurations matching prototype slots
   // Slot 1: Tool (Pickaxe/Drill)
-  // Slot 2: Solar Panels (places generator_solar)
-  // Slot 3: Auto Miners (places miner_auto)
-  // Slot 4: Auto Sellers (places seller_auto)
-  // Slot 5: Base Walls (places wall_iron)
+  // Slot 2: Energy Generation
+  // Slot 3: Automation Miner Drills
+  // Slot 4: Automated Selling depots
+  // Slot 5: Base building walls, doors and defensive Tesla coils
   const [selectedHotbarIndex, setSelectedHotbarIndex] = useState<number>(0);
+
+  const [activeSlotEquipped, setActiveSlotEquipped] = useState<{ [key: number]: string }>({
+    1: 'solar',
+    2: 'miner',
+    3: 'seller',
+    4: 'wall'
+  });
+
+  const slotCategories: { [key: number]: string[] } = {
+    1: ['solar', 'adv_solar', 'wind', 'coal_gen', 'geo_gen', 'water_gen', 'oil_gen', 'nuke_gen'],
+    2: ['miner', 'iron_miner', 'gold_miner', 'diamond_miner', 'uranium_miner', 'iridium_miner'],
+    3: ['seller', 'big_seller', 'coal_seller', 'iron_seller', 'gold_seller', 'diamond_seller', 'uranium_seller', 'iridium_seller'],
+    4: ['wall', 'obsidian_wall', 'reinforced_wall', 'iron_door', 'obsidian_door', 'reinforced_door', 'electric_door', 'tesla_1000', 'tesla_2000', 'tesla_3000', 'bed', 'sign']
+  };
+
+  const [openSelectorIndex, setOpenSelectorIndex] = useState<number | null>(null);
 
   // Inventories tracking
   const [coins, setCoins] = useState<number>(myProfile?.coins || 150);
@@ -155,10 +171,17 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
   // Building Inventory reserves (counts available for placement slot 2-5)
   const [buildInventory, setBuildInventory] = useState<{ [key: string]: number }>({
-    solar: 2,
-    miner: 1,
-    seller: 1,
-    wall: 8
+    solar: 4,
+    adv_solar: 1,
+    wind: 2,
+    coal_gen: 2,
+    miner: 2,
+    iron_miner: 1,
+    seller: 2,
+    big_seller: 1,
+    wall: 16,
+    obsidian_wall: 4,
+    tesla_1000: 2
   });
 
   // Equipped Armors & abilities
@@ -175,6 +198,43 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     label: '⛏️',
     color: '#8b5a2b'
   });
+
+  // Dynamic selected placeable machine/tool per slot category (MineEnergy 1 & 2 Upgrade)
+  const [selectedEquipment, setSelectedEquipment] = useState<{ [key: number]: string }>({
+    0: 'wooden_pick',
+    1: 'solar',
+    2: 'miner',
+    3: 'seller',
+    4: 'wall'
+  });
+
+  const selectActiveEquipment = (catIdx: number, itemId: string) => {
+    setSelectedEquipment(prev => ({ ...prev, [catIdx]: itemId }));
+    if (catIdx === 0) {
+      const item = shopDatabase.find(x => x.id === itemId);
+      if (item) {
+        setCurrentTool({
+          id: item.id,
+          name: item.name,
+          damage: item.damage || 10,
+          power: item.id === 'iron_pick' ? 2 : (item.id === 'drill' ? 2 : (item.id === 'dia_drill' ? 3 : (item.id === 'iridium_drill' ? 5 : 1))),
+          label: item.icon,
+          color: item.imageColor
+        });
+        addLog(`⛏️ Hauptwerkzeug gewechselt zu: ${item.name}`);
+      } else if (itemId === 'wooden_pick') {
+        setCurrentTool({
+          id: 'wooden_pick',
+          name: 'Holz-Spitzhacke',
+          damage: 10,
+          power: 1,
+          label: '⛏️',
+          color: '#8b5a2b'
+        });
+        addLog(`⛏️ Hauptwerkzeug gewechselt zu: Holz-Spitzhacke`);
+      }
+    }
+  };
 
   // Modal screen panels
   const [isShopOpen, setIsShopOpen] = useState(false);
@@ -219,6 +279,74 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const keysPressed = useRef<{ [key: string]: boolean }>({});
   const mousePosRef = useRef({ x: 0, y: 0 });
+
+  // High-performance visual effects (vivid MineEnergy style particles, floaters & shake)
+  const fxSparksRef = useRef<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    color: string;
+    size: number;
+    alpha: number;
+    maxLife: number;
+    life: number;
+    glow?: boolean;
+    shape?: 'circle' | 'square' | 'spark';
+  }[]>([]);
+
+  const fxFloatersRef = useRef<{
+    x: number;
+    y: number;
+    text: string;
+    color: string;
+    alpha: number;
+    life: number;
+    maxLife: number;
+    vy: number;
+  }[]>([]);
+
+  const visualShakeRef = useRef({ x: 0, y: 0, intensity: 0 });
+
+  // Add visual sparks helper
+  const addSparksFX = (x: number, y: number, color: string, count = 8, scale = 1.0, isGlowing = false, shape: 'circle' | 'square' | 'spark' = 'circle') => {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (2 + Math.random() * 5) * scale;
+      fxSparksRef.current.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - (Math.random() * 1.5),
+        color,
+        size: (1.2 + Math.random() * 2.8) * scale,
+        alpha: 1.0,
+        maxLife: 15 + Math.floor(Math.random() * 20),
+        life: 0,
+        glow: isGlowing,
+        shape
+      });
+    }
+  };
+
+  // Add floating label helper
+  const addFloaterFX = (x: number, y: number, text: string, color = '#ffffff') => {
+    fxFloatersRef.current.push({
+      x,
+      y,
+      text,
+      color,
+      alpha: 1.0,
+      life: 0,
+      maxLife: 45,
+      vy: -1.2 - Math.random() * 1.0
+    });
+  };
+
+  // Screen shake helper
+  const triggerScreenShake = (intensity: number) => {
+    visualShakeRef.current.intensity = Math.max(visualShakeRef.current.intensity, intensity);
+  };
 
   // Multiplayer opponent bots simulations
   const [botsList, setBotsList] = useState<OpponentBot[]>([
@@ -821,6 +949,26 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     return () => cancelAnimationFrame(animFrame);
   }, [tiles, droppingParticles, gameTime, windSpeed, temperature, isRaining, isJetpackActive, placedMachines, selectedHotbarIndex]);
 
+  // Helper to check for adjacent tile type matching the ore requirements
+  const hasAdjacentTileType = (machX: number, machY: number, targetType: string) => {
+    const gridX = Math.round(machX / tileSize);
+    const gridY = Math.round(machY / tileSize);
+
+    const targets = [
+      { x: gridX, y: gridY },
+      { x: gridX + 1, y: gridY },
+      { x: gridX - 1, y: gridY },
+      { x: gridX, y: gridY + 1 },
+      { x: gridX, y: gridY - 1 }
+    ];
+
+    return tiles.some(t => {
+      const tgX = Math.round(t.x / tileSize);
+      const tgY = Math.round(t.y / tileSize);
+      return targets.some(tgt => tgt.x === tgX && tgt.y === tgY) && t.type === targetType;
+    });
+  };
+
   // Automated core ticking interval for passive machines (generators, miners, sellers)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -831,61 +979,156 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         return prevList.map(mach => {
           let powerDrain = 0;
           let productionProg = mach.productionProgress;
+          const mType = mach.type;
 
-          // Power generators
-          if (mach.type === 'generator_solar') {
+          // POWER GENERATORS
+          if (mType === 'solar' || mType === 'generator_solar') {
             const dayTime = gameTime.hour >= 6 && gameTime.hour <= 18;
-            const yieldAmt = dayTime ? (isRaining ? 1 : 5) : 0;
+            const yieldAmt = dayTime ? (isRaining ? 1 : 4) : 0;
             if (yieldAmt > 0) {
-              setResources(res => ({ ...res, power: Math.min(100, (res.power || 0) + yieldAmt) }));
+              setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + yieldAmt) }));
             }
           }
-          if (mach.type === 'generator_wind') {
+          if (mType === 'adv_solar') {
+            const dayTime = gameTime.hour >= 6 && gameTime.hour <= 18;
+            const yieldAmt = dayTime ? (isRaining ? 3 : 12) : 0;
+            if (yieldAmt > 0) {
+              setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + yieldAmt) }));
+            }
+          }
+          if (mType === 'wind' || mType === 'generator_wind') {
             const yieldWind = Math.floor(windSpeed * 0.4);
             if (yieldWind > 0) {
-              setResources(res => ({ ...res, power: Math.min(100, (res.power || 0) + yieldWind) }));
+              setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + yieldWind) }));
             }
           }
-
-          // Auto-Miners
-          if (mach.type === 'miner_auto') {
-            if (resources.power >= 2) {
-              powerDrain = 2;
-              productionProg = Math.min(100, productionProg + 20);
-              if (productionProg >= 100) {
-                productionProg = 0;
-                // yield Stone, Coal and Iron passively
-                setResources(r => ({
-                  ...r,
-                  stone: (r.stone || 0) + 1,
-                  coal: (r.coal || 0) + 1,
-                  iron: (r.iron || 0) + 1
-                }));
-                addLog('🤖 Auto-Miner hat passive Ores geerntet! (+1 Stone, +1 Coal)');
+          if (mType === 'coal_gen') {
+            let hasCoal = false;
+            setResources(r => {
+              if ((r.coal || 0) >= 1) {
+                hasCoal = true;
+                return { ...r, coal: r.coal - 1, power: Math.min(10000, (r.power || 0) + 15) };
               }
+              return r;
+            });
+            mach.energyLevel = hasCoal ? 100 : 0;
+          }
+          if (mType === 'geo_gen') {
+            const nearLava = hasAdjacentTileType(mach.x, mach.y, 'lava');
+            if (nearLava) {
+              setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + 25) }));
+              mach.energyLevel = 100;
+            } else {
+              mach.energyLevel = 0;
+            }
+          }
+          if (mType === 'water_gen') {
+            const nearWater = hasAdjacentTileType(mach.x, mach.y, 'water');
+            if (nearWater) {
+              setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + 18) }));
+              mach.energyLevel = 100;
+            } else {
+              mach.energyLevel = 0;
+            }
+          }
+          if (mType === 'oil_gen') {
+            setResources(res => ({ ...res, power: Math.min(10000, (res.power || 0) + 40) }));
+            mach.energyLevel = 100;
+          }
+          if (mType === 'nuke_gen') {
+            let hasUranium = false;
+            setResources(r => {
+              if ((r.uranium || 0) >= 1) {
+                hasUranium = true;
+                return { ...r, uranium: r.uranium - 1, power: Math.min(10000, (r.power || 0) + 150) };
+              }
+              return r;
+            });
+            mach.energyLevel = hasUranium ? 100 : 0;
+          }
+
+          // MINERS (require specific adjacent ores on the board map, exactly like Mine Energy!)
+          if (['miner', 'miner_auto', 'iron_miner', 'gold_miner', 'diamond_miner', 'uranium_miner', 'iridium_miner'].includes(mType)) {
+            let reqType = 'coal';
+            let powerReq = 2;
+            let yieldType = 'coal';
+
+            if (mType === 'miner' || mType === 'miner_auto') { reqType = 'coal'; powerReq = 2; yieldType = 'coal'; }
+            else if (mType === 'iron_miner') { reqType = 'iron'; powerReq = 4; yieldType = 'iron'; }
+            else if (mType === 'gold_miner') { reqType = 'gold'; powerReq = 8; yieldType = 'gold'; }
+            else if (mType === 'diamond_miner') { reqType = 'diamond'; powerReq = 15; yieldType = 'diamond'; }
+            else if (mType === 'uranium_miner') { reqType = 'uranium'; powerReq = 30; yieldType = 'uranium'; }
+            else if (mType === 'iridium_miner') { reqType = 'iridium'; powerReq = 50; yieldType = 'iridium'; }
+
+            const hasOre = hasAdjacentTileType(mach.x, mach.y, reqType);
+            if (hasOre) {
+              if (resources.power >= powerReq) {
+                powerDrain = powerReq;
+                productionProg = Math.min(100, productionProg + 15);
+                if (productionProg >= 100) {
+                  productionProg = 0;
+                  setResources(r => ({ ...r, [yieldType]: (r[yieldType] || 0) + 1 }));
+                  addLog(`🤖 Pasiver Miner hat 1x ${yieldType.toUpperCase()} geerntet!`);
+                }
+              }
+              mach.energyLevel = 100;
+            } else {
+              mach.energyLevel = 5; // Warning: No adjacent Ore vein
             }
           }
 
-          // Auto-Sellers (converts storage into coins automatically)
-          if (mach.type === 'seller_auto') {
-            if (resources.power >= 1) {
-              powerDrain = 1;
+          // AUTOMATED SELLERS (sells items for coins, consumes energy)
+          if (mType.includes('seller') || mType === 'seller_auto') {
+            let sellPowerCost = 1;
+            let targetRes: string[] = ['wood', 'stone'];
+            let mult = 1.0;
+
+            if (mType === 'seller' || mType === 'seller_auto') { sellPowerCost = 1; targetRes = ['wood', 'stone']; mult = 1.0; }
+            else if (mType === 'big_seller') { sellPowerCost = 3; targetRes = ['wood', 'stone', 'coal', 'iron']; mult = 1.2; }
+            else if (mType === 'coal_seller') { sellPowerCost = 2; targetRes = ['coal']; mult = 1.5; }
+            else if (mType === 'iron_seller') { sellPowerCost = 3; targetRes = ['iron']; mult = 1.5; }
+            else if (mType === 'gold_seller') { sellPowerCost = 5; targetRes = ['gold']; mult = 1.6; }
+            else if (mType === 'diamond_seller') { sellPowerCost = 10; targetRes = ['diamond']; mult = 1.8; }
+            else if (mType === 'uranium_seller') { sellPowerCost = 20; targetRes = ['uranium']; mult = 2.0; }
+            else if (mType === 'iridium_seller') { sellPowerCost = 50; targetRes = ['iridium']; mult = 2.5; }
+
+            if (resources.power >= sellPowerCost) {
+              powerDrain = sellPowerCost;
               let profits = 0;
               setResources(p => {
                 const draft = { ...p };
-                if (draft.wood > 0) { profits += draft.wood * 2; draft.wood = 0; }
-                if (draft.stone > 0) { profits += draft.stone * 4; draft.stone = 0; }
-                if (draft.coal > 0) { profits += draft.coal * 6; draft.coal = 0; }
-                if (draft.iron > 0) { profits += draft.iron * 12; draft.iron = 0; }
-                if (draft.gold > 0) { profits += draft.gold * 25; draft.gold = 0; }
+                targetRes.forEach(rKey => {
+                  const amt = draft[rKey] || 0;
+                  if (amt > 0) {
+                    const priceTable: { [key: string]: number } = {
+                      wood: 2, stone: 4, coal: 6, iron: 12, gold: 25, diamond: 80, uranium: 200, iridium: 600
+                    };
+                    profits += Math.floor(amt * (priceTable[rKey] || 5) * mult);
+                    draft[rKey] = 0;
+                  }
+                });
                 return draft;
               });
 
               if (profits > 0) {
                 passiveEarnings += profits;
                 playRetroSound('buy');
-                addLog(`💵 Auto-Seller hat Ressourcen für ${profits} 💎 Erze gewinnbringend abgesetzt!`);
+                addLog(`💵 Auto-Seller hat Ressourcen für ${profits} Coins abgesetzt!`);
               }
+              mach.energyLevel = 100;
+            } else {
+              mach.energyLevel = 0;
+            }
+          }
+
+          // TESLA COILS (defenses)
+          if (mType.includes('tesla')) {
+            const tCost = mType === 'tesla_1000' ? 2 : mType === 'tesla_2000' ? 5 : 10;
+            if (resources.power >= tCost) {
+              powerDrain = tCost;
+              mach.energyLevel = 100;
+            } else {
+              mach.energyLevel = 0;
             }
           }
 
@@ -1056,12 +1299,36 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
     playRetroSound('hit');
 
+    let blockColor = '#71717a';
+    switch (tile.type) {
+      case 'tree': blockColor = '#8b5a2b'; break;
+      case 'stone': blockColor = '#71717a'; break;
+      case 'coal': blockColor = '#1e1b18'; break;
+      case 'iron': blockColor = '#94a3b8'; break;
+      case 'gold': blockColor = '#fbbf24'; break;
+      case 'diamond': blockColor = '#22d3ee'; break;
+      case 'emerald': blockColor = '#34d399'; break;
+      case 'uranium': blockColor = '#4ade80'; break;
+      case 'iridium': blockColor = '#a78bfa'; break;
+      case 'flower': blockColor = '#f472b6'; break;
+      case 'wall': blockColor = '#737373'; break;
+    }
+
+    // Floating text on hit & screen shake
+    addFloaterFX(clickX, clickY - 10, `-${damageInflicted} HP`, '#f43f5e');
+    addSparksFX(clickX, clickY, blockColor, 8, 1.0, true, 'circle');
+    triggerScreenShake(3);
+
     const updated = [...tiles];
     updated[tileIndex] = { ...tile, health: nextHp };
 
     if (nextHp <= 0) {
       updated[tileIndex].broken = true;
       playRetroSound('mine');
+
+      addFloaterFX(tile.x + tileSize / 2, tile.y + tileSize / 2 - 16, 'GEBROCHEN!', blockColor);
+      addSparksFX(tile.x + tileSize / 2, tile.y + tileSize / 2, blockColor, 20, 1.8, true, 'spark');
+      triggerScreenShake(7);
 
       // Create drifting item drop particles
       const rawType = tile.type === 'tree' ? 'wood' : (tile.type === 'stone' ? 'stone' : tile.type);
@@ -1091,60 +1358,98 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
   // Base Building Placement
   const placeStructureOnGrid = (tileGridIndex: number) => {
     const tile = tiles[tileGridIndex];
-    if (tile.type !== 'grass' && tile.type !== 'sand') {
-      triggerToast('xp', '❌ PLATZ BELEGT', 'Gebäude können nur auf offenem Boden platziert werden.');
-      playRetroSound('hurt');
-      return;
+    
+    // Determine target Item ID to place based on selecting hotbar category
+    let itemId = selectedEquipment[selectedHotbarIndex];
+    if (!itemId) {
+      // Fallback defaults
+      if (selectedHotbarIndex === 1) itemId = 'solar';
+      if (selectedHotbarIndex === 2) itemId = 'miner';
+      if (selectedHotbarIndex === 3) itemId = 'seller';
+      if (selectedHotbarIndex === 4) itemId = 'wall';
     }
 
-    // Validate active slot inventories
-    let categoryKey = '';
-    let typeNameText = '';
-    let machineTypeToken: PlacedMachine['type'] = 'generator_solar';
+    const item = shopDatabase.find(x => x.id === itemId);
+    if (!item) return;
 
-    if (selectedHotbarIndex === 1) { categoryKey = 'solar'; typeNameText = 'Solarpanel'; machineTypeToken = 'generator_solar'; }
-    if (selectedHotbarIndex === 2) { categoryKey = 'miner'; typeNameText = 'Auto-Miner'; machineTypeToken = 'miner_auto'; }
-    if (selectedHotbarIndex === 3) { categoryKey = 'seller'; typeNameText = 'Auto-Seller'; machineTypeToken = 'seller_auto'; }
-    if (selectedHotbarIndex === 4) { categoryKey = 'wall'; typeNameText = 'Eisenmauer'; machineTypeToken = 'wall_iron'; }
+    // Check if it's a Miner to allow placement on its corresponding ore
+    const isMiner = item.id.includes('miner');
+    let resourceBlockHarvested: string | null = null;
 
-    const availableReserves = buildInventory[categoryKey] || 0;
+    if (isMiner) {
+      const requiredTileType = 
+        item.id === 'miner' ? 'coal' :
+        item.id === 'iron_miner' ? 'iron' :
+        item.id === 'gold_miner' ? 'gold' :
+        item.id === 'diamond_miner' ? 'diamond' :
+        item.id === 'uranium_miner' ? 'uranium' :
+        item.id === 'iridium_miner' ? 'iridium' : null;
+
+      // In MineEnergy we place miners on matching node tiles OR general ground, but matching node boosts output!
+      if (tile.type !== 'grass' && tile.type !== 'sand' && tile.type !== requiredTileType) {
+        triggerToast('xp', '⛏️ BLOCK BESETZT', `Platziere diesen Miner direkt auf einem ${requiredTileType?.toUpperCase() || 'passenden'}-Erz oder auf leerem Boden!`);
+        playRetroSound('hurt');
+        return;
+      }
+      
+      if (tile.type === requiredTileType) {
+        resourceBlockHarvested = requiredTileType;
+      }
+    } else {
+      if (tile.type !== 'grass' && tile.type !== 'sand') {
+        triggerToast('xp', '❌ PLATZ BELEGT', 'Gebäude können nur auf offenem Boden platziert werden.');
+        playRetroSound('hurt');
+        return;
+      }
+    }
+
+    // Check inventory availability
+    const availableReserves = buildInventory[itemId] || 0;
     if (availableReserves < 1) {
-      triggerToast('xp', '🛍️ LAGER LEER', `Du besitzt keine ${typeNameText}-Module! Kaufe sie im Trade-Shop.`);
+      triggerToast('xp', '🛍️ LAGER LEER', `Du besitzt kein ${item.name}-Modul mehr! Kaufe es im Trade-Shop oder wähle ein anderes.`);
       playRetroSound('hurt');
       return;
     }
 
     // Deduct placement
-    setBuildInventory(prev => ({ ...prev, [categoryKey]: prev[categoryKey] - 1 }));
+    setBuildInventory(prev => ({ ...prev, [itemId]: prev[itemId] - 1 }));
 
-    // Register positioned building machine
+    // Register active machine
     const cleanMach: PlacedMachine = {
       id: `placed_${Date.now()}_${Math.random()}`,
       x: tile.x,
       y: tile.y,
-      type: machineTypeToken,
-      energyLevel: machineTypeToken.startsWith('generator_') ? 50 : 0,
+      type: itemId as any,
+      energyLevel: itemId.includes('solar') || itemId.includes('wind') || itemId.includes('gen') ? 50 : 0,
       maxEnergy: 100,
       lastTick: Date.now(),
       productionProgress: 0,
-      health: machineTypeToken === 'wall_iron' ? 2000 : 1000,
-      maxHealth: machineTypeToken === 'wall_iron' ? 2000 : 1000
+      health: itemId.includes('wall') ? (itemId.includes('obsidian') ? 1000 : itemId.includes('reinforced') ? 2000 : 500) : 500,
+      maxHealth: itemId.includes('wall') ? (itemId.includes('obsidian') ? 1000 : itemId.includes('reinforced') ? 2000 : 500) : 500
     };
+
+    if (resourceBlockHarvested) {
+      (cleanMach as any).harvestsResource = resourceBlockHarvested;
+    }
 
     setPlacedMachines(p => [...p, cleanMach]);
 
-    // Replace tile backdrop to prevent building clipping
+    // Replace tile backdrop (walls become wall tile type, miners placed on ores keep the ore visible below them so we can see it on canvas!)
     const altered = [...tiles];
     altered[tileGridIndex] = {
       ...tile,
       health: cleanMach.maxHealth,
       maxHealth: cleanMach.maxHealth,
-      type: machineTypeToken === 'wall_iron' ? 'wall' : 'grass' // draw wall texture directly if wall-block
+      type: itemId.includes('wall') ? 'wall' : tile.type
     };
 
     setTiles(altered);
     playRetroSound('place');
-    addLog(`🧱 ${typeNameText} erfolgreich platziert auf Raster-Koordinaten!`);
+    if (resourceBlockHarvested) {
+      addLog(`⚡ ${item.name} erfolgreich auf ${resourceBlockHarvested.toUpperCase()}-Ader platziert! (Doppelter Bohr-Ertrag ⛏️)`);
+    } else {
+      addLog(`🧱 ${item.name} auf Karte platziert!`);
+    }
   };
 
   // Canvas Drawing Loop Implementation
@@ -1164,20 +1469,29 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     const cameraX = Math.max(0, Math.min(worldSize.width - viewW, player.x - viewW / 2));
     const cameraY = Math.max(0, Math.min(worldSize.height - viewH, player.y - viewH / 2));
 
+    // Apply screen shake vibration directly to camera offsets for tactile visual feedback!
+    let shakeX = 0;
+    let shakeY = 0;
+    if (visualShakeRef.current.intensity > 0.1) {
+      shakeX = (Math.random() - 0.5) * visualShakeRef.current.intensity;
+      shakeY = (Math.random() - 0.5) * visualShakeRef.current.intensity;
+      visualShakeRef.current.intensity *= 0.88; // decay factor
+    }
+
     // Clear background with Day-Night atmospheric shades shift
-    let skyHex = '#1a1a1a';
+    let skyHex = '#0c0f1d';
     const hour = gameTime.hour;
-    if (hour >= 6 && hour < 17) skyHex = '#1c3127'; // Daylight emerald
-    else if (hour >= 17 && hour < 20) skyHex = '#542d4a'; // Dusk purple
-    else skyHex = '#0c0f1d'; // Starry midnight navy
+    if (hour >= 6 && hour < 17) skyHex = '#152219'; // Rich moss green backdrop
+    else if (hour >= 17 && hour < 20) skyHex = '#3b1c31'; // Twilight dawn purple
+    else skyHex = '#070913'; // Midnight deep indigo
 
     ctx.fillStyle = skyHex;
     ctx.fillRect(0, 0, viewW, viewH);
 
     ctx.save();
-    ctx.translate(-cameraX, -cameraY);
+    ctx.translate(-cameraX + shakeX, -cameraY + shakeY);
 
-    // 1. Draw grid backdrop & environmental tiles
+    // 1. Draw grid backdrop & environmental tiles (MineEnergy style)
     tiles.forEach(tile => {
       // Frustum boundary checks for memory performance
       if (tile.x + tileSize < cameraX || tile.x > cameraX + viewW || tile.y + tileSize < cameraY || tile.y > cameraY + viewH) {
@@ -1185,113 +1499,505 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       }
 
       if (tile.broken) {
-        ctx.fillStyle = '#221915';
+        ctx.fillStyle = '#140f0c';
         ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.strokeStyle = '#221915';
+        ctx.lineWidth = 1;
         ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
         return;
       }
 
-      // Draw textures depending on types
-      let fillCol = '#2e5c1e'; // Default Grass
-      let patternText = '';
-
+      // High-Fidelity Custom Styled Terrain Drawing System
+      ctx.save();
       switch (tile.type) {
-        case 'sand': fillCol = '#dec481'; break;
-        case 'volcanic_rock': fillCol = '#1f1a1d'; break;
-        case 'water': fillCol = '#1e3a8a'; break;
-        case 'lava': fillCol = '#ea580c'; break;
-        case 'tree': fillCol = '#78350f'; break;
-        case 'stone': fillCol = '#52525b'; break;
-        case 'coal': fillCol = '#18181b'; break;
-        case 'iron': fillCol = '#94a3b8'; break;
-        case 'gold': fillCol = '#eab308'; break;
-        case 'diamond': fillCol = '#06b6d4'; break;
-        case 'emerald': fillCol = '#10b981'; break;
-        case 'uranium': fillCol = '#22c55e'; break;
-        case 'iridium': fillCol = '#c084fc'; break;
-        case 'flower': fillCol = '#ec4899'; break;
-        case 'wall': fillCol = '#737373'; break;
-        default: fillCol = '#2e5c1e';
+        case 'grass':
+          // Micro-circuit digital grass
+          ctx.fillStyle = '#1b3d17';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#122c0f';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 8, tile.y + 8);
+          ctx.lineTo(tile.x + tileSize - 8, tile.y + 8);
+          ctx.lineTo(tile.x + tileSize - 8, tile.y + tileSize - 8);
+          ctx.stroke();
+          // Micro dots
+          ctx.fillStyle = '#1f4c1b';
+          ctx.fillRect(tile.x + 16, tile.y + 24, 3, 3);
+          ctx.fillRect(tile.x + 44, tile.y + 12, 3, 3);
+          break;
+
+        case 'sand':
+          // Textured dune sand
+          ctx.fillStyle = '#cdae5d';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = 'rgba(255,255,255,0.12)';
+          ctx.fillRect(tile.x + 6, tile.y + 10, tileSize - 12, 4);
+          ctx.fillRect(tile.x + 16, tile.y + 36, tileSize - 32, 4);
+          break;
+
+        case 'volcanic_rock':
+          // Cracked cooling lava rock
+          ctx.fillStyle = '#191518';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#991b1b';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 8, tile.y + 16);
+          ctx.lineTo(tile.x + 28, tile.y + 42);
+          ctx.lineTo(tile.x + 52, tile.y + 48);
+          ctx.stroke();
+          ctx.fillStyle = '#2d222a';
+          ctx.fillRect(tile.x + 12, tile.y + 12, 8, 8);
+          break;
+
+        case 'water':
+          // Deep digital waves
+          ctx.fillStyle = '#112260';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = '#1d4ed8'; // light ripple reflection
+          ctx.fillRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          const wavePhase = Math.sin((Date.now() / 320) + tile.x * 0.05) * 6;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(tile.x, tile.y + tileSize / 2 + wavePhase);
+          ctx.lineTo(tile.x + tileSize, tile.y + tileSize / 2 - wavePhase);
+          ctx.stroke();
+          break;
+
+        case 'lava':
+          // Pulsing thermodynamic core
+          const lPulse = Math.sin((Date.now() / 200) + tile.x * 0.1) * 30;
+          ctx.fillStyle = `rgb(${195 + lPulse}, ${45 + lPulse / 2}, 10)`;
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = '#ea580c';
+          ctx.fillRect(tile.x + 10, tile.y + 14, 14, 8);
+          ctx.fillRect(tile.x + 32, tile.y + 38, 20, 10);
+          break;
+
+        case 'tree':
+          // Digital pine cyber tree
+          ctx.fillStyle = '#1b3d17';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          // Trunk
+          ctx.fillStyle = '#4c210d';
+          ctx.fillRect(tile.x + 26, tile.y + 24, 12, 28);
+          // Dark foliage leaves layers
+          ctx.fillStyle = '#14532d';
+          ctx.beginPath();
+          ctx.moveTo(tile.x + tileSize / 2, tile.y + 2);
+          ctx.lineTo(tile.x + 8, tile.y + 34);
+          ctx.lineTo(tile.x + tileSize - 8, tile.y + 34);
+          ctx.closePath();
+          ctx.fill();
+          break;
+
+        case 'stone':
+          // Hard metal alloy stone representation
+          ctx.fillStyle = '#414853';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#2b2f38';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.fillStyle = '#64748b';
+          ctx.fillRect(tile.x + 12, tile.y + 12, tileSize - 24, tileSize - 24);
+          break;
+
+        case 'coal':
+          // Highly energetic black coal ore
+          ctx.fillStyle = '#111215';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#262626';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.fillStyle = '#df551d'; // Glowing inner fuel ember cracks
+          ctx.fillRect(tile.x + 16, tile.y + 14, 8, 8);
+          ctx.fillRect(tile.x + 36, tile.y + 38, 12, 10);
+          break;
+
+        case 'iron':
+          // High-alloy steel block
+          ctx.fillStyle = '#5c687a';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#3e4653';
+          ctx.lineWidth = 3.5;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          // Silver iron plate accents
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillRect(tile.x + 14, tile.y + 14, 12, 12);
+          ctx.fillRect(tile.x + 34, tile.y + 34, 18, 18);
+          break;
+
+        case 'gold':
+          // Premium golden raw block
+          ctx.fillStyle = '#9e6211';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#78350f';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.fillStyle = '#fbbf24'; // rich reflective yellow plates
+          ctx.fillRect(tile.x + 12, tile.y + 12, 14, 10);
+          ctx.fillRect(tile.x + 32, tile.y + 30, 22, 16);
+          break;
+
+        case 'diamond':
+          // Rich glowing diamond geodes!
+          ctx.fillStyle = '#065f46';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#047857';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          // Beautiful cyan crystal star pyramid
+          ctx.fillStyle = '#06b6d4';
+          ctx.beginPath();
+          ctx.moveTo(tile.x + tileSize / 2, tile.y + 10);
+          ctx.lineTo(tile.x + 12, tile.y + tileSize - 12);
+          ctx.lineTo(tile.x + tileSize - 12, tile.y + tileSize - 12);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#ffffff'; // light reflection node
+          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + 22, 8, 14);
+          break;
+
+        case 'emerald':
+          // Brilliant emerald columns
+          ctx.fillStyle = '#064e3b';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.strokeStyle = '#065f46';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(tile.x + 16, tile.y + 16, tileSize - 32, tileSize - 32);
+          ctx.fillStyle = '#a7f3d0';
+          ctx.fillRect(tile.x + 24, tile.y + 24, 12, 12);
+          break;
+
+        case 'uranium':
+          // Hazardous nuclear uranium reactor cells!
+          ctx.fillStyle = '#14532d';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          // Pulsating radioactive warning cell background
+          const uGlow = Math.abs(Math.sin(Date.now() / 150)) * 0.45;
+          ctx.fillStyle = `rgba(34, 197, 94, ${0.1 + uGlow})`;
+          ctx.fillRect(tile.x + 2, tile.y + 2, tileSize - 4, tileSize - 4);
+          ctx.strokeStyle = '#166534';
+          ctx.lineWidth = 3.5;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          // Toxic nuclear barrel capsule
+          ctx.fillStyle = '#22c55e';
+          ctx.fillRect(tile.x + 18, tile.y + 12, tileSize - 36, tileSize - 24);
+          // Toxic hazard stripes
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 18, tile.y + 18);
+          ctx.lineTo(tile.x + 40, tile.y + 40);
+          ctx.stroke();
+          break;
+
+        case 'iridium':
+          // Ultra rare futuristic violet iridium crystals
+          ctx.fillStyle = '#3b0764';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          const iGlow = Math.abs(Math.cos(Date.now() / 180)) * 0.5;
+          ctx.fillStyle = `rgba(168, 85, 247, ${0.15 + iGlow})`;
+          ctx.fillRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.strokeStyle = '#581c87';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          // Celestial iris orb
+          ctx.fillStyle = '#c084fc';
+          ctx.beginPath();
+          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + tileSize / 2 - 4, 8, 8);
+          break;
+
+        case 'flower':
+          // Glowing alien bulb flower
+          ctx.fillStyle = '#1b3d17';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = '#db2777';
+          ctx.beginPath();
+          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fdbb2d';
+          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + tileSize / 2 - 4, 8, 8);
+          break;
+
+        case 'wall':
+          // Thick armored alloy protective structures with caution corners
+          ctx.fillStyle = '#374151';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(tile.x + 6, tile.y + 6, tileSize - 12, tileSize - 12);
+          // Yellow striped corner plates
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 6, tile.y + 6);
+          ctx.lineTo(tile.x + 22, tile.y + 22);
+          ctx.moveTo(tile.x + tileSize - 22, tile.y + 6);
+          ctx.lineTo(tile.x + tileSize - 6, tile.y + 22);
+          ctx.stroke();
+          // Corner rivets
+          ctx.fillStyle = '#64748b';
+          ctx.fillRect(tile.x + 8, tile.y + 8, 3, 3);
+          ctx.fillRect(tile.x + tileSize - 11, tile.y + 8, 3, 3);
+          ctx.fillRect(tile.x + 8, tile.y + tileSize - 11, 3, 3);
+          ctx.fillRect(tile.x + tileSize - 11, tile.y + tileSize - 11, 3, 3);
+          break;
+
+        default:
+          ctx.fillStyle = '#262626';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
       }
+      ctx.restore();
 
-      ctx.fillStyle = fillCol;
-      ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-
-      // Detail accents inside terrainblocks
-      if (tile.type === 'tree') {
-        ctx.fillStyle = '#1e3f20'; 
-        ctx.beginPath();
-        ctx.arc(tile.x + tileSize / 2, tile.y + 20, 20, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (tile.type === 'flower') {
-        ctx.fillStyle = '#fdbb2d';
-        ctx.fillRect(tile.x + 24, tile.y + 24, 16, 16);
-      } else if (tile.type === 'water') {
-        const waves = Math.sin(Date.now() / 300 + tile.x) * 4;
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(tile.x, tile.y + 20 + waves, tileSize, 4);
-      } else if (tile.type === 'lava') {
-        const glow = Math.sin(Date.now() / 150 + tile.x) * 50;
-        ctx.fillStyle = `rgb(${200 + glow}, 40, 20)`;
-        ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-      } else if (tile.type === 'wall') {
-        // Brick rows patterns
-        ctx.strokeStyle = '#404040';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '8px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('WALL', tile.x + tileSize/2, tile.y + tileSize - 10);
-      } else if (tile.type !== 'grass' && tile.type !== 'sand' && tile.type !== 'volcanic_rock') {
-        // Sparkling ores nuggets
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(tile.x + 12, tile.y + 12, 6, 6);
-        ctx.fillRect(tile.x + 40, tile.y + 36, 8, 8);
-        ctx.fillRect(tile.x + 22, tile.y + 44, 4, 4);
-      }
-
-      // Grid boundaries lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      // Delicate dark cell grid borders mapping (MineEnergy original outline look)
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
       ctx.lineWidth = 1;
       ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
     });
 
-    // 2. Draw placed automation machinery nodes overlays
+    // 2a. Draw dynamic electric cable connections (glowing power lines) like Mine Energy 1 & 2!
+    const generators = placedMachines.filter(m => 
+      m.type === 'solar' || m.type === 'generator_solar' || m.type === 'adv_solar' || m.type === 'wind' || m.type === 'generator_wind' || m.type === 'coal_gen' || m.type === 'geo_gen' || m.type === 'water_gen' || m.type === 'oil_gen' || m.type === 'nuke_gen'
+    );
+    const consumers = placedMachines.filter(m => 
+      m.type.includes('miner') || m.type === 'miner_auto' || m.type.includes('seller') || m.type === 'seller_auto' || m.type.includes('tesla') || m.type.includes('door')
+    );
+
+    generators.forEach(gen => {
+      consumers.forEach(con => {
+        const dist = Math.hypot(gen.x - con.x, gen.y - con.y);
+        if (dist < 220) {
+          // Draw electrical cable wire with glowing pulse shadow
+          ctx.shadowColor = '#f59e0b';
+          ctx.shadowBlur = 6;
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(gen.x + tileSize / 2, gen.y + tileSize / 2);
+          ctx.lineTo(con.x + tileSize / 2, con.y + tileSize / 2);
+          ctx.stroke();
+
+          // Reset shadow
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+
+          // Animated energy current wave packet traveling along direct vector routes
+          const pulseRouteStep = (Date.now() / 650) % 1.0;
+          const px = gen.x + tileSize / 2 + (con.x - gen.x) * pulseRouteStep;
+          const py = gen.y + tileSize / 2 + (con.y - gen.y) * pulseRouteStep;
+          ctx.fillStyle = '#22d3ee'; // vibrant pulsing electric cyan node
+          ctx.beginPath();
+          ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    });
+
+    // 2b. Draw placed automation machinery nodes overlays with detailed mechanical vectors
     placedMachines.forEach(mach => {
       if (mach.x + tileSize < cameraX || mach.x > cameraX + viewW || mach.y + tileSize < cameraY || mach.y > cameraY + viewH) {
         return;
       }
-      if (mach.type === 'wall_iron') return; // rendering wall block styled above directly
+      if (mach.type === 'wall_iron' || mach.type === 'wall') return; // rendered in standard tile grids loop above directly
 
       const dx = mach.x;
       const dy = mach.y;
 
-      // Base card body
-      ctx.fillStyle = '#1e1b18';
-      ctx.fillRect(dx + 6, dy + 6, tileSize - 12, tileSize - 12);
-      ctx.strokeStyle = '#ff9800';
-      ctx.lineWidth = 2;
+      const shopItem = shopDatabase.find(item => item.id === mach.type);
+      const borderCol = shopItem ? shopItem.imageColor : '#f59e0b';
+      const symb = shopItem ? shopItem.icon : '⚙️';
+
+      // Heavy armored steel chassis base
+      ctx.fillStyle = '#2d2d30';
+      ctx.fillRect(dx + 4, dy + 4, tileSize - 8, tileSize - 8);
+      ctx.fillStyle = '#1a1a1c';
+      ctx.fillRect(dx + 8, dy + 8, tileSize - 16, tileSize - 16);
+
+      // Yellow/Black diagonal micro warning stripes around margins 
+      ctx.strokeStyle = borderCol;
+      ctx.lineWidth = 2.5;
       ctx.strokeRect(dx + 6, dy + 6, tileSize - 12, tileSize - 12);
 
-      // Specific machine visual badges
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 18px Courier';
-      ctx.textAlign = 'center';
-      
-      let symb = '🤖';
-      if (mach.type === 'generator_solar') symb = '☀️';
-      if (mach.type === 'generator_wind') symb = '🌀';
-      if (mach.type === 'seller_auto') symb = '💵';
+      // Rotating gear base sub-indicator (rotates smoothly over game cycles)
+      const gearRotation = (Date.now() / 240) % (Math.PI * 2);
+      ctx.save();
+      ctx.translate(dx + tileSize / 2, dy + tileSize / 2);
+      ctx.rotate(gearRotation);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
 
+      // Custom high-fidelity animations depending on machine types
+      if (mach.type.includes('solar')) {
+        // Draw real high tech solar arrays grids
+        ctx.fillStyle = '#1e3a8a';
+        ctx.fillRect(dx + 12, dy + 12, tileSize - 24, tileSize - 24);
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(dx + 12, dy + 12, tileSize - 24, tileSize - 24);
+        ctx.beginPath();
+        ctx.moveTo(dx + tileSize / 2, dy + 12);
+        ctx.lineTo(dx + tileSize / 2, dy + tileSize - 12);
+        ctx.moveTo(dx + 12, dy + tileSize / 2);
+        ctx.lineTo(dx + tileSize - 12, dy + tileSize / 2);
+        ctx.stroke();
+      } else if (mach.type.includes('wind')) {
+        // Wind turbine rotating three-blade micro vector blades!
+        const rotorSpin = (Date.now() / 140) % (Math.PI * 2);
+        ctx.save();
+        ctx.translate(dx + tileSize / 2, dy + tileSize / 2);
+        ctx.rotate(rotorSpin);
+        ctx.strokeStyle = '#f1f5f9';
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(0, -18);
+          ctx.stroke();
+          ctx.rotate((Math.PI * 2) / 3);
+        }
+        ctx.restore();
+      } else if (mach.type.includes('miner')) {
+        // Hammer drill head reciprocating with spark simulation
+        const drillSlide = Math.sin(Date.now() / 70) * 4;
+        ctx.fillStyle = '#475569';
+        ctx.beginPath();
+        ctx.moveTo(dx + tileSize / 2 - 8, dy + 12 + drillSlide);
+        ctx.lineTo(dx + tileSize / 2 + 8, dy + 12 + drillSlide);
+        ctx.lineTo(dx + tileSize / 2 + 12, dy + tileSize - 14 + drillSlide);
+        ctx.lineTo(dx + tileSize / 2 - 12, dy + tileSize - 14 + drillSlide);
+        ctx.closePath();
+        ctx.fill();
+        // Spawning tiny raw grinding sparks
+        if (Math.random() < 0.18) {
+          addSparksFX(dx + tileSize / 2, dy + tileSize - 12, '#fbbf24', 2, 0.45);
+        }
+      } else if (mach.type.includes('seller')) {
+        // Trans-landing cargo holding bay with sliding metal hatch doors
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(dx + 12, dy + 12, tileSize - 24, tileSize - 24);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(dx + 16, dy + tileSize / 2 - 2, tileSize - 32, 4);
+      }
+
+      // Render overlay central glyph representation
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px Courier';
+      ctx.textAlign = 'center';
       ctx.fillText(symb, dx + tileSize / 2, dy + tileSize / 2 + 5);
 
-      // Micro status progress bars
-      ctx.fillStyle = '#333';
-      ctx.fillRect(dx + 10, dy + tileSize - 12, tileSize - 20, 3);
-      ctx.fillStyle = '#10b981';
-      ctx.fillRect(dx + 10, dy + tileSize - 12, (tileSize - 20) * (mach.productionProgress / 100), 3);
+      // Status notifications and micro progress bars
+      if (mach.energyLevel === 5) {
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = 'bold 8px Courier';
+        ctx.fillText('⚠️ KEIN ERZ', dx + tileSize / 2, dy + tileSize - 16);
+      } else if (mach.energyLevel === 0) {
+        ctx.fillStyle = '#f43f5e';
+        ctx.font = 'bold 8px Courier';
+        ctx.fillText('❌ STROMLOS', dx + tileSize / 2, dy + tileSize - 16);
+      } else {
+        // Micro progress bar
+        ctx.fillStyle = '#262626';
+        ctx.fillRect(dx + 10, dy + tileSize - 12, tileSize - 20, 3);
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(dx + 10, dy + tileSize - 12, (tileSize - 20) * (mach.productionProgress / 100), 3);
+      }
+    });
+
+    // 2c. Implement Tesla Turret perimeter checks & laser discharge (MineEnergy defence mechanics!)
+    placedMachines.forEach(mach => {
+      if (mach.type && mach.type.includes('tesla')) {
+        botsList.forEach(bot => {
+          const distBot = Math.hypot((mach.x + tileSize / 2) - bot.x, (mach.y + tileSize / 2) - bot.y);
+          if (distBot < 180) {
+            // Check if grid has power available
+            if (resources.power >= 4) {
+              // Draw electrical discharge lightning beam
+              ctx.shadowColor = '#06b6d4';
+              ctx.shadowBlur = 8;
+              ctx.strokeStyle = '#22d3ee';
+              ctx.lineWidth = 3 + Math.random() * 3;
+              
+              // Draw jagged electric arcs!
+              ctx.beginPath();
+              ctx.moveTo(mach.x + tileSize / 2, mach.y + tileSize / 2);
+              
+              // 3 intermediate nodes for a jagged lightning bolt appearance
+              const segments = 4;
+              for (let i = 1; i < segments; i++) {
+                const ratio = i / segments;
+                const midX = (mach.x + tileSize / 2) + (bot.x - (mach.x + tileSize / 2)) * ratio;
+                const midY = (mach.y + tileSize / 2) + (bot.y - (mach.y + tileSize / 2)) * ratio;
+                const offset = (Math.random() - 0.5) * 16;
+                // Add perpendicular displacement
+                const angle = Math.atan2(bot.y - (mach.y + tileSize / 2), bot.x - (mach.x + tileSize / 2)) + Math.PI / 2;
+                ctx.lineTo(midX + Math.cos(angle) * offset, midY + Math.sin(angle) * offset);
+              }
+              
+              ctx.lineTo(bot.x, bot.y);
+              ctx.stroke();
+
+              // Reset shadow
+              ctx.shadowColor = 'transparent';
+              ctx.shadowBlur = 0;
+
+              // Core bright white laser string
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(mach.x + tileSize / 2, mach.y + tileSize / 2);
+              ctx.lineTo(bot.x, bot.y);
+              ctx.stroke();
+
+              // Draw spark impact particles at bot location
+              ctx.fillStyle = '#06b6d4';
+              ctx.beginPath();
+              ctx.arc(bot.x, bot.y, 6 + Math.random() * 4, 0, Math.PI * 2);
+              ctx.fill();
+
+              // Passive damage throttling (since drawGame runs ~60 FPS)
+              if (Math.random() < 0.05) {
+                // Inflict damage to opponent bot
+                const bHealth = (bot as any).health !== undefined ? (bot as any).health : 100;
+                const nextBHealth = Math.max(0, bHealth - 8);
+                (bot as any).health = nextBHealth;
+
+                // Drain a little wire power
+                setResources(r => ({ ...r, power: Math.max(0, (r.power || 0) - 1) }));
+
+                if (nextBHealth <= 0) {
+                  // Gained Loot Coins!
+                  const bounty = 650;
+                  setCoins(c => {
+                    const nextCoins = c + bounty;
+                    updateLeaderboardPlayerScore(nextCoins);
+                    syncCoinsWithDatabase(nextCoins);
+                    return nextCoins;
+                  });
+                  addLog(`⚡ [Verteidigung] Deine Tesla-Verteidigung hat Dieb <${bot.name}> eliminiert! Loot gesichert: +${bounty} Coins!`);
+                  playRetroSound('levelUp');
+
+                  // Respawn bot
+                  (bot as any).health = 100;
+                  bot.x = Math.max(150, Math.min(worldSize.width - 150, Math.random() * worldSize.width));
+                  bot.y = Math.max(150, Math.min(worldSize.height - 150, Math.random() * worldSize.height));
+                  bot.cash = Math.max(50, Math.floor(bot.cash * 0.8));
+                }
+              }
+            }
+          }
+        });
+      }
     });
 
     // 3. Draw physical drifting element drop stars
@@ -1422,6 +2128,163 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       ctx.strokeStyle = dstMouse <= 180 ? '#4CAF50' : '#f44336';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(gridCellX, gridCellY, tileSize, tileSize);
+    }
+
+    // Real-time Day-Night Ambient Glow Shader Overlay (MineEnergy style)
+    const hr = gameTime.hour;
+    const isDark = (hr >= 18 || hr < 6);
+    if (isDark) {
+      let darknessOpacity = 0.65;
+      if (hr === 18) darknessOpacity = 0.25;
+      else if (hr === 19) darknessOpacity = 0.45;
+      else if (hr >= 20 || hr < 5) darknessOpacity = 0.72;
+      else if (hr === 5) darknessOpacity = 0.35;
+
+      try {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = viewW;
+        tempCanvas.height = viewH;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.fillStyle = `rgba(7, 8, 14, ${darknessOpacity})`;
+          tempCtx.fillRect(0, 0, viewW, viewH);
+
+          tempCtx.globalCompositeOperation = 'destination-out';
+
+          // 1. Player high-tech headlights / suit ambient bubble
+          const px = player.x - cameraX;
+          const py = player.y - cameraY;
+          const pRad = tempCtx.createRadialGradient(px, py, 14, px, py, 180);
+          pRad.addColorStop(0, 'rgba(0,0,0,1)');
+          pRad.addColorStop(1, 'rgba(0,0,0,0)');
+          tempCtx.fillStyle = pRad;
+          tempCtx.beginPath();
+          tempCtx.arc(px, py, 180, 0, Math.PI * 2);
+          tempCtx.fill();
+
+          // 2. Luminous Flashlight Directional Cone based on player.angle gaze vectors
+          let gazeRad = player.angle;
+          tempCtx.fillStyle = 'rgba(0, 0, 0, 0.42)'; // soft projection light brightness
+          tempCtx.beginPath();
+          tempCtx.moveTo(px, py);
+          tempCtx.arc(px, py, 260, gazeRad - 0.45, gazeRad + 0.45);
+          tempCtx.closePath();
+          tempCtx.fill();
+
+          // 3. Placed machines indicator glows
+          placedMachines.forEach(mach => {
+            const mx = mach.x + tileSize / 2 - cameraX;
+            const my = mach.y + tileSize / 2 - cameraY;
+            if (mx < -100 || mx > viewW + 100 || my < -100 || my > viewH + 100) return;
+
+            let glowSize = 75;
+            if (mach.type.includes('tesla')) glowSize = 160;
+            if (mach.type.includes('miner')) glowSize = 90;
+
+            const mRad = tempCtx.createRadialGradient(mx, my, 6, mx, my, glowSize);
+            mRad.addColorStop(0, 'rgba(0,0,0,0.95)');
+            mRad.addColorStop(1, 'rgba(0,0,0,0)');
+            tempCtx.fillStyle = mRad;
+            tempCtx.beginPath();
+            tempCtx.arc(mx, my, glowSize, 0, Math.PI * 2);
+            tempCtx.fill();
+          });
+
+          // 4. Thermodynamic & Radioactive resources ambient glowing nodes (lava, uranium, iridium, diamond)
+          tiles.forEach(tile => {
+            if (tile.broken) return;
+            if (tile.type !== 'lava' && tile.type !== 'uranium' && tile.type !== 'iridium' && tile.type !== 'diamond') return;
+
+            const tx = tile.x + tileSize / 2 - cameraX;
+            const ty = tile.y + tileSize / 2 - cameraY;
+            if (tx < -100 || tx > viewW + 100 || ty < -100 || ty > viewH + 100) return;
+
+            const oRad = tempCtx.createRadialGradient(tx, ty, 6, tx, ty, 80);
+            oRad.addColorStop(0, 'rgba(0,0,0,0.88)');
+            oRad.addColorStop(1, 'rgba(0,0,0,0)');
+            tempCtx.fillStyle = oRad;
+            tempCtx.beginPath();
+            tempCtx.arc(tx, ty, 80, 0, Math.PI * 2);
+            tempCtx.fill();
+          });
+
+          // Draw shadows mask overlay
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0); // reset camera space to paint on top of main scene
+          ctx.drawImage(tempCanvas, 0, 0);
+          ctx.restore();
+        }
+      } catch (err) {
+        // Fallback transparent flat overlay
+        ctx.fillStyle = `rgba(8, 10, 18, ${darknessOpacity * 0.72})`;
+        ctx.fillRect(cameraX, cameraY, viewW, viewH);
+      }
+    }
+
+    // Update and Draw physical visual sparks
+    const sparks = fxSparksRef.current;
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.life++;
+      if (s.life >= s.maxLife) {
+        sparks.splice(i, 1);
+        continue;
+      }
+      s.x += s.vx;
+      s.y += s.vy;
+      s.vy += 0.08; // slow downward gravity physics
+      s.alpha = 1.0 - (s.life / s.maxLife);
+
+      ctx.save();
+      ctx.globalAlpha = s.alpha;
+      if (s.glow) {
+        ctx.shadowColor = s.color;
+        ctx.shadowBlur = 8;
+      }
+      ctx.fillStyle = s.color;
+
+      if (s.shape === 'spark') {
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y - s.size * 1.6);
+        ctx.lineTo(s.x + s.size, s.y);
+        ctx.lineTo(s.x, s.y + s.size * 1.6);
+        ctx.lineTo(s.x - s.size, s.y);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // Update and Draw floating combat/indicators texts (thick borders)
+    const floaters = fxFloatersRef.current;
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.life++;
+      if (f.life >= f.maxLife) {
+        floaters.splice(i, 1);
+        continue;
+      }
+      f.y += f.vy;
+      f.alpha = 1.0 - (f.life / f.maxLife);
+
+      ctx.save();
+      ctx.globalAlpha = f.alpha;
+      ctx.font = 'bold 11px "JetBrains Mono", "Courier New", monospace';
+      ctx.textAlign = 'center';
+
+      // Outline base border
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 3;
+      ctx.strokeText(f.text, f.x, f.y);
+
+      // Vibrant foreground filling
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.restore();
     }
 
     ctx.restore();
@@ -1591,10 +2454,11 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         id: item.id,
         name: item.name,
         damage: item.damage || 20,
-        power: item.id === 'iron_pick' ? 2 : item.id === 'dia_drill' ? 3 : 4,
+        power: item.id === 'iron_pick' ? 2 : (item.id === 'dia_drill' ? 3 : (item.id === 'iridium_drill' ? 5 : 4)),
         label: item.icon,
         color: item.imageColor
       });
+      setSelectedEquipment(prev => ({ ...prev, 0: item.id }));
       addLog(`⚔️ Werkzeug upgraded auf ${item.name}! Mining-Schaden massiv erhöht.`);
     } else if (item.itemType === 'armor') {
       if (item.id === 'suit_nano') setEquippedArmor('nano');
@@ -1608,6 +2472,18 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         ...prev,
         [bToken]: (prev[bToken] || 0) + 1
       }));
+
+      // Enable automatic equip in hotbar category slots
+      if (item.id.includes('miner')) {
+        setSelectedEquipment(prev => ({ ...prev, 2: item.id }));
+      } else if (item.id.includes('seller')) {
+        setSelectedEquipment(prev => ({ ...prev, 3: item.id }));
+      } else if (item.id.includes('solar') || item.id.includes('wind') || item.id.includes('gen')) {
+        setSelectedEquipment(prev => ({ ...prev, 1: item.id }));
+      } else if (item.category === 'Basenbau') {
+        setSelectedEquipment(prev => ({ ...prev, 4: item.id }));
+      }
+
       addLog(`🛍️ Module erworben: +1 ${item.name} im Baulager! (Slot ausgerüstet)`);
     }
 
@@ -1863,14 +2739,107 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
             </div>
           </div>
 
+          {/* Quick Item category switcher (MineEnergy style) */}
+          <div className="w-full flex gap-1 justify-start py-1 border-t border-neutral-850 mt-1 max-h-12 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-800 pointer-events-auto">
+            {(() => {
+              let listToShow: { id: string; name: string; icon: string; count?: number; owned: boolean }[] = [];
+              if (selectedHotbarIndex === 0) {
+                listToShow = [
+                  { id: 'wooden_pick', name: 'Holz-Spitzhacke', icon: '⛏️', owned: true },
+                  ...shopDatabase
+                    .filter(item => item.category === 'Spitzhaken')
+                    .map(item => ({
+                      id: item.id,
+                      name: item.name,
+                      icon: item.icon,
+                      owned: lvl >= item.levelRequired && (currentTool.id === item.id || resources[item.costResource] >= item.price)
+                    }))
+                ];
+              } else {
+                let checkBelongs = (id: string) => false;
+                if (selectedHotbarIndex === 1) checkBelongs = (id) => id.includes('solar') || id.includes('wind') || id.includes('gen');
+                if (selectedHotbarIndex === 2) checkBelongs = (id) => id.includes('miner');
+                if (selectedHotbarIndex === 3) checkBelongs = (id) => id.includes('seller');
+                if (selectedHotbarIndex === 4) checkBelongs = (id) => {
+                  const it = shopDatabase.find(x => x.id === id);
+                  return it?.category === 'Basenbau';
+                };
+
+                listToShow = shopDatabase
+                  .filter(item => {
+                    if (selectedHotbarIndex === 4) return item.category === 'Basenbau';
+                    return checkBelongs(item.id);
+                  })
+                  .map(item => {
+                    const count = buildInventory[item.id] || 0;
+                    return { id: item.id, name: item.name, icon: item.icon, count, owned: count > 0 };
+                  });
+              }
+
+              if (listToShow.length === 0) return null;
+
+              return listToShow.map(sub => {
+                const isActive = selectedEquipment[selectedHotbarIndex] === sub.id;
+                return (
+                  <button
+                    key={`equip-${sub.id}`}
+                    onClick={() => {
+                      if (sub.owned) {
+                        selectActiveEquipment(selectedHotbarIndex, sub.id);
+                        playRetroSound('hit');
+                      } else {
+                        setIsShopOpen(true);
+                        setShopTab(selectedHotbarIndex === 0 ? 'tools' : (selectedHotbarIndex === 4 ? 'build' : 'machines'));
+                        triggerToast('xp', '🛒 SHOP GEÖFFNET', `Kaufe '${sub.name}' im Trade-Shop!`);
+                      }
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[9px] uppercase font-bold shrink-0 flex items-center gap-1 transition-all border ${
+                      isActive 
+                        ? 'bg-amber-500 text-black border-amber-300 font-extrabold scale-105' 
+                        : sub.owned 
+                          ? 'bg-neutral-800 text-neutral-200 border-neutral-700 hover:bg-neutral-700' 
+                          : 'bg-neutral-950/40 text-neutral-600 border-neutral-900 opacity-50'
+                    }`}
+                    title={sub.name}
+                  >
+                    <span>{sub.icon}</span>
+                    <span className="max-w-[75px] truncate hidden sm:inline">{sub.name.replace(' panel', '').replace(' generator', '').replace(' miner', '').replace(' seller', '')}</span>
+                    {sub.count !== undefined && (
+                      <span className={`text-[8px] px-1 rounded ${isActive ? 'bg-amber-600 text-white font-black' : 'bg-neutral-900 text-emerald-400'}`}>
+                        {sub.count}
+                      </span>
+                    )}
+                    {!sub.owned && <span className="text-[8px] text-amber-500">🔒</span>}
+                  </button>
+                );
+              });
+            })()}
+          </div>
+
           {/* HOTBAR BUTTON GRIDS */}
           <div className="flex gap-2 w-full pt-1">
             {[
-              { id: 'mining', label: currentTool.label, name: currentTool.name, type: 'miner', key: '1' },
-              { id: 'solar', label: '☀️', name: 'Solarpanel', type: 'solar', key: '2' },
-              { id: 'miner', label: '🤖', name: 'Auto-Miner', type: 'miner', key: '3' },
-              { id: 'seller', label: '💵', name: 'Auto-Seller', type: 'seller', key: '4' },
-              { id: 'wall', label: '🧱', name: 'Eisenmauer', type: 'wall', key: '5' }
+              { id: 'mining', label: currentTool.label, name: currentTool.name, key: '1' },
+              (() => {
+                const id = selectedEquipment[1] || 'solar';
+                const item = shopDatabase.find(x => x.id === id);
+                return { id, label: item?.icon || '☀️', name: item?.name || 'Solarpanel', key: '2' };
+              })(),
+              (() => {
+                const id = selectedEquipment[2] || 'miner';
+                const item = shopDatabase.find(x => x.id === id);
+                return { id, label: item?.icon || '🤖', name: item?.name || 'Auto-Miner', key: '3' };
+              })(),
+              (() => {
+                const id = selectedEquipment[3] || 'seller';
+                const item = shopDatabase.find(x => x.id === id);
+                return { id, label: item?.icon || '💵', name: item?.name || 'Auto-Seller', key: '4' };
+              })(),
+              (() => {
+                const id = selectedEquipment[4] || 'wall';
+                const item = shopDatabase.find(x => x.id === id);
+                return { id, label: item?.icon || '🧱', name: item?.name || 'Eisenmauer', key: '5' };
+              })()
             ].map((slot, idx) => {
               const active = idx === selectedHotbarIndex;
               const isPlaceable = idx > 0;
