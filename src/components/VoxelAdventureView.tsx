@@ -895,24 +895,73 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         });
       }
 
-      // 4. Opponent Bots roaming simulation
+      // 4. Opponent Bots roaming and active counter-attacking simulation
       setBotsList(prevBots => {
         return prevBots.map(bot => {
-          const dst = Math.hypot(bot.targetX - bot.x, bot.targetY - bot.y);
+          const player = playerRef.current;
+          const distToPlayer = Math.hypot(player.x - bot.x, player.y - bot.y);
+
           let bx = bot.x;
           let by = bot.y;
           let tx = bot.targetX;
           let ty = bot.targetY;
           let mining = bot.isMining;
 
-          if (dst < 15) {
-            tx = Math.max(200, Math.min(worldSize.width - 200, bot.x + (Math.random() * 400 - 200)));
-            ty = Math.max(200, Math.min(worldSize.height - 200, bot.y + (Math.random() * 400 - 200)));
-            mining = Math.random() > 0.65;
+          // If bot was damaged (health < 100) or close to player (dist < 185px): CHASE!
+          const isChasing = (bot.health < 100 || distToPlayer < 185);
+
+          if (isChasing) {
+            tx = player.x;
+            ty = player.y;
+            mining = false; // Focused on combat
+          }
+
+          const dist = Math.hypot(tx - bx, ty - by);
+
+          if (isChasing && distToPlayer < 40) {
+            // Within threat attack range, stay near player and swing at them!
+            mining = true;
+
+            // Attack damage timer cooldown throttle (approx once per 0.75 seconds to be balanced & fair)
+            if (Math.random() < 0.022) {
+              const dmg = 8 + Math.floor(Math.random() * 5);
+
+              setHealth(hp => {
+                const nextHp = Math.max(0, hp - dmg);
+                if (nextHp <= 0) {
+                  addLog(`☠️ Du wurdest von Dieb <${bot.name}> eliminiert! Respawn im Grasland.`);
+                  playerRef.current.x = 1000;
+                  playerRef.current.y = 1000;
+                  setIsJetpackActive(false);
+
+                  // Penalize client some coins for dying
+                  setCoins(c => Math.max(0, Math.floor(c * 0.9)));
+
+                  const derivedLvl = Math.max(1, Math.floor(Math.log2((coins || 1) / 100)) + 1);
+                  return 100 + derivedLvl * 10;
+                } else {
+                  addLog(`⚔️ Dieb <${bot.name}> attackiert dich! (-${dmg} HP)`);
+                }
+                return nextHp;
+              });
+
+              // Combat effects
+              addFloaterFX(player.x + (Math.random() * 12 - 6), player.y - 12, `-${dmg} HP`, '#f43f5e');
+              addSparksFX(player.x, player.y, '#f43f5e', 8, 1.0, true, 'circle');
+              triggerScreenShake(4);
+              playRetroSound('hurt');
+            }
           } else {
-            const angle = Math.atan2(ty - by, tx - bx);
-            bx += Math.cos(angle) * bot.speed;
-            by += Math.sin(angle) * bot.speed;
+            // Standard roaming behavior
+            if (dist < 15) {
+              tx = Math.max(200, Math.min(worldSize.width - 200, bot.x + (Math.random() * 400 - 200)));
+              ty = Math.max(200, Math.min(worldSize.height - 200, bot.y + (Math.random() * 400 - 200)));
+              mining = Math.random() > 0.65;
+            } else {
+              const angle = Math.atan2(ty - by, tx - bx);
+              bx += Math.cos(angle) * bot.speed;
+              by += Math.sin(angle) * bot.speed;
+            }
           }
 
           // Generate randomized bot chat messages
@@ -1507,8 +1556,49 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         return;
       }
 
-      // High-Fidelity Custom Styled Terrain Drawing System
-      ctx.save();
+      // High-Fidelity Custom Styled Terrain Drawing System (with MineEnergy 2 style pseudo-3D extrusion height!)
+      const is3D = tile.type !== 'grass' && tile.type !== 'sand' && tile.type !== 'volcanic_rock' && tile.type !== 'water' && tile.type !== 'lava';
+      const H = 14; // Height extrusion of blocks
+
+      if (is3D) {
+        // Floor drop footprint ambient occlusion shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(tile.x + 3, tile.y + 3, tileSize, tileSize);
+
+        // Calculate and draw the darker front face shadow representing the block's height
+        let shadowColor = '#1d1a22';
+        switch (tile.type) {
+          case 'tree': shadowColor = '#240f06'; break;
+          case 'stone': shadowColor = '#1e2126'; break;
+          case 'coal': shadowColor = '#0b0c0d'; break;
+          case 'iron': shadowColor = '#282e38'; break;
+          case 'gold': shadowColor = '#593202'; break;
+          case 'diamond': shadowColor = '#012c20'; break;
+          case 'emerald': shadowColor = '#02241b'; break;
+          case 'uranium': shadowColor = '#0b2610'; break;
+          case 'iridium': shadowColor = '#1c032d'; break;
+          case 'flower': shadowColor = '#0b210b'; break;
+          case 'wall': shadowColor = '#1e2229'; break;
+        }
+        ctx.fillStyle = shadowColor;
+        ctx.fillRect(tile.x, tile.y + tileSize - H, tileSize, H);
+
+        // Draw vertical division black lines for perfect block 3D edge separation
+        ctx.strokeStyle = '#0c0b0e';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(tile.x, tile.y + tileSize - H);
+        ctx.lineTo(tile.x, tile.y + tileSize);
+        ctx.moveTo(tile.x + tileSize, tile.y + tileSize - H);
+        ctx.lineTo(tile.x + tileSize, tile.y + tileSize);
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(0, -H); // Shift the top face rendering upward to complete 3D height extrusion!
+      } else {
+        ctx.save();
+      }
+
       switch (tile.type) {
         case 'grass':
           // Micro-circuit digital grass
@@ -1756,10 +1846,16 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       }
       ctx.restore();
 
-      // Delicate dark cell grid borders mapping (MineEnergy original outline look)
-      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
+      // Delicate dark cell grid borders mapping (MineEnergy original outline look with 3D height offset!)
+      if (is3D) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tile.x, tile.y - H, tileSize, tileSize);
+      } else {
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
+      }
     });
 
     // 2a. Draw dynamic electric cable connections (glowing power lines) like Mine Energy 1 & 2!
@@ -1809,15 +1905,31 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
       const dx = mach.x;
       const dy = mach.y;
+      const H = 14; // Matching 3D height extrusion
 
       const shopItem = shopDatabase.find(item => item.id === mach.type);
       const borderCol = shopItem ? shopItem.imageColor : '#f59e0b';
       const symb = shopItem ? shopItem.icon : '⚙️';
 
-      // Heavy armored steel chassis base
-      ctx.fillStyle = '#2d2d30';
+      // 1. Ambient drop footprint shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
       ctx.fillRect(dx + 4, dy + 4, tileSize - 8, tileSize - 8);
-      ctx.fillStyle = '#1a1a1c';
+
+      // 2. Extruded vertical front wall chassis
+      ctx.fillStyle = '#18171a';
+      ctx.fillRect(dx + 4, dy + tileSize - H, tileSize - 8, H);
+      ctx.strokeStyle = '#0a0a0b';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(dx + 4, dy + tileSize - H, tileSize - 8, H);
+
+      // 3. Translated top face platform containing all control machinery
+      ctx.save();
+      ctx.translate(0, -H);
+
+      // Heavy armored steel chassis base top surface plate
+      ctx.fillStyle = '#343438';
+      ctx.fillRect(dx + 4, dy + 4, tileSize - 8, tileSize - 8);
+      ctx.fillStyle = '#1c1c1f';
       ctx.fillRect(dx + 8, dy + 8, tileSize - 16, tileSize - 16);
 
       // Yellow/Black diagonal micro warning stripes around margins 
@@ -1912,6 +2024,8 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
         ctx.fillStyle = '#10b981';
         ctx.fillRect(dx + 10, dy + tileSize - 12, (tileSize - 20) * (mach.productionProgress / 100), 3);
       }
+
+      ctx.restore(); // Restore our translations so surrounding grid and subsequent renders are flawless
     });
 
     // 2c. Implement Tesla Turret perimeter checks & laser discharge (MineEnergy defence mechanics!)
@@ -2314,6 +2428,79 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       player.angle = Math.atan2(absClickY - player.y, absClickX - player.x);
     } else {
       mousePosRef.current = { x: clickX, y: clickY };
+    }
+
+    // 1. COMBAT SYSTEM: Check if player clicked directly on/near any Opponent Bot to ATTACK!
+    const targetBot = botsList.find(b => {
+      const distToBot = Math.hypot(b.x - absClickX, b.y - absClickY);
+      return distToBot <= 40; // Attack tap footprint radius
+    });
+
+    if (targetBot) {
+      const distToBot = Math.hypot(player.x - targetBot.x, player.y - targetBot.y);
+      if (distToBot > 180) {
+        triggerToast('xp', '❌ ZU WEIT ENTFERNT', 'Gehe näher an den Gegner! (Reichweite 180px)');
+        playRetroSound('hurt');
+        return;
+      }
+
+      // Trigger player attack strike swing
+      player.swinging = true;
+      player.swingTimer = 10;
+
+      // Calculate dynamic strike damage based on selected tool tier
+      let baseDmg = 15;
+      if (currentTool.id.includes('iron')) baseDmg = 25;
+      else if (currentTool.id.includes('gold')) baseDmg = 38;
+      else if (currentTool.id.includes('diamond')) baseDmg = 55;
+      else if (currentTool.id.includes('iridium')) baseDmg = 85;
+
+      const damageDealt = baseDmg + Math.floor(Math.random() * 8);
+
+      // Deduct health on bot state
+      const nextBotHp = Math.max(0, targetBot.health - damageDealt);
+      
+      // Spawn energetic combat feedback
+      addFloaterFX(targetBot.x, targetBot.y - 18, `-${damageDealt} HP`, '#ef4444');
+      addSparksFX(targetBot.x, targetBot.y, '#dc2626', 15, 1.4, true, 'circle');
+      triggerScreenShake(6);
+      playRetroSound('hit');
+
+      // Aggro link: Bot gains full threat focus on player and pursues immediately!
+      targetBot.targetX = player.x;
+      targetBot.targetY = player.y;
+      targetBot.isMining = false;
+
+      setBotsList(prev => prev.map(b => b.id === targetBot.id ? { ...b, health: nextBotHp, targetX: player.x, targetY: player.y, isMining: false } : b));
+      addLog(`⚔️ Du attackierst Dieb <${targetBot.name}>! Er erlitt ${damageDealt} Schaden!`);
+
+      if (nextBotHp <= 0) {
+        // Splendid elimination reward loot!
+        const bounty = 850 + Math.floor(Math.random() * 650);
+        setCoins(c => {
+          const nextCoins = c + bounty;
+          updateLeaderboardPlayerScore(nextCoins);
+          syncCoinsWithDatabase(nextCoins);
+          return nextCoins;
+        });
+
+        triggerToast('level', '⚔️ ENEMIE BEZUNGEN!', `Loot gesichert: +${bounty} Coins!`);
+        addLog(`🏆 [Erfolg] Du hast Dieb <${targetBot.name}> erfolgreich erledigt! Prämie: +${bounty} Coins erhalten!`);
+        playRetroSound('levelUp');
+
+        // Instantly respawn elsewhere in survival mode
+        setBotsList(prev => prev.map(b => b.id === targetBot.id ? {
+          ...b,
+          health: 100,
+          x: Math.max(200, Math.min(worldSize.width - 200, Math.random() * worldSize.width)),
+          y: Math.max(200, Math.min(worldSize.height - 200, Math.random() * worldSize.height)),
+          targetX: 1000,
+          targetY: 1000,
+          cash: Math.max(50, Math.floor(b.cash * 0.7)),
+          isMining: false
+        } : b));
+      }
+      return; // Prevent drilling tiles under the bot's body!
     }
 
     // Fetch grid coordinates index intersected
