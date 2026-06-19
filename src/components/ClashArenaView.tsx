@@ -179,26 +179,150 @@ const CARDS_POOL: Card[] = [
   { id: 'pekka', name: 'P.E.K.K.A.', cost: 7, image: '/images/clash_pekka.jpg', hp: 2100, damage: 380, range: 30, speed: 0.8, type: 'ground', attackType: 'melee', attackSpeed: 1800, color: '#a855f7', playType: 'troop' },
   
   // New user-provided cards
-  { id: 'spear_goblins', name: 'Speerkobolde', cost: 2, image: '/images/spear_goblins.png', hp: 300, damage: 45, range: 100, speed: 1.8, type: 'ground', attackType: 'ranged', attackSpeed: 1200, color: '#84cc16', playType: 'troop' },
-  { id: 'battle_healer', name: 'Kampfheilerin', cost: 4, image: '/images/battle_healer.png', hp: 1200, damage: 85, range: 25, speed: 1.2, type: 'ground', attackType: 'heal', attackSpeed: 1500, color: '#fcd34d', playType: 'troop' },
+  { id: 'spear_goblins', name: 'Speerkobolde', cost: 2, image: '/images/spear-goblins.png', hp: 300, damage: 45, range: 100, speed: 1.8, type: 'ground', attackType: 'ranged', attackSpeed: 1200, color: '#84cc16', playType: 'troop' },
+  { id: 'battle_healer', name: 'Kampfheilerin', cost: 4, image: '/images/battle-healer.png', hp: 1200, damage: 85, range: 25, speed: 1.2, type: 'ground', attackType: 'heal', attackSpeed: 1500, color: '#fcd34d', playType: 'troop' },
   { id: 'tesla', name: 'Tesla', cost: 4, image: '/images/tesla.png', hp: 950, damage: 190, range: 110, speed: 0, type: 'ground', attackType: 'ranged', attackSpeed: 800, color: '#0ea5e9', playType: 'building' },
-  { id: 'baby_dragon', name: 'Baby Drache', cost: 4, image: '/images/baby_dragon.png', hp: 900, damage: 100, range: 75, speed: 1.5, type: 'flying', attackType: 'splash', attackSpeed: 1500, color: '#2dd4bf', playType: 'troop' },
-  { id: 'barbarian_barrel', name: 'Barbarenfass', cost: 2, image: '/images/barb_barrel.png', hp: 0, damage: 200, range: 0, speed: 0, type: 'ground', attackType: 'splash', attackSpeed: 0, color: '#d97706', playType: 'spell', radius: 45 },
-  { id: 'dark_prince', name: 'Dunkler Prinz', cost: 4, image: '/images/dark_prince.png', hp: 1050, damage: 160, range: 35, speed: 1.6, type: 'ground', attackType: 'splash', attackSpeed: 1300, color: '#334155', playType: 'troop' },
-  { id: 'electro_dragon', name: 'Elektrodrache', cost: 5, image: '/images/electro_dragon.png', hp: 850, damage: 110, range: 85, speed: 1.1, type: 'flying', attackType: 'ranged', attackSpeed: 2100, color: '#60a5fa', playType: 'troop' },
-  { id: 'electro_giant', name: 'Elektro-Riese', cost: 7, image: '/images/electro_giant.png', hp: 3200, damage: 140, range: 30, speed: 0.7, type: 'ground', attackType: 'melee', attackSpeed: 2100, color: '#8b5cf6', playType: 'troop' },
+  { id: 'baby_dragon', name: 'Baby Drache', cost: 4, image: '/images/baby-dragon.png', hp: 900, damage: 100, range: 75, speed: 1.5, type: 'flying', attackType: 'splash', attackSpeed: 1500, color: '#2dd4bf', playType: 'troop' },
+  { id: 'barbarian_barrel', name: 'Barbarenfass', cost: 2, image: '/images/barbarian-barrel.png', hp: 0, damage: 200, range: 0, speed: 0, type: 'ground', attackType: 'splash', attackSpeed: 0, color: '#d97706', playType: 'spell', radius: 45 },
+  { id: 'dark_prince', name: 'Dunkler Prinz', cost: 4, image: '/images/dark-prince.png', hp: 1050, damage: 160, range: 35, speed: 1.6, type: 'ground', attackType: 'splash', attackSpeed: 1300, color: '#334155', playType: 'troop' },
+  { id: 'electro_dragon', name: 'Elektrodrache', cost: 5, image: '/images/electro-dragon.png', hp: 850, damage: 110, range: 85, speed: 1.1, type: 'flying', attackType: 'ranged', attackSpeed: 2100, color: '#60a5fa', playType: 'troop' },
+  { id: 'electro_giant', name: 'Elektro-Riese', cost: 7, image: '/images/electro-giant.png', hp: 3200, damage: 140, range: 30, speed: 0.7, type: 'ground', attackType: 'melee', attackSpeed: 2100, color: '#8b5cf6', playType: 'troop' },
   { id: 'fireball', name: 'Feuerball', cost: 4, image: '/images/fireball.png', hp: 0, damage: 450, range: 0, speed: 0, type: 'flying', attackType: 'splash', attackSpeed: 0, color: '#ef4444', playType: 'spell', radius: 65 },
-  { id: 'fire_spirit', name: 'Feuergeist', cost: 1, image: '/images/fire_spirit.png', hp: 200, damage: 180, range: 35, speed: 2.5, type: 'ground', attackType: 'splash', attackSpeed: 500, color: '#f97316', playType: 'troop' },
+  { id: 'fire_spirit', name: 'Feuergeist', cost: 1, image: '/images/fire-spirit.png', hp: 200, damage: 180, range: 35, speed: 2.5, type: 'ground', attackType: 'splash', attackSpeed: 500, color: '#f97316', playType: 'troop' },
   { id: 'princess', name: 'Prinzessin', cost: 3, image: '/images/princess.png', hp: 216, damage: 140, range: 90, speed: 1.2, type: 'ground', attackType: 'splash', attackSpeed: 3000, color: '#f87171', playType: 'troop' },
-  { id: 'wall_breakers', name: 'Mauerbrecher', cost: 2, image: '/images/wall_breakers.png', hp: 250, damage: 325, range: 20, speed: 2.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#64748b', playType: 'troop', targetBuildingOnly: true },
+  { id: 'wall_breakers', name: 'Mauerbrecher', cost: 2, image: '/images/wall-breakers.png', hp: 250, damage: 325, range: 20, speed: 2.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#64748b', playType: 'troop', targetBuildingOnly: true },
   { id: 'witch', name: 'Hexe', cost: 5, image: '/images/witch.png', hp: 700, damage: 111, range: 50, speed: 1.2, type: 'ground', attackType: 'splash', attackSpeed: 1100, color: '#a855f7', playType: 'troop' },
-  { id: 'x_bow', name: 'X-Bogen', cost: 6, image: '/images/x_bow.png', hp: 1000, damage: 26, range: 115, speed: 0, type: 'ground', attackType: 'ranged', attackSpeed: 250, color: '#9ca3af', playType: 'building' },
-  { id: 'giant_snowball', name: 'Riesenschneeball', cost: 2, image: '/images/giant_snowball.png', hp: 0, damage: 159, range: 0, speed: 0, type: 'flying', attackType: 'splash', attackSpeed: 0, color: '#bae6fd', playType: 'spell', radius: 45 },
-  { id: 'goblin_drill', name: 'Koboldbohrer', cost: 4, image: '/images/goblin_drill.png', hp: 900, damage: 0, range: 0, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 2000, color: '#16a34a', playType: 'building' },
-  { id: 'goblin_giant', name: 'Koboldriese', cost: 6, image: '/images/goblin_giant.png', hp: 2500, damage: 146, range: 25, speed: 1.2, type: 'ground', attackType: 'melee', attackSpeed: 1700, color: '#4ade80', playType: 'troop', targetBuildingOnly: true },
-  { id: 'hog_rider', name: 'Schweinereiter', cost: 4, image: '/images/hog_rider.png', hp: 1400, damage: 260, range: 20, speed: 2.0, type: 'ground', attackType: 'melee', attackSpeed: 1600, color: '#b45309', playType: 'troop', targetBuildingOnly: true },
+  { id: 'x_bow', name: 'X-Bogen', cost: 6, image: '/images/x-bow.png', hp: 1000, damage: 26, range: 115, speed: 0, type: 'ground', attackType: 'ranged', attackSpeed: 250, color: '#9ca3af', playType: 'building' },
+  { id: 'giant_snowball', name: 'Riesenschneeball', cost: 2, image: '/images/giant-snowball.png', hp: 0, damage: 159, range: 0, speed: 0, type: 'flying', attackType: 'splash', attackSpeed: 0, color: '#bae6fd', playType: 'spell', radius: 45 },
+  { id: 'goblin_drill', name: 'Koboldbohrer', cost: 4, image: '/images/goblin-drill.png', hp: 900, damage: 0, range: 0, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 2000, color: '#16a34a', playType: 'building' },
+  { id: 'goblin_giant', name: 'Koboldriese', cost: 6, image: '/images/goblin-giant.png', hp: 2500, damage: 146, range: 25, speed: 1.2, type: 'ground', attackType: 'melee', attackSpeed: 1700, color: '#4ade80', playType: 'troop', targetBuildingOnly: true },
+  { id: 'hog_rider', name: 'Schweinereiter', cost: 4, image: '/images/hog-rider.png', hp: 1400, damage: 260, range: 20, speed: 2.0, type: 'ground', attackType: 'melee', attackSpeed: 1600, color: '#b45309', playType: 'troop', targetBuildingOnly: true },
   { id: 'hunter', name: 'Jäger', cost: 4, image: '/images/hunter.png', hp: 700, damage: 69, range: 40, speed: 1.3, type: 'ground', attackType: 'ranged', attackSpeed: 2200, color: '#525252', playType: 'troop' },
-  { id: 'mini_pekka', name: 'Mini P.E.K.K.A', cost: 4, image: '/images/mini_pekka.png', hp: 1129, damage: 598, range: 20, speed: 1.6, type: 'ground', attackType: 'melee', attackSpeed: 1800, color: '#3b82f6', playType: 'troop' }
+  { id: 'mini_pekka', name: 'Mini P.E.K.K.A', cost: 4, image: '/images/mini-pekka.png', hp: 1129, damage: 598, range: 20, speed: 1.6, type: 'ground', attackType: 'melee', attackSpeed: 1800, color: '#3b82f6', playType: 'troop' },
+  { id: 'archers', name: 'Archers', cost: 3, image: '/images/archers.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'arrows', name: 'Arrows', cost: 3, image: '/images/arrows.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'baby_goblins', name: 'Baby Goblins', cost: 3, image: '/images/baby-goblins.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'balloon', name: 'Balloon', cost: 3, image: '/images/balloon.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'bandit', name: 'Bandit', cost: 3, image: '/images/bandit.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'barbarian_hut', name: 'Barbarian Hut', cost: 3, image: '/images/barbarian-hut.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'barbarian_launcher', name: 'Barbarian Launcher', cost: 3, image: '/images/barbarian-launcher.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'barbarians', name: 'Barbarians', cost: 3, image: '/images/barbarians.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'bats', name: 'Bats', cost: 3, image: '/images/bats.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'battle_ram', name: 'Battle Ram', cost: 3, image: '/images/battle-ram.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'berserker', name: 'Berserker', cost: 3, image: '/images/berserker.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'bomb_tower', name: 'Bomb Tower', cost: 3, image: '/images/bomb-tower.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'bomber', name: 'Bomber', cost: 3, image: '/images/bomber.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'boss_bandit', name: 'Boss Bandit', cost: 3, image: '/images/boss-bandit.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'bowler', name: 'Bowler', cost: 3, image: '/images/bowler.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'cannon_cart', name: 'Cannon Cart', cost: 3, image: '/images/cannon-cart.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'cannon', name: 'Cannon', cost: 3, image: '/images/cannon.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'cannoneer', name: 'Cannoneer', cost: 3, image: '/images/cannoneer.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'clone', name: 'Clone', cost: 3, image: '/images/clone.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'dagger_duchess', name: 'Dagger Duchess', cost: 3, image: '/images/dagger-duchess.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'dart_goblin', name: 'Dart Goblin', cost: 3, image: '/images/dart-goblin.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'earthquake', name: 'Earthquake', cost: 3, image: '/images/earthquake.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'electro_spirit', name: 'Electro Spirit', cost: 3, image: '/images/electro-spirit.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'electro_wizard', name: 'Electro Wizard', cost: 3, image: '/images/electro-wizard.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'elite_barbarians', name: 'Elite Barbarians', cost: 3, image: '/images/elite-barbarians.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'elixir_collector', name: 'Elixir Collector', cost: 3, image: '/images/elixir-collector.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'elixir_golem', name: 'Elixir Golem', cost: 3, image: '/images/elixir-golem.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'executioner', name: 'Executioner', cost: 3, image: '/images/executioner.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'fire_spirits', name: 'Fire Spirits', cost: 3, image: '/images/fire-spirits.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'firecracker', name: 'Firecracker', cost: 3, image: '/images/firecracker.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'fisherman', name: 'Fisherman', cost: 3, image: '/images/fisherman.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'flying_machine', name: 'Flying Machine', cost: 3, image: '/images/flying-machine.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'freeze', name: 'Freeze', cost: 3, image: '/images/freeze.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'furnace', name: 'Furnace', cost: 3, image: '/images/furnace.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'giant_skeleton', name: 'Giant Skeleton', cost: 3, image: '/images/giant-skeleton.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'giant', name: 'Giant', cost: 3, image: '/images/giant.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblin_barrel', name: 'Goblin Barrel', cost: 3, image: '/images/goblin-barrel.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'goblin_cage', name: 'Goblin Cage', cost: 3, image: '/images/goblin-cage.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'goblin_curse', name: 'Goblin Curse', cost: 3, image: '/images/goblin-curse.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblin_demolisher', name: 'Goblin Demolisher', cost: 3, image: '/images/goblin-demolisher.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblin_gang', name: 'Goblin Gang', cost: 3, image: '/images/goblin-gang.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblin_hut', name: 'Goblin Hut', cost: 3, image: '/images/goblin-hut.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'goblin_machine', name: 'Goblin Machine', cost: 3, image: '/images/goblin-machine.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblins', name: 'Goblins', cost: 3, image: '/images/goblins.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'goblinstein', name: 'Goblinstein', cost: 3, image: '/images/goblinstein.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'golden_knight', name: 'Golden Knight', cost: 3, image: '/images/golden-knight.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'golem', name: 'Golem', cost: 3, image: '/images/golem.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'graveyard', name: 'Graveyard', cost: 3, image: '/images/graveyard.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'guards', name: 'Guards', cost: 3, image: '/images/guards.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'heal_spirit', name: 'Heal Spirit', cost: 3, image: '/images/heal-spirit.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'heal', name: 'Heal', cost: 3, image: '/images/heal.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'ice_golem', name: 'Ice Golem', cost: 3, image: '/images/ice-golem.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'ice_spirit', name: 'Ice Spirit', cost: 3, image: '/images/ice-spirit.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'ice_wizard', name: 'Ice Wizard', cost: 3, image: '/images/ice-wizard.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'inferno_dragon', name: 'Inferno Dragon', cost: 3, image: '/images/inferno-dragon.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'inferno_tower', name: 'Inferno Tower', cost: 3, image: '/images/inferno-tower.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'knight', name: 'Knight', cost: 3, image: '/images/knight.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'lava_hound', name: 'Lava Hound', cost: 3, image: '/images/lava-hound.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'lightning', name: 'Lightning', cost: 3, image: '/images/lightning.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'little_prince', name: 'Little Prince', cost: 3, image: '/images/little-prince.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'lumberjack', name: 'Lumberjack', cost: 3, image: '/images/lumberjack.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'magic_archer', name: 'Magic Archer', cost: 3, image: '/images/magic-archer.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'mega_knight', name: 'Mega Knight', cost: 3, image: '/images/mega-knight.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'mega_minion', name: 'Mega Minion', cost: 3, image: '/images/mega-minion.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'mighty_miner', name: 'Mighty Miner', cost: 3, image: '/images/mighty-miner.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'miner', name: 'Miner', cost: 3, image: '/images/miner.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'minion_horde', name: 'Minion Horde', cost: 3, image: '/images/minion-horde.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'minions', name: 'Minions', cost: 3, image: '/images/minions.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'mirror', name: 'Mirror', cost: 3, image: '/images/mirror.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'monk', name: 'Monk', cost: 3, image: '/images/monk.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'mortar', name: 'Mortar', cost: 3, image: '/images/mortar.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'mother_witch', name: 'Mother Witch', cost: 3, image: '/images/mother-witch.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'musketeer', name: 'Musketeer', cost: 3, image: '/images/musketeer.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'night_witch', name: 'Night Witch', cost: 3, image: '/images/night-witch.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'party_hut', name: 'Party Hut', cost: 3, image: '/images/party-hut.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'party_rocket', name: 'Party Rocket', cost: 3, image: '/images/party-rocket.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'pekka', name: 'Pekka', cost: 3, image: '/images/pekka.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'phoenix', name: 'Phoenix', cost: 3, image: '/images/phoenix.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'poison', name: 'Poison', cost: 3, image: '/images/poison.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'prince', name: 'Prince', cost: 3, image: '/images/prince.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'rage', name: 'Rage', cost: 3, image: '/images/rage.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'raging_prince', name: 'Raging Prince', cost: 3, image: '/images/raging-prince.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'ram_rider', name: 'Ram Rider', cost: 3, image: '/images/ram-rider.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'rascals', name: 'Rascals', cost: 3, image: '/images/rascals.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'rocket_silo', name: 'Rocket Silo', cost: 3, image: '/images/rocket-silo.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'rocket', name: 'Rocket', cost: 3, image: '/images/rocket.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'royal_chef', name: 'Royal Chef', cost: 3, image: '/images/royal-chef.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'royal_delivery', name: 'Royal Delivery', cost: 3, image: '/images/royal-delivery.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'royal_ghost', name: 'Royal Ghost', cost: 3, image: '/images/royal-ghost.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'royal_giant', name: 'Royal Giant', cost: 3, image: '/images/royal-giant.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'royal_hogs', name: 'Royal Hogs', cost: 3, image: '/images/royal-hogs.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'royal_recruits', name: 'Royal Recruits', cost: 3, image: '/images/royal-recruits.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'rune_giant', name: 'Rune Giant', cost: 3, image: '/images/rune-giant.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'santa_hog_rider', name: 'Santa Hog Rider', cost: 3, image: '/images/santa-hog-rider.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'skeleton_army', name: 'Skeleton Army', cost: 3, image: '/images/skeleton-army.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'skeleton_barrel', name: 'Skeleton Barrel', cost: 3, image: '/images/skeleton-barrel.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'skeleton_dragons', name: 'Skeleton Dragons', cost: 3, image: '/images/skeleton-dragons.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'skeleton_king', name: 'Skeleton King', cost: 3, image: '/images/skeleton-king.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'skeletons', name: 'Skeletons', cost: 3, image: '/images/skeletons.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'sparky', name: 'Sparky', cost: 3, image: '/images/sparky.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'spirit_empress', name: 'Spirit Empress', cost: 3, image: '/images/spirit-empress.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_archers', name: 'Super Archers', cost: 3, image: '/images/super-archers.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_hog_rider', name: 'Super Hog Rider', cost: 3, image: '/images/super-hog-rider.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_ice_golem', name: 'Super Ice Golem', cost: 3, image: '/images/super-ice-golem.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_knight', name: 'Super Knight', cost: 3, image: '/images/super-knight.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_lava_hound', name: 'Super Lava Hound', cost: 3, image: '/images/super-lava-hound.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_magic_archer', name: 'Super Magic Archer', cost: 3, image: '/images/super-magic-archer.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_mini_pekka', name: 'Super Mini Pekka', cost: 3, image: '/images/super-mini-pekka.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'super_witch', name: 'Super Witch', cost: 3, image: '/images/super-witch.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'suspicious_bush', name: 'Suspicious Bush', cost: 3, image: '/images/suspicious-bush.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'terry', name: 'Terry', cost: 3, image: '/images/terry.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'the_log', name: 'The Log', cost: 3, image: '/images/the-log.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'three_musketeers', name: 'Three Musketeers', cost: 3, image: '/images/three-musketeers.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'tombstone', name: 'Tombstone', cost: 3, image: '/images/tombstone.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'tornado', name: 'Tornado', cost: 3, image: '/images/tornado.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'tower_princess', name: 'Tower Princess', cost: 3, image: '/images/tower-princess.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'building' },
+  { id: 'valkyrie', name: 'Valkyrie', cost: 3, image: '/images/valkyrie.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'vines', name: 'Vines', cost: 3, image: '/images/vines.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'void', name: 'Void', cost: 3, image: '/images/void.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'warmth', name: 'Warmth', cost: 3, image: '/images/warmth.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'wizard_trio', name: 'Wizard Trio', cost: 3, image: '/images/wizard-trio.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'wizard', name: 'Wizard', cost: 3, image: '/images/wizard.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
+  { id: 'zap', name: 'Zap', cost: 3, image: '/images/zap.png', hp: 600, damage: 100, range: 40, speed: 0, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'spell' },
+  { id: 'zappies', name: 'Zappies', cost: 3, image: '/images/zappies.png', hp: 600, damage: 100, range: 40, speed: 1.5, type: 'ground', attackType: 'melee', attackSpeed: 1000, color: '#94a3b8', playType: 'troop' },
 ];
 
 interface Troop {
@@ -268,6 +392,8 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
   const [playerCrowns, setPlayerCrowns] = useState(0);
   const [enemyCrowns, setEnemyCrowns] = useState(0);
   const [doubleElixir, setDoubleElixir] = useState(false);
+  const [selectedTower, setSelectedTower] = useState<'princess'|'cannoneer'|'royal_chef'>('princess');
+
 
   // Deck State
   const [deck, setDeck] = useState<Card[]>([]);
@@ -322,8 +448,8 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
       { id: 'enemy_right', side: 'enemy', type: 'princess', x: 315, y: 140, hp: 1800, maxHp: 1800, range: 180, lastAttackTime: 0, isDead: false },
       // Player
       { id: 'player_king', side: 'player', type: 'king', x: 200, y: 530, hp: 3000, maxHp: 3000, range: 170, lastAttackTime: 0, isDead: false },
-      { id: 'player_left', side: 'player', type: 'princess', x: 85, y: 460, hp: 1800, maxHp: 1800, range: 180, lastAttackTime: 0, isDead: false },
-      { id: 'player_right', side: 'player', type: 'princess', x: 315, y: 460, hp: 1800, maxHp: 1800, range: 180, lastAttackTime: 0, isDead: false },
+      { id: 'player_left', side: 'player', type: selectedTower === 'princess' ? 'princess' : (selectedTower === 'cannoneer' ? 'cannoneer' : 'cannon'), x: 85, y: 460, hp: selectedTower === 'princess' ? 1800 : (selectedTower === 'cannoneer' ? 1500 : 2000), maxHp: selectedTower === 'princess' ? 1800 : (selectedTower === 'cannoneer' ? 1500 : 2000), range: 180, lastAttackTime: 0, isDead: false },
+      { id: 'player_right', side: 'player', type: selectedTower === 'princess' ? 'princess' : (selectedTower === 'cannoneer' ? 'cannoneer' : 'cannon'), x: 315, y: 460, hp: selectedTower === 'princess' ? 1800 : (selectedTower === 'cannoneer' ? 1500 : 2000), maxHp: selectedTower === 'princess' ? 1800 : (selectedTower === 'cannoneer' ? 1500 : 2000), range: 180, lastAttackTime: 0, isDead: false },
     ];
 
     troopsRef.current = [];
@@ -1065,7 +1191,7 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
 
       // Attempt clip drawing of pre-loaded assets
       const loadedImg = imagesRef.current[t.cardId];
-      if (loadedImg && loadedImg.complete) {
+      if (loadedImg && loadedImg.complete && loadedImg.naturalWidth > 0) {
         ctx.save();
         ctx.beginPath();
         ctx.arc(t.x, t.y, size, 0, Math.PI * 2);
@@ -1122,6 +1248,47 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
   };
 
   // Convert click coordinates relative code
+  
+  // AI Bot Logic
+  useEffect(() => {
+    if (!isPlaying || gameResult) return;
+    
+    const botInterval = setInterval(() => {
+      // Small chance to spawn enemy randomly
+      if (Math.random() < 0.4) {
+         const enemyCards = CARDS_POOL.filter(c => c.playType !== 'spell' && c.playType !== 'building');
+         if (enemyCards.length > 0) {
+           const randCard = enemyCards[Math.floor(Math.random() * enemyCards.length)];
+           const x = Math.random() > 0.5 ? 85 + Math.random() * 40 - 20 : 315 + Math.random() * 40 - 20;
+           const y = 200 + Math.random() * 50; // top half
+           
+           troopsRef.current.push({
+             id: Math.random().toString(),
+             cardId: randCard.id,
+             name: randCard.name,
+             side: 'enemy',
+             x,
+             y,
+             hp: randCard.hp,
+             maxHp: randCard.hp,
+             damage: randCard.damage,
+             range: randCard.range,
+             speed: randCard.speed,
+             attackType: randCard.attackType,
+             attackSpeed: randCard.attackSpeed,
+             lastAttackTime: 0,
+             image: randCard.image,
+             color: '#ef4444',
+             type: randCard.type,
+             targetBuildingOnly: randCard.targetBuildingOnly
+           });
+         }
+      }
+    }, 4000);
+
+    return () => clearInterval(botInterval);
+  }, [isPlaying, gameResult]);
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!selectedCardId) return;
     const canvas = canvasRef.current;
@@ -1206,20 +1373,44 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
 
           {/* Prompt Overlay to start or finish match */}
           {!isPlaying && !gameResult && (
-            <div className="absolute inset-0 bg-black/75 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-xs">
-               <Crown className="text-yellow-400 mb-2 drop-shadow-lg" size={64} fill="currentColor" />
-               <h3 className="text-mc-gold text-2xl font-black uppercase tracking-widest text-yellow-400">Tactical Clash Royale</h3>
-               <p className="text-neutral-300 text-xs mt-2 max-w-xs mb-6">
-                 Bringe deine Einheiten geschickt ein, verteidige deine eigene Basis und starte zerstörerische Offensiven!
-               </p>
-               <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={initGame}
-                  className="bg-gradient-to-b from-yellow-400 to-yellow-600 text-yellow-950 font-black text-xl px-12 py-4 rounded-xl shadow-[0_10px_20px_rgba(0,0,0,0.5),_0_0_0_4px_#ca8a04_inset] border-2 border-yellow-200"
-               >
-                 SPIEL STARTEN ⚔️
-               </motion.button>
+            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center z-20 flex flex-col justify-between p-6">
+               <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/40 to-[#121c10] backdrop-blur-sm pointer-events-none" />
+               
+               <div className="relative z-30 flex flex-col items-center pt-8">
+                 <Crown className="text-yellow-400 drop-shadow-[0_0_15px_rgba(250,204,21,0.6)]" size={64} fill="currentColor" />
+                 <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-yellow-600 drop-shadow-lg mt-2 uppercase tracking-widest border-b-4 border-yellow-500/50 pb-2">
+                   Clash Arena
+                 </h1>
+               </div>
+
+               <div className="relative z-30 flex flex-col items-center gap-6 pb-12">
+                 <div className="bg-black/60 p-4 rounded-2xl border border-white/10 backdrop-blur-md w-full max-w-sm">
+                   <h3 className="text-neutral-300 text-sm font-bold uppercase tracking-wider mb-3 text-center">Wähle deinen Turmtruppen</h3>
+                   <div className="grid grid-cols-3 gap-2">
+                     <button onClick={() => setSelectedTower('princess')} className={`p-2 rounded-xl border-2 transition-all ${selectedTower === 'princess' ? 'border-yellow-400 bg-yellow-400/20' : 'border-neutral-700 hover:border-neutral-500'}`}>
+                       <Crown size={24} className="mx-auto mb-1 text-pink-400" />
+                       <div className="text-[10px] font-bold text-white text-center leading-tight">Princess</div>
+                     </button>
+                     <button onClick={() => setSelectedTower('cannoneer')} className={`p-2 rounded-xl border-2 transition-all ${selectedTower === 'cannoneer' ? 'border-yellow-400 bg-yellow-400/20' : 'border-neutral-700 hover:border-neutral-500'}`}>
+                       <Droplet size={24} className="mx-auto mb-1 text-slate-400" />
+                       <div className="text-[10px] font-bold text-white text-center leading-tight">Cannoneer</div>
+                     </button>
+                     <button onClick={() => setSelectedTower('royal_chef')} className={`p-2 rounded-xl border-2 transition-all ${selectedTower === 'royal_chef' ? 'border-yellow-400 bg-yellow-400/20' : 'border-neutral-700 hover:border-neutral-500'}`}>
+                       <Swords size={24} className="mx-auto mb-1 text-orange-400" />
+                       <div className="text-[10px] font-bold text-white text-center leading-tight">Royal Chef</div>
+                     </button>
+                   </div>
+                 </div>
+
+                 <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={initGame}
+                    className="bg-gradient-to-b from-blue-500 to-blue-700 text-white font-black text-2xl px-16 py-4 rounded-2xl shadow-[0_10px_25px_rgba(59,130,246,0.5),_0_0_0_4px_#60a5fa_inset] border-2 border-blue-300 uppercase tracking-wider"
+                 >
+                   Gefecht
+                 </motion.button>
+               </div>
             </div>
           )}
 
@@ -1329,6 +1520,7 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
                        alt={card.name} 
                        referrerPolicy="no-referrer"
                        className="w-full h-full object-cover"
+                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                      />
                      
                      {/* HP & DMG Stats */}
@@ -1367,6 +1559,7 @@ export const ClashArenaView: React.FC<ClashArenaProps> = ({ onClose, user, myPro
                  alt="Next item" 
                  referrerPolicy="no-referrer"
                  className="w-full h-full object-cover"
+                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                />
              </div>
              <span className="text-[9px] font-black text-fuchsia-400">{nextCard.cost} 💧</span>
