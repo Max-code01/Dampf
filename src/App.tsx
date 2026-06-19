@@ -81,6 +81,7 @@ import ReactMarkdown from 'react-markdown';
 import { QuizArenaView } from './components/QuizArenaView';
 import { DevLabsView } from './components/DevLabsView';
 import { VoxelAdventureView } from './components/VoxelAdventureView';
+import { ClashArenaView } from './components/ClashArenaView';
 import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
@@ -1330,7 +1331,7 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [showMyItems, setShowMyItems] = useState(false);
   const [showMiningModal, setShowMiningModal] = useState(false);
-  const [miningTab, setMiningTab] = useState<'mines' | 'world' | 'quiz'>('mines');
+  const [miningTab, setMiningTab] = useState<'mines' | 'world' | 'quiz' | 'clash'>('mines');
   const [isRefreshingProfiles, setIsRefreshingProfiles] = useState(false);
   const [activeQuiz, setActiveQuiz] = useState<{
     question: string;
@@ -5883,6 +5884,17 @@ export default function App() {
                     <span className="absolute top-1.5 right-3 w-2.5 h-2.5 rounded-full bg-mc-gold animate-ping border border-black" />
                   )}
                 </button>
+                <button
+                  onClick={() => setMiningTab('clash')}
+                  className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 ${
+                    miningTab === 'clash'
+                      ? 'bg-blue-600/25 border-blue-500 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)] font-black'
+                      : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
+                  }`}
+                >
+                  <Crown size={16} />
+                  Clash Royale (Neu) 👑
+                </button>
               </div>
 
               {/* Conditionally render game or quiz */}
@@ -6151,6 +6163,12 @@ export default function App() {
                   onClose={() => setShowMiningModal(false)}
                   triggerToast={triggerToast}
                   userProfiles={userProfiles}
+                />
+              ) : miningTab === 'clash' ? (
+                <ClashArenaView 
+                  user={user}
+                  myProfile={myProfile}
+                  onClose={() => setShowMiningModal(false)}
                 />
               ) : (
                 <div className="flex-1 overflow-y-auto bg-[#131313] relative custom-scrollbar p-6">
@@ -7314,25 +7332,122 @@ export default function App() {
                     <h4 className="text-xs font-black uppercase tracking-widest text-mc-blue">Meine Sammlung</h4>
                     <Package size={14} className="text-mc-blue" />
                   </div>
-                  <div className="grid grid-cols-1 gap-3">
-                    {myPurchases.map((p, i) => (
-                      <div key={`purchase-${p.id || `pur-${i}`}-${i}`} className="p-4 bg-neutral-900/40 border border-neutral-800 rounded-xl flex items-center justify-between group">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-mc-blue/20 flex items-center justify-center border border-mc-blue/20">
-                             <Check size={16} className="text-mc-blue" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-white group-hover:text-mc-blue transition-colors">{p.itemName}</div>
-                            <div className="text-[9px] text-neutral-500 uppercase tracking-tighter">{p.category}</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pt-2">
+                    {myPurchases.map((p, i) => {
+                      const lowerName = (p.itemName || '').toLowerCase();
+                      let rarityName = 'Gewöhnlich';
+                      let rarityBorder = 'border-slate-700 bg-slate-900/90 text-slate-300';
+                      let rarityGrad = 'from-slate-800 to-slate-950';
+                      let rarityTextColor = 'text-slate-300';
+                      let rarityLabelColor = 'bg-slate-500';
+                      let elixirCost = 3;
+                      let cardIcon = '⚔️';
+
+                      if (lowerName.includes('iridium') || lowerName.includes('quantum') || lowerName.includes('tesla')) {
+                        rarityName = 'Legendär';
+                        rarityBorder = 'border-amber-400 border-2 shadow-[0_0_15px_rgba(245,158,11,0.55)]';
+                        rarityGrad = 'from-amber-650 via-rose-650 to-indigo-950';
+                        rarityTextColor = 'text-amber-300 font-extrabold';
+                        rarityLabelColor = 'bg-amber-600';
+                        elixirCost = 5;
+                        cardIcon = '👑';
+                      } else if (lowerName.includes('dia') || lowerName.includes('nano') || lowerName.includes('power')) {
+                        rarityName = 'Episch';
+                        rarityBorder = 'border-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.35)]';
+                        rarityGrad = 'from-purple-900 to-indigo-950';
+                        rarityTextColor = 'text-purple-300';
+                        rarityLabelColor = 'bg-purple-650';
+                        elixirCost = 4;
+                        cardIcon = '🔮';
+                      } else if (lowerName.includes('iron') || lowerName.includes('gold') || lowerName.includes('miner')) {
+                        rarityName = 'Selten';
+                        rarityBorder = 'border-orange-400';
+                        rarityGrad = 'from-orange-950 to-neutral-900';
+                        rarityTextColor = 'text-orange-300';
+                        rarityLabelColor = 'bg-orange-600';
+                        elixirCost = 3;
+                        cardIcon = '🛡️';
+                      } else {
+                        rarityName = 'Gewöhnlich';
+                        rarityBorder = 'border-zinc-700';
+                        rarityGrad = 'from-zinc-800 to-zinc-950';
+                        rarityTextColor = 'text-zinc-450';
+                        rarityLabelColor = 'bg-zinc-650';
+                        elixirCost = 2;
+                        cardIcon = '🪵';
+                      }
+
+                      // Emojis mapping
+                      if (lowerName.includes('pick') || lowerName.includes('hacke') || lowerName.includes('spitz')) cardIcon = '⛏️';
+                      else if (lowerName.includes('solar')) cardIcon = '☀️';
+                      else if (lowerName.includes('wind')) cardIcon = '💨';
+                      else if (lowerName.includes('miner')) cardIcon = '⚙️';
+                      else if (lowerName.includes('armor') || lowerName.includes('rüstung')) cardIcon = '👕';
+                      else if (lowerName.includes('pack')) cardIcon = '🚀';
+
+                      const mockLvl = (i % 4) + 6;
+                      const progressRatio = ((i * 19) % 75) + 15;
+
+                      return (
+                        <div 
+                          key={`purchase-${p.id || `pur-${i}`}-${i}`} 
+                          className={`relative select-none rounded-xl p-[2px] transition-all duration-300 hover:scale-105 active:scale-95 ${rarityBorder} cursor-pointer group`}
+                        >
+                          {/* Outer gradient background */}
+                          <div className={`rounded-[10px] p-3 h-full flex flex-col justify-between bg-gradient-to-b ${rarityGrad} text-white`}>
+                            {/* Elixir Drop Cost badge */}
+                            <div className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-pink-600 border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm shadow-black text-white z-10">
+                              {elixirCost}💧
+                            </div>
+
+                            {/* Rarity Label Badge */}
+                            <div className="absolute top-2 right-2">
+                              <span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${rarityLabelColor} text-white shadow-xs shadow-black`}>
+                                {rarityName}
+                              </span>
+                            </div>
+
+                            {/* Center portrait view */}
+                            <div className="my-3 flex flex-col items-center justify-center">
+                              <div className="w-14 h-14 rounded-full bg-neutral-950/60 border border-white/20 flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform duration-300">
+                                {cardIcon}
+                              </div>
+                            </div>
+
+                            {/* Stats & Upgrade Meter */}
+                            <div className="space-y-1 bg-black/70 p-2 rounded-lg border border-white/5 backdrop-blur-xs">
+                              <div className={`text-[11px] font-black truncate text-center uppercase tracking-tight ${rarityTextColor}`}>
+                                {p.itemName}
+                              </div>
+                              <div className="text-[7px] text-zinc-400 text-center uppercase tracking-widest leading-none">
+                                {p.category}
+                              </div>
+
+                              {/* Card progression upgrade bar */}
+                              <div className="mt-1 space-y-0.5">
+                                <div className="flex justify-between items-center text-[7px] font-bold">
+                                  <span className="text-mc-gold font-black">LVL {mockLvl}</span>
+                                  <span className="text-mc-green font-black">{progressRatio}/100</span>
+                                </div>
+                                <div className="w-full h-1 bg-neutral-900 rounded-full overflow-hidden border border-white/5">
+                                  <div 
+                                    className="h-full bg-gradient-to-r from-emerald-500 to-green-400 rounded-full" 
+                                    style={{ width: `${progressRatio}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Date footprint inside cards */}
+                            <div className="text-[6px] text-center text-white/30 font-mono mt-1">
+                              BOUGHT: {p.boughtAt?.toDate() ? p.boughtAt.toDate().toLocaleDateString('de-DE') : 'AKTIV'}
+                            </div>
                           </div>
                         </div>
-                        <div className="text-[8px] text-neutral-600 font-mono">
-                          {p.boughtAt?.toDate().toLocaleDateString('de-DE')}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {myPurchases.length === 0 && (
-                      <div className="text-center py-20 opacity-20">
+                      <div className="col-span-full text-center py-20 opacity-20">
                         <ShoppingBag size={48} className="mx-auto mb-4" />
                         <p className="text-xs font-bold uppercase tracking-widest">Du hast noch nichts gekauft</p>
                       </div>

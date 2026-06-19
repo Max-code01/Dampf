@@ -1601,243 +1601,321 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
       switch (tile.type) {
         case 'grass':
-          // Micro-circuit digital grass
-          ctx.fillStyle = '#1b3d17';
+          // Day-Night adapted lush grass top
+          ctx.fillStyle = '#15803d'; // Rich green
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#122c0f';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(tile.x + 8, tile.y + 8);
-          ctx.lineTo(tile.x + tileSize - 8, tile.y + 8);
-          ctx.lineTo(tile.x + tileSize - 8, tile.y + tileSize - 8);
-          ctx.stroke();
-          // Micro dots
-          ctx.fillStyle = '#1f4c1b';
-          ctx.fillRect(tile.x + 16, tile.y + 24, 3, 3);
-          ctx.fillRect(tile.x + 44, tile.y + 12, 3, 3);
+          // Organic blades of grass
+          ctx.fillStyle = '#166534';
+          ctx.fillRect(tile.x + 8, tile.y + 12, 4, 12);
+          ctx.fillRect(tile.x + 40, tile.y + 36, 4, 12);
+          ctx.fillRect(tile.x + 28, tile.y + 16, 4, 8);
+          // Blade tips highlight
+          ctx.fillStyle = '#22c55e';
+          ctx.fillRect(tile.x + 8, tile.y + 8, 4, 4);
+          ctx.fillRect(tile.x + 40, tile.y + 32, 4, 4);
+          ctx.fillRect(tile.x + 28, tile.y + 12, 4, 4);
+          // Tiny micro flowers
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(tile.x + 48, tile.y + 16, 4, 4);
+          ctx.fillStyle = '#f43f5e';
+          ctx.fillRect(tile.x + 16, tile.y + 44, 4, 4);
           break;
 
         case 'sand':
-          // Textured dune sand
-          ctx.fillStyle = '#cdae5d';
+          ctx.fillStyle = '#eab308'; // Glowing gold desert sand
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.fillStyle = 'rgba(255,255,255,0.12)';
-          ctx.fillRect(tile.x + 6, tile.y + 10, tileSize - 12, 4);
-          ctx.fillRect(tile.x + 16, tile.y + 36, tileSize - 32, 4);
+          // Dunes curves
+          ctx.fillStyle = '#ca8a04';
+          ctx.beginPath();
+          ctx.arc(tile.x + 30, tile.y + 20, 16, 0, Math.PI, false);
+          ctx.arc(tile.x + 50, tile.y + 45, 12, 0, Math.PI, false);
+          ctx.fill();
+          // Sparkling dust pieces
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(tile.x + 12, tile.y + 10, 2, 2);
+          ctx.fillRect(tile.x + 44, tile.y + 36, 2, 2);
           break;
 
         case 'volcanic_rock':
-          // Cracked cooling lava rock
-          ctx.fillStyle = '#191518';
+          ctx.fillStyle = '#18181b';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#991b1b';
-          ctx.lineWidth = 1.5;
+          // Cracked glowing vein channels
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.moveTo(tile.x + 8, tile.y + 16);
-          ctx.lineTo(tile.x + 28, tile.y + 42);
-          ctx.lineTo(tile.x + 52, tile.y + 48);
+          ctx.moveTo(tile.x + 6, tile.y + 12);
+          ctx.lineTo(tile.x + 24, tile.y + 34);
+          ctx.lineTo(tile.x + 42, tile.y + 28);
+          ctx.lineTo(tile.x + 54, tile.y + 48);
           ctx.stroke();
-          ctx.fillStyle = '#2d222a';
-          ctx.fillRect(tile.x + 12, tile.y + 12, 8, 8);
+          // Ash bits
+          ctx.fillStyle = '#3f3f46';
+          ctx.fillRect(tile.x + 18, tile.y + 18, 6, 6);
+          ctx.fillRect(tile.x + 36, tile.y + 40, 4, 4);
           break;
 
         case 'water':
-          // Deep digital waves
-          ctx.fillStyle = '#112260';
+          ctx.fillStyle = '#1d4ed8'; // Ocean blue
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.fillStyle = '#1d4ed8'; // light ripple reflection
+          
+          // Outer tide highlight ripples
+          ctx.fillStyle = '#3b82f6';
           ctx.fillRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          const wavePhase = Math.sin((Date.now() / 320) + tile.x * 0.05) * 6;
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-          ctx.lineWidth = 2;
+
+          // Deep animated wave streams
+          const waveShift = Math.sin((Date.now() / 240) + tile.x * 0.08) * 8;
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)'; // White wave crest foam!
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.moveTo(tile.x, tile.y + tileSize / 2 + wavePhase);
-          ctx.lineTo(tile.x + tileSize, tile.y + tileSize / 2 - wavePhase);
+          ctx.moveTo(tile.x, tile.y + tileSize / 2 + waveShift);
+          ctx.bezierCurveTo(
+            tile.x + 20, tile.y + tileSize / 2 - 10 + waveShift,
+            tile.x + 40, tile.y + tileSize / 2 + 10 + waveShift,
+            tile.x + tileSize, tile.y + tileSize / 2 + waveShift
+          );
           ctx.stroke();
+
+          // Reflective glisters
+          ctx.fillStyle = '#93c5fd';
+          ctx.fillRect(tile.x + 12, tile.y + 10, 8, 3);
           break;
 
         case 'lava':
-          // Pulsing thermodynamic core
-          const lPulse = Math.sin((Date.now() / 200) + tile.x * 0.1) * 30;
-          ctx.fillStyle = `rgb(${195 + lPulse}, ${45 + lPulse / 2}, 10)`;
+          const pulseCol = Math.sin((Date.now() / 180) + tile.x * 0.12) * 20;
+          ctx.fillStyle = `rgb(${220 + pulseCol}, ${70 + pulseCol / 2}, 15)`;
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.fillStyle = '#ea580c';
-          ctx.fillRect(tile.x + 10, tile.y + 14, 14, 8);
-          ctx.fillRect(tile.x + 32, tile.y + 38, 20, 10);
-          break;
 
-        case 'tree':
-          // Digital pine cyber tree
-          ctx.fillStyle = '#1b3d17';
-          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          // Trunk
-          ctx.fillStyle = '#4c210d';
-          ctx.fillRect(tile.x + 26, tile.y + 24, 12, 28);
-          // Dark foliage leaves layers
-          ctx.fillStyle = '#14532d';
+          // Heat core swirls
+          ctx.fillStyle = '#ea580c';
+          ctx.fillRect(tile.x + 12, tile.y + 16, 20, 6);
+          ctx.fillRect(tile.x + 28, tile.y + 36, 16, 8);
+
+          // Rising bubbles
+          const bPulse = (Date.now() / 150) % 12;
+          ctx.fillStyle = '#fef08a'; // bright yellow bubbles
           ctx.beginPath();
-          ctx.moveTo(tile.x + tileSize / 2, tile.y + 2);
-          ctx.lineTo(tile.x + 8, tile.y + 34);
-          ctx.lineTo(tile.x + tileSize - 8, tile.y + 34);
-          ctx.closePath();
+          ctx.arc(tile.x + 24, tile.y + 40 - bPulse, 3, 0, Math.PI * 2);
+          ctx.arc(tile.x + 44, tile.y + 20 - bPulse, 2, 0, Math.PI * 2);
           ctx.fill();
           break;
 
+        case 'tree':
+          // Brown wood trunk
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(tile.x + 24, tile.y + 30, 12, tileSize - 30);
+          
+          // Layered evergreen dense pine canopy!
+          const canopyCycle = Math.sin(Date.now() / 400 + tile.x) * 1.5; // gentle wind sway
+          ctx.save();
+          ctx.translate(canopyCycle, 0);
+
+          // Bottom wide leaves cone
+          ctx.fillStyle = '#166534';
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 6, tile.y + 32);
+          ctx.lineTo(tile.x + tileSize - 6, tile.y + 32);
+          ctx.lineTo(tile.x + tileSize / 2, tile.y + 10);
+          ctx.closePath();
+          ctx.fill();
+
+          // Middle leaves cone (lighter)
+          ctx.fillStyle = '#15803d';
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 12, tile.y + 20);
+          ctx.lineTo(tile.x + tileSize - 12, tile.y + 20);
+          ctx.lineTo(tile.x + tileSize / 2, tile.y + 2);
+          ctx.closePath();
+          ctx.fill();
+
+          // Top peak cone (bright green)
+          ctx.fillStyle = '#22c55e';
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 18, tile.y + 10);
+          ctx.lineTo(tile.x + tileSize - 18, tile.y + 10);
+          ctx.lineTo(tile.x + tileSize / 2, tile.y - 4);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+          break;
+
         case 'stone':
-          // Hard metal alloy stone representation
-          ctx.fillStyle = '#414853';
+          ctx.fillStyle = '#52525b'; // Zinc base
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#2b2f38';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          ctx.fillStyle = '#64748b';
+          // Bevel highlights
+          ctx.strokeStyle = '#71717a';
+          ctx.lineWidth = 3.5;
+          ctx.strokeRect(tile.x + 2, tile.y + 2, tileSize - 4, tileSize - 4);
+          ctx.fillStyle = '#3f3f46';
           ctx.fillRect(tile.x + 12, tile.y + 12, tileSize - 24, tileSize - 24);
+          // Dark fissures
+          ctx.strokeStyle = '#18181b';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(tile.x + 14, tile.y + 14);
+          ctx.lineTo(tile.x + 34, tile.y + 44);
+          ctx.stroke();
           break;
 
         case 'coal':
-          // Highly energetic black coal ore
-          ctx.fillStyle = '#111215';
+          ctx.fillStyle = '#1e1b18';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#262626';
+          ctx.strokeStyle = '#0c0a09';
           ctx.lineWidth = 3;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          ctx.fillStyle = '#df551d'; // Glowing inner fuel ember cracks
-          ctx.fillRect(tile.x + 16, tile.y + 14, 8, 8);
-          ctx.fillRect(tile.x + 36, tile.y + 38, 12, 10);
+          ctx.strokeRect(tile.x + 2, tile.y + 2, tileSize - 4, tileSize - 4);
+
+          // Charcoal clusters
+          ctx.fillStyle = '#090502';
+          ctx.fillRect(tile.x + 12, tile.y + 12, 14, 16);
+          ctx.fillRect(tile.x + 32, tile.y + 30, 16, 16);
+
+          // Ember spark inclusions
+          ctx.fillStyle = '#f97316';
+          ctx.fillRect(tile.x + 18, tile.y + 16, 6, 6);
+          ctx.fillRect(tile.x + 36, tile.y + 34, 6, 6);
           break;
 
         case 'iron':
-          // High-alloy steel block
-          ctx.fillStyle = '#5c687a';
+          ctx.fillStyle = '#475569';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#3e4653';
+          ctx.strokeStyle = '#334155';
           ctx.lineWidth = 3.5;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          // Silver iron plate accents
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillRect(tile.x + 14, tile.y + 14, 12, 12);
-          ctx.fillRect(tile.x + 34, tile.y + 34, 18, 18);
+          ctx.strokeRect(tile.x + 3, tile.y + 3, tileSize - 6, tileSize - 6);
+          // Shiny steel streaks
+          ctx.fillStyle = '#94a3b8';
+          ctx.fillRect(tile.x + 14, tile.y + 14, 12, 14);
+          ctx.fillRect(tile.x + 34, tile.y + 32, 14, 14);
+          // Metallic light highlight reflection
+          ctx.fillStyle = '#f1f5f9';
+          ctx.fillRect(tile.x + 20, tile.y + 8, 20, 3);
           break;
 
         case 'gold':
-          // Premium golden raw block
-          ctx.fillStyle = '#9e6211';
+          ctx.fillStyle = '#78350f';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#78350f';
+          ctx.strokeStyle = '#450a0a';
           ctx.lineWidth = 3;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          ctx.fillStyle = '#fbbf24'; // rich reflective yellow plates
-          ctx.fillRect(tile.x + 12, tile.y + 12, 14, 10);
-          ctx.fillRect(tile.x + 32, tile.y + 30, 22, 16);
+          ctx.strokeRect(tile.x + 3, tile.y + 3, tileSize - 6, tileSize - 6);
+          // Glimmering gold nuggets
+          ctx.fillStyle = '#facc15'; // yellow-gold nuggets
+          ctx.fillRect(tile.x + 14, tile.y + 14, 14, 10);
+          ctx.fillRect(tile.x + 32, tile.y + 30, 16, 16);
+          // Shining sparkling dots
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(tile.x + 18, tile.y + 12, 3, 3);
+          ctx.fillRect(tile.x + 40, tile.y + 28, 3, 3);
           break;
 
         case 'diamond':
-          // Rich glowing diamond geodes!
           ctx.fillStyle = '#065f46';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.strokeStyle = '#047857';
+          ctx.strokeStyle = '#064e3b';
           ctx.lineWidth = 3;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          // Beautiful cyan crystal star pyramid
+          ctx.strokeRect(tile.x + 3, tile.y + 3, tileSize - 6, tileSize - 6);
+
+          // Sparkling Diamond Crystal Pyramid
           ctx.fillStyle = '#06b6d4';
           ctx.beginPath();
-          ctx.moveTo(tile.x + tileSize / 2, tile.y + 10);
+          ctx.moveTo(tile.x + tileSize / 2, tile.y + 8);
           ctx.lineTo(tile.x + 12, tile.y + tileSize - 12);
           ctx.lineTo(tile.x + tileSize - 12, tile.y + tileSize - 12);
           ctx.closePath();
           ctx.fill();
-          ctx.fillStyle = '#ffffff'; // light reflection node
-          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + 22, 8, 14);
+
+          // Brilliant crystal shines
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + 20, 8, 12);
+          ctx.beginPath();
+          ctx.arc(tile.x + tileSize / 2, tile.y + 16, 4, 0, Math.PI * 2);
+          ctx.fill();
           break;
 
         case 'emerald':
-          // Brilliant emerald columns
-          ctx.fillStyle = '#064e3b';
+          ctx.fillStyle = '#022c22';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
           ctx.strokeStyle = '#065f46';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.lineWidth = 3.5;
+          ctx.strokeRect(tile.x + 3, tile.y + 3, tileSize - 6, tileSize - 6);
+          // Glowing cubic columns
           ctx.fillStyle = '#10b981';
-          ctx.fillRect(tile.x + 16, tile.y + 16, tileSize - 32, tileSize - 32);
+          ctx.fillRect(tile.x + 12, tile.y + 16, 16, 16);
+          ctx.fillRect(tile.x + 32, tile.y + 28, 16, 16);
           ctx.fillStyle = '#a7f3d0';
-          ctx.fillRect(tile.x + 24, tile.y + 24, 12, 12);
+          ctx.fillRect(tile.x + 16, tile.y + 20, 8, 8);
           break;
 
         case 'uranium':
-          // Hazardous nuclear uranium reactor cells!
-          ctx.fillStyle = '#14532d';
+          ctx.fillStyle = '#064e3b';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          // Pulsating radioactive warning cell background
-          const uGlow = Math.abs(Math.sin(Date.now() / 150)) * 0.45;
-          ctx.fillStyle = `rgba(34, 197, 94, ${0.1 + uGlow})`;
-          ctx.fillRect(tile.x + 2, tile.y + 2, tileSize - 4, tileSize - 4);
-          ctx.strokeStyle = '#166534';
-          ctx.lineWidth = 3.5;
+          // Pulsing warning outline
+          const glowCell = Math.abs(Math.sin((Date.now() / 160) + tile.x * 0.15)) * 0.4;
+          ctx.fillStyle = `rgba(34, 197, 94, ${0.1 + glowCell})`;
+          ctx.fillRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
+          ctx.strokeStyle = '#22c55e';
+          ctx.lineWidth = 3;
           ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          // Toxic nuclear barrel capsule
-          ctx.fillStyle = '#22c55e';
-          ctx.fillRect(tile.x + 18, tile.y + 12, tileSize - 36, tileSize - 24);
-          // Toxic hazard stripes
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(tile.x + 18, tile.y + 18);
-          ctx.lineTo(tile.x + 40, tile.y + 40);
-          ctx.stroke();
+          // Central toxic nuclear rod capsule
+          ctx.fillStyle = '#4ade80';
+          ctx.fillRect(tile.x + 18, tile.y + 14, tileSize - 36, tileSize - 28);
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(tile.x + 22, tile.y + 20, 16, 4);
+          ctx.fillRect(tile.x + 22, tile.y + 28, 16, 4);
           break;
 
         case 'iridium':
-          // Ultra rare futuristic violet iridium crystals
-          ctx.fillStyle = '#3b0764';
+          ctx.fillStyle = '#2e1065';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          const iGlow = Math.abs(Math.cos(Date.now() / 180)) * 0.5;
-          ctx.fillStyle = `rgba(168, 85, 247, ${0.15 + iGlow})`;
+          // Holographic glowing shield
+          const irisGlow = Math.abs(Math.cos((Date.now() / 200) + tile.x * 0.08)) * 0.55;
+          ctx.fillStyle = `rgba(217, 70, 239, ${0.2 + irisGlow})`;
           ctx.fillRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          ctx.strokeStyle = '#581c87';
-          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#d946ef';
+          ctx.lineWidth = 3.5;
           ctx.strokeRect(tile.x + 4, tile.y + 4, tileSize - 8, tileSize - 8);
-          // Celestial iris orb
-          ctx.fillStyle = '#c084fc';
+          // Dark matter orbit crystal
+          ctx.fillStyle = '#df73ff';
           ctx.beginPath();
-          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 14, 0, Math.PI * 2);
+          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 12, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + tileSize / 2 - 4, 8, 8);
           break;
 
         case 'flower':
-          // Glowing alien bulb flower
-          ctx.fillStyle = '#1b3d17';
+          ctx.fillStyle = '#14532d';
           ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
-          ctx.fillStyle = '#db2777';
+          ctx.fillStyle = '#fb7185'; // Soft pink bloom
           ctx.beginPath();
-          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 12, 0, Math.PI * 2);
+          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 14, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#fdbb2d';
-          ctx.fillRect(tile.x + tileSize / 2 - 4, tile.y + tileSize / 2 - 4, 8, 8);
+          ctx.fillStyle = '#e11d48'; // Rich red center
+          ctx.beginPath();
+          ctx.arc(tile.x + tileSize / 2, tile.y + tileSize / 2, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fef08a'; // Pollen dots
+          ctx.fillRect(tile.x + tileSize / 2 - 3, tile.y + tileSize / 2 - 3, 6, 6);
           break;
 
         case 'wall':
-          // Thick armored alloy protective structures with caution corners
-          ctx.fillStyle = '#374151';
-          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
           ctx.fillStyle = '#1e293b';
+          ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+          ctx.fillStyle = '#0f172a';
           ctx.fillRect(tile.x + 6, tile.y + 6, tileSize - 12, tileSize - 12);
-          // Yellow striped corner plates
-          ctx.strokeStyle = '#fbbf24';
-          ctx.lineWidth = 3.5;
+          // Yellow striped diagonal safety stripes
+          ctx.strokeStyle = '#eab308';
+          ctx.lineWidth = 4;
           ctx.beginPath();
           ctx.moveTo(tile.x + 6, tile.y + 6);
-          ctx.lineTo(tile.x + 22, tile.y + 22);
-          ctx.moveTo(tile.x + tileSize - 22, tile.y + 6);
-          ctx.lineTo(tile.x + tileSize - 6, tile.y + 22);
+          ctx.lineTo(tile.x + 24, tile.y + 24);
+          ctx.moveTo(tile.x + tileSize - 24, tile.y + 6);
+          ctx.lineTo(tile.x + tileSize - 6, tile.y + 24);
           ctx.stroke();
-          // Corner rivets
-          ctx.fillStyle = '#64748b';
-          ctx.fillRect(tile.x + 8, tile.y + 8, 3, 3);
-          ctx.fillRect(tile.x + tileSize - 11, tile.y + 8, 3, 3);
-          ctx.fillRect(tile.x + 8, tile.y + tileSize - 11, 3, 3);
-          ctx.fillRect(tile.x + tileSize - 11, tile.y + tileSize - 11, 3, 3);
+          // Armor corner brackets
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(tile.x + 8, tile.y + 8, 4, 4);
+          ctx.fillRect(tile.x + tileSize - 12, tile.y + 8, 4, 4);
+          ctx.fillRect(tile.x + 8, tile.y + tileSize - 12, 4, 4);
+          ctx.fillRect(tile.x + tileSize - 12, tile.y + tileSize - 12, 4, 4);
           break;
 
         default:
@@ -2142,83 +2220,241 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
 
       ctx.save();
       ctx.translate(bot.x, bot.y);
-      ctx.rotate(bot.swingAngle * Math.PI / 180);
+      
+      // Animated breathing/walking bounce cycle
+      const bounce = Math.sin(Date.now() / 120 + bot.x) * 2;
+      ctx.translate(0, bounce);
 
-      // Minecraft boxy character look
+      // Simple walk leg swings
+      const legSwing = Math.sin(Date.now() / 80 + bot.x) * 6;
+
+      // Draw shadow footprint
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.arc(0, 14, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Render feet
+      ctx.fillStyle = '#1e1b4b'; // dark boots
+      ctx.fillRect(-8 + legSwing/2, 10, 5, 5);
+      ctx.fillRect(3 - legSwing/2, 10, 5, 5);
+
+      // Render full round animated character body (Knights / Goblins / Wizards)
       ctx.fillStyle = bot.color;
-      ctx.fillRect(-bot.speed * 6, -bot.speed * 6, bot.speed * 12, bot.speed * 12);
-      ctx.fillStyle = '#ffcc99';
-      ctx.fillRect(-12, -12, 24, 24);
+      ctx.beginPath();
+      ctx.arc(0, 0, 13, 0, Math.PI * 2);
+      ctx.fill();
 
-      // Bot Face eyes
+      // Golden shoulders/armor trim (Clash-inspired!)
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(-15, -6, 5, 8);
+      ctx.fillRect(10, -6, 5, 8);
+
+      // Head
+      ctx.fillStyle = '#fce7f3'; // skin color
+      ctx.beginPath();
+      ctx.arc(0, -8, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Visor/Helmet
+      ctx.fillStyle = '#64748b'; // iron knight helmet
+      ctx.fillRect(-6, -15, 12, 8);
+      // Visor slit
       ctx.fillStyle = '#000000';
-      ctx.fillRect(-8, -4, 4, 4);
-      ctx.fillRect(4, -4, 4, 4);
+      ctx.fillRect(-5, -11, 10, 2);
+      // Glowing threat eyes
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-3, -11, 2, 2);
+      ctx.fillRect(2, -11, 2, 2);
+
+      // Swinging arm with weapon/sword representation
+      ctx.save();
+      ctx.translate(10, 2);
+      ctx.rotate(bot.swingAngle * Math.PI / 180);
+      ctx.fillStyle = '#94a3b8'; // iron sword
+      ctx.fillRect(-2, -12, 4, 12); // blade
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-4, -4, 8, 2); // handle guard
+      ctx.restore();
 
       ctx.restore();
 
-      // Name tags and cash above bot head
-      ctx.fillStyle = '#ffffff';
+      // Name tags and cash above bot head (with a clean semi-transparent background capsule)
+      ctx.save();
       ctx.font = 'bold 11px Courier';
       ctx.textAlign = 'center';
-      ctx.fillText(`<${bot.name}> [${bot.cash} 💎]`, bot.x, bot.y - bot.speed * 6 - 8);
+      const labelStr = `<${bot.name}> [${bot.cash} 💎]`;
+      const labelW = ctx.measureText(labelStr).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(bot.x - labelW/2 - 6, bot.y - 28, labelW + 12, 16);
+      
+      // Health mini bar under name
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(bot.x - 16, bot.y - 32, 32, 3);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(bot.x - 16, bot.y - 32, 32 * (bot.health / bot.maxHealth), 3);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(labelStr, bot.x, bot.y - 16);
+      ctx.restore();
     });
 
-    // 5. Draw Primary Character (Minecraft block-style matching video)
+    // 5. Draw Primary Character (Highly Polished Animated Warrior)
     ctx.save();
     ctx.translate(player.x, player.y);
 
-    // Turn head angle look direction directly mirroring mouse pointers or default player orientation
+    const pBounce = Math.sin(Date.now() / 110) * 1.5;
+    ctx.translate(0, pBounce);
+
+    // Dynamic rotation direction
     let gazeAngle = player.angle;
     if (!isMobileMode && (mousePosRef.current.x !== 0 || mousePosRef.current.y !== 0)) {
       gazeAngle = Math.atan2(mousePosRef.current.y - (player.y - cameraY), mousePosRef.current.x - (player.x - cameraX));
-      // update persistent angle
       player.angle = gazeAngle;
     }
     ctx.rotate(gazeAngle);
 
-    // Character body color options matching custom equipped Exo armor shields
-    let suiteCol = '#2a9d8f';
-    let hairCol = '#264653';
-    let helmCol = '#e76f51';
+    // Shadow footprint
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.arc(0, 12, 14, 0, Math.PI * 2);
+    ctx.fill();
 
-    if (equippedArmor === 'nano') { suiteCol = '#16a34a'; helmCol = '#155d27'; }
-    if (equippedArmor === 'quantum') { suiteCol = '#8b5cf6'; helmCol = '#4c1d95'; }
+    // Determine customizable armor colors & materials
+    let bodyColor = '#2563eb'; // blue cape rote
+    let shoulderColor = '#1e3a8a';
+    let helmColor = '#f1f5f9';
+    let eyesColor = '#38bdf8'; // bright cyan eyes
 
-    // Body block base trunk
-    ctx.fillStyle = suiteCol;
-    ctx.fillRect(-player.size / 2, -player.size / 2, player.size, player.size);
-
-    // Character Hair base
-    ctx.fillStyle = hairCol;
-    ctx.fillRect(-player.size / 2 + 2, -player.size / 2 + 2, 8, player.size - 4);
-
-    // Front Gaze specs
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(10, -8, 6, 6);
-    ctx.fillRect(10, 2, 6, 6);
-    ctx.fillStyle = '#0000ff'; // iris
-    ctx.fillRect(12, -6, 3, 3);
-    ctx.fillRect(12, 4, 3, 3);
-
-    // Swinging Tool / Saber representation matching the swing action
-    ctx.save();
-    ctx.translate(14, 18);
-    if (player.swinging) {
-      ctx.rotate(-Math.PI / 4 + (player.swingTimer * 0.16));
+    if (equippedArmor === 'none') {
+      bodyColor = '#2563eb';
+      shoulderColor = '#475569';
+    } else if (equippedArmor === 'nano') {
+      bodyColor = '#16a34a'; // green
+      shoulderColor = '#15803d';
+      helmColor = '#4ade80';
+      eyesColor = '#fef08a'; // yellow eyes
+    } else if (equippedArmor === 'quantum') {
+      bodyColor = '#7c3aed'; // deep purple
+      shoulderColor = '#5b21b6';
+      helmColor = '#c084fc';
+      eyesColor = '#f472b6'; // hot pink eyes
     }
-    ctx.font = '22px Courier';
-    ctx.fillText(currentTool.label, -10, 5);
+
+    // Armored shoulder pauldrons
+    ctx.fillStyle = shoulderColor;
+    ctx.fillRect(-17, -10, 6, 12);
+    ctx.fillRect(11, -10, 6, 12);
+
+    // Primary Cape body torso
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Steel knight breastplate lines
+    ctx.strokeStyle = '#020617';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(10, 0);
+    ctx.moveTo(-6, -4);
+    ctx.lineTo(6, -4);
+    ctx.stroke();
+
+    // Warrior Head / Knight Helmet Dome
+    ctx.fillStyle = helmColor;
+    ctx.beginPath();
+    ctx.arc(0, -10, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Front visors and burning iris eyes
+    ctx.fillStyle = '#0f172a'; // Visor plate face grill
+    ctx.fillRect(4, -14, 6, 7);
+    ctx.fillStyle = eyesColor;
+    ctx.fillRect(6, -13, 2, 3);
+    ctx.fillRect(6, -10, 2, 3);
+
+    // Swinging Weapon & Glowing Crescent Arc swing trail
+    ctx.save();
+    ctx.translate(14, 16);
+    if (player.swinging) {
+      const swingAngleOffset = -Math.PI / 4 + (player.swingTimer * 0.18);
+      ctx.rotate(swingAngleOffset);
+
+      // Swing crescent alpha-gradient wave trails!
+      ctx.restore(); // restore to player space for trail drawing
+      ctx.save();
+      ctx.strokeStyle = eyesColor;
+      ctx.shadowColor = eyesColor;
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = 4.5 * (player.swingTimer / 10);
+      ctx.beginPath();
+      ctx.arc(0, 0, 36, -Math.PI / 3, Math.PI / 3);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      ctx.save();
+      ctx.translate(14, 16);
+      ctx.rotate(swingAngleOffset);
+    }
+
+    // Dynamic high-fidelity weapon textures in 2D vectors
+    let swordColor = currentTool.color || '#cbd5e1';
+    let handleColor = '#78350f';
+
+    if (currentTool.id.includes('pick') || currentTool.id.includes('drill')) {
+      // Draw professional mining pickaxe sprite
+      ctx.strokeStyle = handleColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 4);
+      ctx.lineTo(-8, -12); // wood handle shaft
+      ctx.stroke();
+
+      // Pickaxe metal dual-claws wing curve
+      ctx.strokeStyle = swordColor;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(-8, -12, 10, -Math.PI / 6, Math.PI + Math.PI / 6);
+      ctx.stroke();
+    } else {
+      // General tools / swords
+      ctx.fillStyle = handleColor;
+      ctx.fillRect(-2, 0, 4, 6); // handle grip
+      ctx.fillStyle = '#eab308'; // gold pommel
+      ctx.beginPath();
+      ctx.arc(0, 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = swordColor; // shining blade
+      ctx.fillRect(-3, -16, 6, 16);
+      ctx.beginPath();
+      ctx.moveTo(-3, -16);
+      ctx.lineTo(0, -22); // diamond tip
+      ctx.lineTo(3, -16);
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
 
     ctx.restore();
 
-    // Above player indicator tags
-    ctx.fillStyle = '#ffaa00';
+    // Above player name capsule HUD
+    ctx.save();
     ctx.font = 'bold 12px Courier';
     ctx.textAlign = 'center';
     const cleanNickname = myProfile?.displayName || user?.displayName || 'Du (Gast)';
-    ctx.fillText(`${cleanNickname} (lvl ${lvl})`, player.x, player.y - player.size - 8);
+    const hudStr = `${cleanNickname} (lvl ${lvl})`;
+    const hudW = ctx.measureText(hudStr).width;
+    
+    // Capsule frame
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(player.x - hudW/2 - 8, player.y - player.size - 32, hudW + 16, 18);
+    
+    // Text
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillText(hudStr, player.x, player.y - player.size - 19);
+    ctx.restore();
 
     // Glowing radius preview mesh if machine slots (2-5) selected
     if (selectedHotbarIndex > 0) {
@@ -2433,7 +2669,7 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
     // 1. COMBAT SYSTEM: Check if player clicked directly on/near any Opponent Bot to ATTACK!
     const targetBot = botsList.find(b => {
       const distToBot = Math.hypot(b.x - absClickX, b.y - absClickY);
-      return distToBot <= 40; // Attack tap footprint radius
+      return distToBot <= 85; // Forgiving 85px action hit footprint!
     });
 
     if (targetBot) {
@@ -2503,11 +2739,13 @@ export const VoxelAdventureView: React.FC<VoxelAdventureViewProps> = ({
       return; // Prevent drilling tiles under the bot's body!
     }
 
-    // Fetch grid coordinates index intersected
-    const targetIdx = tiles.findIndex(t => 
-      absClickX >= t.x && absClickX < t.x + tileSize &&
-      absClickY >= t.y && absClickY < t.y + tileSize
-    );
+    // Fetch grid coordinates index intersected - accounting for 3D coordinate shift
+    const targetIdx = tiles.findIndex(t => {
+      const is3D = t.type !== 'grass' && t.type !== 'sand' && t.type !== 'volcanic_rock' && t.type !== 'water' && t.type !== 'lava';
+      const H = is3D ? 14 : 0;
+      return absClickX >= t.x && absClickX < t.x + tileSize &&
+             absClickY >= (t.y - H) && absClickY < (t.y + tileSize - H);
+    });
 
     if (targetIdx === -1) return;
     const targetTile = tiles[targetIdx];
