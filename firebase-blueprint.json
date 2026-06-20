@@ -250,12 +250,36 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["imageUrl", "title", "uploadedBy", "userId", "createdAt"]
+    },
+    "SharedWeather": {
+      "title": "Shared Weather",
+      "description": "Custom meteorological weather shared by a community player",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the custom weather" },
+        "type": { "type": "string", "enum": ["rain", "snow", "leaves"], "description": "The visual particle type" },
+        "colors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of Hex colors for the particles"
+        },
+        "speedMultiplier": { "type": "string", "enum": ["gentle", "moderate", "tempest"], "description": "Speed preset" },
+        "particleScale": { "type": "string", "enum": ["fine", "medium", "chunk"], "description": "Particle scale preset" },
+        "uploadedBy": { "type": "string", "description": "Minecraft username or display name" },
+        "userId": { "type": "string", "description": "Firestore ID of the creator" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "type", "colors", "speedMultiplier", "particleScale", "uploadedBy", "userId", "createdAt"]
     }
   },
   "firestore": {
     "shared_backgrounds/{bgId}": {
       "schema": "SharedBackground",
       "description": "Wallpapers uploaded and shared by community players"
+    },
+    "shared_weathers/{weatherId}": {
+      "schema": "SharedWeather",
+      "description": "Meteorological custom environments created and shared by community players"
     },
     "user_profiles/{userId}": {
       "schema": "UserProfile",

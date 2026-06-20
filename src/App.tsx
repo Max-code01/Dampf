@@ -82,6 +82,11 @@ import {
   Crown,
   Sparkles,
   Brain,
+  CloudRain,
+  Snowflake,
+  Leaf,
+  Compass,
+  SunDim,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { QuizArenaView } from './components/QuizArenaView';
@@ -174,6 +179,371 @@ const compressAndResizeImage = (file: File, maxWidth = 1280, maxHeight = 720, qu
       reject(err);
     };
   });
+};
+
+interface WeatherParticle {
+  x: number;
+  y: number;
+  speedY: number;
+  speedX: number;
+  sizeW: number;
+  sizeH: number;
+  color: string;
+  swaySeed: number;
+  rot: number;
+  rotSpeed: number;
+}
+
+interface PixelWeatherEffectProps {
+  mode: string;
+  resolvedTime: string;
+  sharedWeathers?: any[];
+}
+
+const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWeatherEffectProps) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let particles: WeatherParticle[] = [];
+
+    // Find if active mode is a custom weather doc
+    const customWeather = sharedWeathers.find(w => w.id === mode);
+
+    // Determine the working weather type, colors, speed, and size
+    let activeType = mode;
+    let colors: string[] = [];
+    let speedMult = 1.0;
+    let sizeMult = 1.0;
+
+    if (customWeather) {
+      activeType = customWeather.type;
+      colors = customWeather.colors && customWeather.colors.length > 0 ? customWeather.colors : ['#ffffff'];
+      
+      if (customWeather.speedMultiplier === 'gentle') speedMult = 0.5;
+      else if (customWeather.speedMultiplier === 'tempest') speedMult = 2.0;
+      else speedMult = 1.0;
+      
+      if (customWeather.particleScale === 'fine') sizeMult = 0.5;
+      else if (customWeather.particleScale === 'chunk') sizeMult = 1.8;
+      else sizeMult = 1.0;
+    } else {
+      if (mode === 'cycle') {
+        if (resolvedTime === 'noon') activeType = 'rain';
+        else if (resolvedTime === 'night') activeType = 'snow';
+        else if (resolvedTime === 'evening') activeType = 'leaves';
+        else activeType = 'sunny';
+      }
+
+      if (activeType === 'rain') {
+        colors = ['rgba(130, 203, 255, 0.45)', 'rgba(64, 156, 255, 0.55)', 'rgba(100, 180, 255, 0.45)'];
+      } else if (activeType === 'snow') {
+        colors = ['rgba(255, 255, 255, 0.85)', 'rgba(230, 242, 255, 0.9)', 'rgba(210, 230, 255, 0.75)'];
+      } else if (activeType === 'leaves') {
+        colors = ['#e56b46', '#ffd08a', '#b53846', '#9c6239', '#5c7a29'];
+      }
+    }
+
+    if (activeType === 'sunny') {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    const particleCount = activeType === 'rain' ? 120 : (activeType === 'snow' ? 65 : 45);
+
+    for (let i = 0; i < particleCount; i++) {
+      let p: WeatherParticle = {
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        speedY: 0,
+        speedX: 0,
+        sizeW: 0,
+        sizeH: 0,
+        color: '',
+        swaySeed: Math.random() * 100,
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.05
+      };
+
+      if (activeType === 'rain') {
+        p.speedY = (Math.random() * 6 + 10) * speedMult;
+        p.speedX = (-1.5 - Math.random() * 1.5) * (speedMult >= 1.5 ? 1.5 : speedMult);
+        p.sizeW = 2 * sizeMult;
+        p.sizeH = (Math.random() * 7 + 7) * sizeMult;
+        p.color = colors[Math.floor(Math.random() * colors.length)];
+      } else if (activeType === 'snow') {
+        p.speedY = (Math.random() * 1.1 + 0.7) * speedMult;
+        p.speedX = (Math.random() - 0.5) * 0.8 * speedMult;
+        p.sizeW = (Math.random() > 0.5 ? 4 : 3) * sizeMult;
+        p.sizeH = p.sizeW;
+        p.color = colors[Math.floor(Math.random() * colors.length)];
+      } else if (activeType === 'leaves') {
+        p.speedY = (Math.random() * 0.7 + 0.7) * speedMult;
+        p.speedX = (-1.5 - Math.random() * 1.8) * speedMult;
+        p.sizeW = (Math.random() * 3 + 4) * sizeMult;
+        p.sizeH = (Math.random() * 2 + 3) * sizeMult;
+        p.color = colors[Math.floor(Math.random() * colors.length)];
+      }
+      particles.push(p);
+    }
+
+    const updateAndDraw = (time: number) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const swayTime = time * 0.002;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        if (activeType === 'rain') {
+          p.y += p.speedY;
+          p.x += p.speedX;
+        } else if (activeType === 'snow') {
+          p.y += p.speedY;
+          p.x += p.speedX + Math.sin(swayTime + p.swaySeed) * 0.4;
+        } else if (activeType === 'leaves') {
+          p.y += p.speedY + Math.sin(swayTime + p.swaySeed) * 0.2;
+          p.x += p.speedX + Math.cos(swayTime + p.swaySeed) * 0.3;
+          p.rot += p.rotSpeed;
+        }
+
+        if (p.y > canvas.height) {
+          p.y = -20;
+          p.x = Math.random() * canvas.width;
+        }
+        if (p.x < -20) {
+          p.x = canvas.width + 20;
+          p.y = Math.random() * canvas.height;
+        }
+        if (p.x > canvas.width + 20) {
+          p.x = -20;
+          p.y = Math.random() * canvas.height;
+        }
+
+        ctx.fillStyle = p.color;
+        if (activeType === 'leaves') {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.fillRect(-p.sizeW / 2, -p.sizeH / 2, p.sizeW, p.sizeH);
+          ctx.restore();
+        } else {
+          ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.sizeW, p.sizeH);
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(updateAndDraw);
+    };
+
+    animationFrameId = requestAnimationFrame(updateAndDraw);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, [mode, resolvedTime, sharedWeathers]);
+
+  return (
+    <canvas 
+      ref={canvasRef} 
+      className="fixed inset-0 z-[1] pointer-events-none" 
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
+};
+
+const MountainPets = ({ playAppSound }: { playAppSound: any }) => {
+  const [pets, setPets] = useState([
+    {
+      id: 'sheep_1',
+      type: 'sheep',
+      name: 'Pixel-Schaf',
+      baseX: 25,
+      y: 32,
+      dir: 1,
+      offsetX: 0,
+      sound: 'sheep',
+      text: 'Mäh! 🐑',
+    },
+    {
+      id: 'chicken_1',
+      type: 'chicken',
+      name: 'Pixel-Huhn',
+      baseX: 58,
+      y: 25,
+      dir: -1,
+      offsetX: 0,
+      sound: 'chicken',
+      text: 'Gack! 🐔',
+    },
+    {
+      id: 'dragon_1',
+      type: 'dragon',
+      name: 'Baby-Drache',
+      baseX: 73,
+      y: 35,
+      dir: 1,
+      offsetX: 0,
+      sound: 'dragon',
+      text: 'Rawr! 🐉',
+    }
+  ]);
+
+  const [activeBubble, setActiveBubble] = useState<{ id: string; text: string } | null>(null);
+  const [jumpingPet, setJumpingPet] = useState<string | null>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPets(prev => prev.map(p => {
+        const changeDir = Math.random() < 0.15;
+        const newDir = changeDir ? p.dir * -1 : p.dir;
+        let newOffset = p.offsetX + newDir * 0.4;
+        if (newOffset > 10) newOffset = 10;
+        if (newOffset < -10) newOffset = -10;
+        return {
+          ...p,
+          dir: newDir,
+          offsetX: newOffset
+        };
+      }));
+    }, 1200);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handlePetClick = (id: string, sound: any, text: string) => {
+    playAppSound(sound);
+    setJumpingPet(id);
+    setActiveBubble({ id, text });
+    setTimeout(() => {
+      setJumpingPet(null);
+    }, 600);
+    setTimeout(() => {
+      setActiveBubble(prev => prev?.id === id ? null : prev);
+    }, 2200);
+  };
+
+  return (
+    <>
+      {pets.map(p => {
+        const isJumping = jumpingPet === p.id;
+        const hasBubble = activeBubble?.id === p.id;
+        const currentX = `calc(${p.baseX}% + ${p.offsetX}px)`;
+
+        return (
+          <div
+            key={p.id}
+            className="absolute z-10 pointer-events-auto cursor-pointer"
+            style={{
+              left: currentX,
+              bottom: `${p.y}%`,
+              transform: 'translate(-50%, 0)',
+              transition: 'left 1.2s linear'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePetClick(p.id, p.sound, p.text);
+            }}
+          >
+            <AnimatePresence>
+              {hasBubble && (
+                <motion.div
+                  initial={{ scale: 0, y: 10, opacity: 0 }}
+                  animate={{ scale: 1, y: -24, opacity: 1 }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  className="absolute left-1/2 -translate-x-1/2 bg-black/95 border border-mc-gold text-white font-mono text-[9px] px-1.5 py-0.5 rounded-md whitespace-nowrap shadow-xl z-20"
+                >
+                  {activeBubble.text}
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-black border-r border-b border-mc-gold rotate-45 -mt-1" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <motion.div
+              animate={isJumping ? {
+                y: [-2, -22, 0],
+                scaleX: [1, 0.9, 1.1, 1],
+                scaleY: [1, 1.2, 0.9, 1]
+              } : {
+                y: [0, -1, 0]
+              }}
+              transition={isJumping ? {
+                duration: 0.5,
+                ease: "easeOut"
+              } : {
+                repeat: Infinity,
+                duration: p.type === 'chicken' ? 0.8 : 1.4,
+                ease: "easeInOut"
+              }}
+              className="flex flex-col items-center select-none"
+            >
+              {p.type === 'sheep' && (
+                <svg width="24" height="18" viewBox="0 0 24 18" className="pixelated" style={{ transform: p.dir < 0 ? 'scaleX(-1)' : 'none' }}>
+                  <rect x="4" y="2" width="14" height="10" fill="#f0f0f0" stroke="#d0d0d0" strokeWidth="1" />
+                  <rect x="5" y="3" width="12" height="8" fill="#ffffff" />
+                  <rect x="16" y="1" width="6" height="6" fill="#e5c7a3" stroke="#bfa37c" strokeWidth="1" />
+                  <rect x="16" y="0" width="5" height="2" fill="#ffffff" />
+                  <rect x="20" y="3" width="1" height="1" fill="#000000" />
+                  <rect x="6" y="12" width="2" height="4" fill="#cfbca7" />
+                  <rect x="14" y="12" width="2" height="4" fill="#cfbca7" />
+                  <rect x="8" y="12" width="2" height="4" fill="#a49383" />
+                  <rect x="12" y="12" width="2" height="4" fill="#a49383" />
+                </svg>
+              )}
+
+              {p.type === 'chicken' && (
+                <svg width="18" height="18" viewBox="0 0 16 16" className="pixelated" style={{ transform: p.dir < 0 ? 'scaleX(-1)' : 'none' }}>
+                  <rect x="3" y="4" width="8" height="7" fill="#ffffff" stroke="#e0e0e0" strokeWidth="1" />
+                  <rect x="9" y="1" width="3" height="2" fill="#ef4444" />
+                  <rect x="8" y="2" width="5" height="4" fill="#ffffff" stroke="#e0e0e0" strokeWidth="1" />
+                  <rect x="9" y="2" width="4" height="3" fill="#ffffff" />
+                  <rect x="13" y="3" width="2" height="1" fill="#f59e0b" />
+                  <rect x="11" y="4" width="2" height="2" fill="#ef4444" />
+                  <rect x="11" y="3" width="1" height="1" fill="#000000" />
+                  <rect x="5" y="11" width="1" height="3" fill="#f59e0b" />
+                  <rect x="8" y="11" width="1" height="3" fill="#f59e0b" />
+                  <rect x="4" y="14" width="3" height="1" fill="#f59e0b" />
+                  <rect x="7" y="14" width="3" height="1" fill="#f59e0b" />
+                </svg>
+              )}
+
+              {p.type === 'dragon' && (
+                <svg width="28" height="22" viewBox="0 0 28 22" className="pixelated" style={{ transform: p.dir < 0 ? 'scaleX(-1)' : 'none' }}>
+                  <rect x="6" y="5" width="14" height="11" fill="#15803d" stroke="#166534" strokeWidth="1" />
+                  <rect x="7" y="6" width="12" height="9" fill="#22c55e" />
+                  <rect x="3" y="3" width="6" height="6" fill="#c084fc" stroke="#a855f7" strokeWidth="1" />
+                  <rect x="2" y="11" width="5" height="3" fill="#15803d" />
+                  <rect x="0" y="9" width="3" height="3" fill="#166534" />
+                  <rect x="1" y="10" width="2" height="2" fill="#22c55e" />
+                  <rect x="18" y="2" width="8" height="7" fill="#15803d" stroke="#166534" strokeWidth="1" />
+                  <rect x="19" y="3" width="6" height="5" fill="#22c55e" />
+                  <rect x="22" y="0" width="2" height="2" fill="#f59e0b" />
+                  <rect x="10" y="3" width="2" height="2" fill="#f59e0b" />
+                  <rect x="14" y="3" width="2" height="2" fill="#f59e0b" />
+                  <rect x="23" y="4" width="2" height="2" fill="#facc15" />
+                  <rect x="24" y="5" width="1" height="1" fill="#ef4444" />
+                  <rect x="25" y="6" width="3" height="2" fill="#15803d" />
+                  <rect x="11" y="10" width="7" height="6" fill="#f59e0b" opacity="0.9" />
+                  <rect x="8" y="16" width="3" height="4" fill="#166534" />
+                  <rect x="15" y="16" width="3" height="4" fill="#166534" />
+                </svg>
+              )}
+            </motion.div>
+          </div>
+        );
+      })}
+    </>
+  );
 };
 
 const DISCORD_URL = 'https://discord.gg/jknXHv77';
@@ -2690,11 +3060,20 @@ export default function App() {
       if (err.message && err.message.includes('Quota')) setHasQuotaExceeded(true);
     });
 
+    // Listen to shared custom weathers
+    const weathersQuery = query(collection(db, 'shared_weathers'), orderBy('createdAt', 'desc'), limit(100));
+    const unsubscribeWeathers = onSnapshot(weathersQuery, (snapshot) => {
+      setSharedWeathers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, (err) => {
+      if (err.message && err.message.includes('Quota')) setHasQuotaExceeded(true);
+    });
+
     return () => {
       unsubscribeOnlinePlayers();
       unsubscribeAppConfig();
       unsubscribeActiveQuiz();
       unsubscribeBgs();
+      unsubscribeWeathers();
     };
   }, [hasQuotaExceeded]);
 
@@ -2839,6 +3218,10 @@ export default function App() {
     return localStorage.getItem('background_time_mode') || 'classic';
   });
 
+  const [weatherMode, setWeatherMode] = useState<string>(() => {
+    return localStorage.getItem('app_weather_mode') || 'cycle';
+  });
+
   const [resolvedTime, setResolvedTime] = useState<string>('classic');
   const [isTimeConsoleExpanded, setIsTimeConsoleExpanded] = useState(false);
   const [sharedBackgrounds, setSharedBackgrounds] = useState<any[]>([]);
@@ -2848,6 +3231,16 @@ export default function App() {
   const [uploadBgFileBase64, setUploadBgFileBase64] = useState<string | null>(null);
   const [uploadBgMethod, setUploadBgMethod] = useState<'url' | 'file'>('url');
   const [isUploadingBg, setIsUploadingBg] = useState(false);
+
+  // Custom Weather Sharing and Creation states
+  const [sharedWeathers, setSharedWeathers] = useState<any[]>([]);
+  const [showWeatherUploadModal, setShowWeatherUploadModal] = useState(false);
+  const [uploadWeatherTitle, setUploadWeatherTitle] = useState('');
+  const [uploadWeatherType, setUploadWeatherType] = useState<'rain' | 'snow' | 'leaves'>('rain');
+  const [uploadWeatherColors, setUploadWeatherColors] = useState<string[]>(['#82cbff']);
+  const [uploadWeatherSpeed, setUploadWeatherSpeed] = useState<'gentle' | 'moderate' | 'tempest'>('moderate');
+  const [uploadWeatherScale, setUploadWeatherScale] = useState<'fine' | 'medium' | 'chunk'>('medium');
+  const [isUploadingWeather, setIsUploadingWeather] = useState(false);
 
   useEffect(() => {
     setResolvedTime(backgroundTimeMode);
@@ -2949,7 +3342,97 @@ export default function App() {
     }
   };
 
-  const playAppSound = (type: 'click' | 'exp' | 'levelUp' | 'pop' | 'chest' | 'sun' | 'moon') => {
+  const handleWeatherUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      triggerToast('quest', 'FEHLER ❌', 'Du musst angemeldet sein, um ein Wetter zu erstellen.');
+      return;
+    }
+    
+    const finalTitle = uploadWeatherTitle.trim();
+    if (!finalTitle) {
+      triggerToast('quest', 'TITEL FEHLT 📝', 'Bitte gib deinem Wetter einen Namen.');
+      return;
+    }
+
+    if (uploadWeatherColors.length === 0) {
+      triggerToast('quest', 'FARBE FEHLT 🎨', 'Bitte wähle mindestens eine Partikel-Farbe.');
+      return;
+    }
+    
+    setIsUploadingWeather(true);
+    try {
+      // Create record in shared_weathers
+      const weatherDocRef = doc(collection(db, 'shared_weathers'));
+      await setDoc(weatherDocRef, {
+        title: finalTitle,
+        type: uploadWeatherType,
+        colors: uploadWeatherColors,
+        speedMultiplier: uploadWeatherSpeed,
+        particleScale: uploadWeatherScale,
+        uploadedBy: (myProfile?.displayName || myProfile?.minecraftUsername || user.displayName || 'Spieler').trim(),
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+      
+      triggerToast('quest', 'WETTER GETEILT! 🌧️', `"${finalTitle}" ist jetzt für alle verfügbar.`);
+      // Activate it for this user
+      setWeatherMode(weatherDocRef.id);
+      localStorage.setItem('app_weather_mode', weatherDocRef.id);
+      
+      // Reset form states
+      setUploadWeatherTitle('');
+      setUploadWeatherType('rain');
+      setUploadWeatherColors(['#82cbff']);
+      setUploadWeatherSpeed('moderate');
+      setUploadWeatherScale('medium');
+      setShowWeatherUploadModal(false);
+      playAppSound('levelUp');
+    } catch (err: any) {
+      console.error(err);
+      triggerToast('quest', 'UPLOAD FEHLER ❌', err.message || 'Etwas ist schiefgelaufen.');
+    } finally {
+      setIsUploadingWeather(false);
+    }
+  };
+
+  const handleWeatherDelete = async (weatherId: string, weatherTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Avoid triggering activation
+    if (!user) return;
+    
+    const weatherItem = sharedWeathers.find(w => w.id === weatherId);
+    if (!weatherItem) return;
+    
+    const uploaderId = weatherItem.userId;
+    const isUploader = uploaderId === user.uid;
+    const isPlayerAdmin = myProfile?.role === 'Admin' || myProfile?.role === 'Owner' || myProfile?.role === 'Root';
+    
+    if (!isUploader && !isPlayerAdmin) {
+      triggerToast('quest', 'KEINE RECHTE 🔒', 'Nur der Ersteller oder Admins können dieses Wetter löschen.');
+      return;
+    }
+    
+    if (!window.confirm(`Möchtest du das Wetter "${weatherTitle}" wirklich löschen?`)) {
+      return;
+    }
+    
+    try {
+      await deleteDoc(doc(db, 'shared_weathers', weatherId));
+      triggerToast('quest', 'WETTER GELÖSCHT! 🗑️', `"${weatherTitle}" wurde gelöscht.`);
+      
+      // If currently active, reset to cycle
+      if (weatherMode === weatherId) {
+        setWeatherMode('cycle');
+        localStorage.setItem('app_weather_mode', 'cycle');
+      }
+      playAppSound('pop');
+    } catch (err: any) {
+      console.error(err);
+      triggerToast('quest', 'FEHLER ❌', err.message || 'Löschen fehlgeschlagen.');
+    }
+  };
+
+  const playAppSound = (type: 'click' | 'exp' | 'levelUp' | 'pop' | 'chest' | 'sun' | 'moon' | 'sheep' | 'chicken' | 'dragon') => {
     if (appMuted) return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -2957,6 +3440,51 @@ export default function App() {
       const ctx = new AudioCtx();
       
       switch (type) {
+        case 'sheep': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(260.00, ctx.currentTime);
+          osc.frequency.linearRampToValueAtTime(220.00, ctx.currentTime + 0.25);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.3);
+          break;
+        }
+        case 'chicken': {
+          // Double chirp chirp!
+          [0, 0.08].forEach((delay) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(783.99, ctx.currentTime + delay);
+            osc.frequency.exponentialRampToValueAtTime(1046.50, ctx.currentTime + delay + 0.04);
+            gain.gain.setValueAtTime(0.07, ctx.currentTime + delay);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.045);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime + delay);
+            osc.stop(ctx.currentTime + delay + 0.05);
+          });
+          break;
+        }
+        case 'dragon': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(120.00, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(60.00, ctx.currentTime + 0.4);
+          gain.gain.setValueAtTime(0.06, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.45);
+          break;
+        }
         case 'click': {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
@@ -6282,6 +6810,12 @@ export default function App() {
         </div>
       )}
 
+      <PixelWeatherEffect mode={weatherMode} resolvedTime={resolvedTime} sharedWeathers={sharedWeathers} />
+      {isPresetTime && (
+        <div className="absolute inset-x-0 bottom-0 h-64 pointer-events-none z-[2] select-none">
+          <MountainPets playAppSound={playAppSound} />
+        </div>
+      )}
       <FloatingParticles />
       {/* Emergency Fallback Banner */}
       {isMaintenanceMode && (
@@ -6362,7 +6896,7 @@ export default function App() {
           initial={{ opacity: 0, y: -20, scale: 0.9 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: "spring", stiffness: 200, damping: 25 }}
-          className="fixed top-6 right-6 z-[90] flex items-center gap-3 select-none"
+          className="fixed top-6 right-6 z-[90] flex flex-col items-end gap-2 select-none"
         >
           {/* Main Expand/Collapse Toggle Button */}
           <motion.button
@@ -6391,11 +6925,11 @@ export default function App() {
           <AnimatePresence>
             {isTimeConsoleExpanded && (
               <motion.div
-                initial={{ opacity: 0, x: 20, scale: 0.95 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 220, damping: 22 }}
-                className="flex flex-col md:flex-row items-end md:items-center gap-2"
+                className="flex flex-col items-end gap-2"
               >
                 {/* Sound Mute Toggle Button */}
                 <motion.button
@@ -6420,117 +6954,227 @@ export default function App() {
                 </motion.button>
 
                 {/* Time & Background Multi-Selector Console with public scrolling gallery */}
-                <div className="bg-black/95 border-2 border-neutral-800/80 rounded-xl p-1.5 flex items-center gap-1.5 backdrop-blur-md shadow-2xl max-w-[90vw] md:max-w-3xl overflow-x-auto scrollbar-thin">
-                  {/* Preset Buttons */}
-                  <div className="flex items-center gap-1 border-r border-neutral-800/40 pr-2 flex-shrink-0">
-                    {[
-                      { id: 'classic', label: 'Classic 🌌', icon: Clock, sound: 'click' },
-                      { id: 'morning', label: 'Morning 🌅', icon: Sunrise, sound: 'sun' },
-                      { id: 'noon', label: 'Noon ☀️', icon: Sun, sound: 'sun' },
-                      { id: 'evening', label: 'Evening 🌇', icon: Sunset, sound: 'moon' },
-                      { id: 'night', label: 'Night 🌙', icon: Moon, sound: 'moon' }
-                    ].map((opt) => (
+                <div className="bg-black/95 border-2 border-neutral-800/80 rounded-xl p-2 flex flex-col gap-2 backdrop-blur-md shadow-2xl max-w-[90vw] md:max-w-3xl overflow-hidden">
+                  {/* Top row: Presets & Galerie */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1">
+                    {/* Preset Buttons */}
+                    <div className="flex items-center gap-1 border-r border-neutral-800/40 pr-2 flex-shrink-0">
+                      {[
+                        { id: 'classic', label: 'Classic 🌌', icon: Clock, sound: 'click' },
+                        { id: 'morning', label: 'Morning 🌅', icon: Sunrise, sound: 'sun' },
+                        { id: 'noon', label: 'Noon ☀️', icon: Sun, sound: 'sun' },
+                        { id: 'evening', label: 'Evening 🌇', icon: Sunset, sound: 'moon' },
+                        { id: 'night', label: 'Night 🌙', icon: Moon, sound: 'moon' }
+                      ].map((opt) => (
+                        <motion.button
+                          key={`time-opt-${opt.id}`}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setBackgroundTimeMode(opt.id);
+                            localStorage.setItem('background_time_mode', opt.id);
+                            playAppSound(opt.sound as any);
+                            triggerToast('quest', 'WETTER-HEXEREI! 🌤️', `Hintergrund wurde auf "${opt.id.toUpperCase()}" gestellt.`);
+                          }}
+                          className={`py-1.5 px-2 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                            backgroundTimeMode === opt.id
+                              ? 'bg-mc-gold text-black border border-mc-gold shadow-[0_0_12px_rgba(255,170,0,0.4)] font-semibold'
+                              : 'hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
+                          }`}
+                          title={opt.label}
+                        >
+                          <opt.icon size={11} className={backgroundTimeMode === opt.id ? 'text-black' : 'text-neutral-500'} />
+                          <span className="hidden sm:inline">{opt.id}</span>
+                        </motion.button>
+                      ))}
+                    </div>
+
+                    {/* Shared Wallpapers List */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pl-1 scrollbar-none scroll-smooth">
+                      <span className="text-[7.5px] font-black uppercase text-neutral-500 tracking-wider hidden md:inline whitespace-nowrap mr-0.5">
+                        Galerie:
+                      </span>
+
+                      {/* Upload Plus Trigger Card */}
                       <motion.button
-                        key={`time-opt-${opt.id}`}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => {
-                          setBackgroundTimeMode(opt.id);
-                          localStorage.setItem('background_time_mode', opt.id);
-                          playAppSound(opt.sound as any);
-                          triggerToast('quest', 'WETTER-HEXEREI! 🌤️', `Hintergrund wurde auf "${opt.id.toUpperCase()}" gestellt.`);
+                          if (!user) {
+                            triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um eigene Wallpapers mit allen zu teilen!');
+                            setShowLoginModal(true);
+                          } else {
+                            setShowBgUploadModal(true);
+                          }
+                          playAppSound('click');
                         }}
-                        className={`py-1.5 px-2 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                          backgroundTimeMode === opt.id
-                            ? 'bg-mc-gold text-black border border-mc-gold shadow-[0_0_12px_rgba(255,170,0,0.4)] font-semibold'
-                            : 'hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
-                        }`}
-                        title={opt.label}
+                        className="w-10 h-8 rounded-lg bg-mc-gold/15 border border-mc-gold/40 hover:bg-mc-gold/25 text-mc-gold transition-all flex flex-col items-center justify-center flex-shrink-0 cursor-pointer outline-none"
+                        title="Eigenen Hintergrund teilen ✨"
                       >
-                        <opt.icon size={11} className={backgroundTimeMode === opt.id ? 'text-black' : 'text-neutral-500'} />
-                        <span className="hidden sm:inline">{opt.id}</span>
+                        <Plus size={11} />
+                        <span className="text-[6px] font-black uppercase tracking-tighter leading-none">Teilen</span>
                       </motion.button>
-                    ))}
+
+                      {/* Array of Shared Backgrounds */}
+                      {sharedBackgrounds.map((bg) => {
+                        const isCreator = user && bg.userId === user.uid;
+                        const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
+                        const isSelected = backgroundTimeMode === bg.id;
+
+                        return (
+                          <motion.div
+                            key={`shared-bg-item-${bg.id}`}
+                            className="relative flex-shrink-0 group"
+                          >
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => {
+                                setBackgroundTimeMode(bg.id);
+                                localStorage.setItem('background_time_mode', bg.id);
+                                playAppSound('pop');
+                                triggerToast('quest', 'WALLPAPER AKTIV 🎨', `"${bg.title}" von ${bg.uploadedBy} geladen.`);
+                              }}
+                              className={`w-14 h-8 rounded-lg relative overflow-hidden bg-neutral-950 border transition-all flex flex-col items-center justify-end p-0.5 outline-none cursor-pointer ${
+                                isSelected
+                                  ? 'border-mc-gold ring-1 ring-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.4)]'
+                                  : 'border-neutral-800 hover:border-neutral-600'
+                              }`}
+                              title={`"${bg.title}" geteilt von ${bg.uploadedBy}`}
+                            >
+                              <img
+                                src={bg.imageUrl}
+                                alt={bg.title}
+                                referrerPolicy="no-referrer"
+                                className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-95 transition-opacity"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
+                              <span className="relative z-10 text-[6px] font-black text-white truncate text-center w-full block drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] px-0.5 pb-0.5 leading-none max-w-full">
+                                {bg.title}
+                              </span>
+                            </motion.button>
+
+                            {/* Delete capability overlay bin icon (Only for author or admins) */}
+                            {(isCreator || isAdm) && (
+                              <button
+                                onClick={(e) => handleBgDelete(bg.id, bg.title, e)}
+                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer"
+                                title="Dieses Wallpaper löschen 🗑️"
+                              >
+                                <span className="text-[8px] font-black leading-none">×</span>
+                              </button>
+                            )}
+                          </motion.div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* Shared Wallpapers List */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pl-1 scrollbar-none scroll-smooth">
-                    <span className="text-[7.5px] font-black uppercase text-neutral-500 tracking-wider hidden md:inline whitespace-nowrap mr-0.5">
-                      Galerie:
+                  {/* Divider line */}
+                  <div className="h-[1px] bg-neutral-800/40 w-full" />
+
+                  {/* Bottom Row: Weather Select */}
+                  <div className="flex items-center gap-2 overflow-hidden w-full">
+                    <span className="text-[7.5px] font-black uppercase text-neutral-400 tracking-wider whitespace-nowrap">
+                      Wetter-Hexerei:
                     </span>
-
-                    {/* Upload Plus Trigger Card */}
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        if (!user) {
-                          triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um eigene Wallpapers mit allen zu teilen!');
-                          setShowLoginModal(true);
-                        } else {
-                          setShowBgUploadModal(true);
-                        }
-                        playAppSound('click');
-                      }}
-                      className="w-10 h-8 rounded-lg bg-mc-gold/15 border border-mc-gold/40 hover:bg-mc-gold/25 text-mc-gold transition-all flex flex-col items-center justify-center flex-shrink-0 cursor-pointer outline-none"
-                      title="Eigenen Hintergrund teilen ✨"
-                    >
-                      <Plus size={11} />
-                      <span className="text-[6px] font-black uppercase tracking-tighter leading-none">Teilen</span>
-                    </motion.button>
-
-                    {/* Array of Shared Backgrounds */}
-                    {sharedBackgrounds.map((bg) => {
-                      const isCreator = user && bg.userId === user.uid;
-                      const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
-                      const isSelected = backgroundTimeMode === bg.id;
-
-                      return (
-                        <motion.div
-                          key={`shared-bg-item-${bg.id}`}
-                          className="relative flex-shrink-0 group"
-                        >
+                    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5 select-none w-full scroll-smooth">
+                      {/* Standard Weathers */}
+                      <div className="flex items-center gap-1 flex-shrink-0 border-r border-neutral-800/40 pr-1.5">
+                        {[
+                          { id: 'cycle', label: 'Auto 🔄', icon: Compass, sound: 'click' },
+                          { id: 'sunny', label: 'Sonne ☀️', icon: SunDim, sound: 'click' },
+                          { id: 'rain', label: 'Regen 🌧️', icon: CloudRain, sound: 'pop' },
+                          { id: 'snow', label: 'Schnee ❄️', icon: Snowflake, sound: 'click' },
+                          { id: 'leaves', label: 'Wind 🍀', icon: Leaf, sound: 'click' }
+                        ].map((opt) => (
                           <motion.button
+                            key={`weather-opt-${opt.id}`}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => {
-                              setBackgroundTimeMode(bg.id);
-                              localStorage.setItem('background_time_mode', bg.id);
-                              playAppSound('pop');
-                              triggerToast('quest', 'WALLPAPER AKTIV 🎨', `"${bg.title}" von ${bg.uploadedBy} geladen.`);
+                              setWeatherMode(opt.id);
+                              localStorage.setItem('app_weather_mode', opt.id);
+                              playAppSound(opt.sound as any);
+                              triggerToast('quest', 'METEOROLOGIE 🪄', `Wetter wurde auf "${opt.id.toUpperCase()}" gestellt.`);
                             }}
-                            className={`w-14 h-8 rounded-lg relative overflow-hidden bg-neutral-950 border transition-all flex flex-col items-center justify-end p-0.5 outline-none cursor-pointer ${
-                              isSelected
-                                ? 'border-mc-gold ring-1 ring-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.4)]'
-                                : 'border-neutral-800 hover:border-neutral-600'
+                            className={`py-1 px-1.5 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${
+                              weatherMode === opt.id
+                                ? 'bg-sky-500 text-black border border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.4)] font-semibold'
+                                : 'bg-neutral-900/45 hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
                             }`}
-                            title={`"${bg.title}" geteilt von ${bg.uploadedBy}`}
+                            title={opt.label}
                           >
-                            <img
-                              src={bg.imageUrl}
-                              alt={bg.title}
-                              referrerPolicy="no-referrer"
-                              className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-95 transition-opacity"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
-                            <span className="relative z-10 text-[6px] font-black text-white truncate text-center w-full block drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] px-0.5 pb-0.5 leading-none max-w-full">
-                              {bg.title}
-                            </span>
+                            <opt.icon size={11} className={weatherMode === opt.id ? 'text-black' : 'text-neutral-500'} />
+                            <span>{opt.id === 'cycle' ? 'auto' : opt.id}</span>
                           </motion.button>
+                        ))}
+                      </div>
 
-                          {/* Delete capability overlay bin icon (Only for author or admins) */}
-                          {(isCreator || isAdm) && (
-                            <button
-                              onClick={(e) => handleBgDelete(bg.id, bg.title, e)}
-                              className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer"
-                              title="Dieses Wallpaper löschen 🗑️"
-                            >
-                              <span className="text-[8px] font-black leading-none">×</span>
-                            </button>
-                          )}
-                        </motion.div>
-                      );
-                    })}
+                      {/* Add Custom Weather Button */}
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          if (!user) {
+                            triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um dein eigenes Wetter mit allen zu teilen!');
+                            setShowLoginModal(true);
+                          } else {
+                            setShowWeatherUploadModal(true);
+                          }
+                          playAppSound('click');
+                        }}
+                        className="py-1 px-1.5 rounded-lg bg-sky-500/15 border border-sky-500/40 hover:bg-sky-500/25 text-sky-400 transition-all flex items-center gap-1 flex-shrink-0 cursor-pointer outline-none"
+                        title="Eigenes Wetter erschaffen ✨"
+                      >
+                        <Plus size={11} />
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">Erstellen</span>
+                      </motion.button>
+
+                      {/* Shared Custom Weathers */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {sharedWeathers.map((w) => {
+                          const isCreator = user && w.userId === user.uid;
+                          const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
+                          const isSelected = weatherMode === w.id;
+                          const weatherEmoji = w.type === 'rain' ? '🌧️' : (w.type === 'snow' ? '❄️' : '🍀');
+
+                          return (
+                            <div key={`shared-weather-item-${w.id}`} className="relative flex-shrink-0 group">
+                              <motion.button
+                                { ...{ whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } } as any }
+                                onClick={() => {
+                                  setWeatherMode(w.id);
+                                  localStorage.setItem('app_weather_mode', w.id);
+                                  playAppSound('pop');
+                                  triggerToast('quest', 'WETTER-MASTERY 🔮', `"${w.title}" geladen.`);
+                                }}
+                                className={`py-1 px-1.5 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all flex-shrink-0 cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-sky-500 text-black border border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.4)] font-semibold'
+                                    : 'bg-neutral-950 border border-neutral-800 hover:border-neutral-600 text-neutral-400 hover:text-white'
+                                }`}
+                                title={`"${w.title}" geteilt von ${w.uploadedBy}`}
+                              >
+                                <span>{weatherEmoji}</span>
+                                <span>{w.title}</span>
+                              </motion.button>
+
+                              {/* Delete button for authors or admins */}
+                              {(isCreator || isAdm) && (
+                                <button
+                                  onClick={(e) => handleWeatherDelete(w.id, w.title, e)}
+                                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer z-10"
+                                  title="Dieses Wetter löschen 🗑️"
+                                >
+                                  <span className="text-[8px] font-black leading-none">×</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -6698,6 +7342,203 @@ export default function App() {
                     ) : (
                       <>
                         Hintergrund für alle veröffentlichen 🚀
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Weather Creator Modal */}
+      <AnimatePresence>
+        {showWeatherUploadModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            onClick={() => setShowWeatherUploadModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="w-full max-w-md bg-neutral-900 border-2 border-neutral-800 rounded-2xl p-6 shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => {
+                  setShowWeatherUploadModal(false);
+                  playAppSound('click');
+                }}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400 border border-sky-500/20">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">Wetter erschaffen 🌧️</h3>
+                  <p className="text-[10px] text-neutral-400">Passe dein eigenes, animiertes Pixel-Wetter an und teile es mit allen.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleWeatherUploadSubmit} className="space-y-4">
+                {/* 1. Name */}
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                    Wetter Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={32}
+                    value={uploadWeatherTitle}
+                    onChange={(e) => setUploadWeatherTitle(e.target.value)}
+                    placeholder="z.B. Höllenfeuer, Portalsturm..."
+                    className="w-full bg-black/50 border border-neutral-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-400 transition-colors"
+                  />
+                </div>
+
+                {/* 2. Type */}
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                    Zustand / Partikel-Art
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'rain', label: 'Regentropfen 🌧️' },
+                      { id: 'snow', label: 'Schneekorn ❄️' },
+                      { id: 'leaves', label: 'Wirbelblätter 🍀' }
+                    ].map((t) => (
+                      <button
+                        key={`t-${t.id}`}
+                        type="button"
+                        onClick={() => {
+                          setUploadWeatherType(t.id as any);
+                          playAppSound('click');
+                        }}
+                        className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                          uploadWeatherType === t.id 
+                            ? 'bg-sky-500 text-black border border-sky-400' 
+                            : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
+                        }`}
+                      >
+                        {t.id === 'rain' ? 'Regen' : t.id === 'snow' ? 'Schnee' : 'Blätter'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Colors selection */}
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                    Partikel-Farben (Auswahl: {uploadWeatherColors.join(', ')})
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5 p-2 bg-black/30 rounded-xl border border-neutral-850">
+                    {[
+                      { name: 'Blau', hex: '#82cbff' },
+                      { name: 'Smaragd', hex: '#2ecc71' },
+                      { name: 'Drache', hex: '#ff4d4d' },
+                      { name: 'Gold', hex: '#f1c40f' },
+                      { name: 'Portal', hex: '#9b59b6' },
+                      { name: 'Schnee', hex: '#ffffff' },
+                      { name: 'Pastell', hex: '#ff99cc' },
+                      { name: 'Slime', hex: '#5bfb00' },
+                      { name: 'Lava', hex: '#ff5500' },
+                      { name: 'Nacht', hex: '#2c3e50' },
+                      { name: 'Herbst', hex: '#e67e22' },
+                      { name: 'Kupfer', hex: '#d35400' }
+                    ].map((preset) => {
+                      const isSelected = uploadWeatherColors.includes(preset.hex);
+                      return (
+                        <button
+                          key={`col-${preset.hex}`}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              if (uploadWeatherColors.length > 1) {
+                                setUploadWeatherColors(prev => prev.filter(c => c !== preset.hex));
+                              }
+                            } else {
+                              if (uploadWeatherColors.length < 5) {
+                                setUploadWeatherColors(prev => [...prev, preset.hex]);
+                              } else {
+                                triggerToast('quest', 'LIMIT ERREICHT 🎨', 'Maximal 5 Farben pro Wetter!');
+                              }
+                            }
+                            playAppSound('click');
+                          }}
+                          className={`p-1.5 rounded-lg flex flex-col items-center gap-1 transition-all border cursor-pointer ${
+                            isSelected ? 'border-sky-400 bg-sky-500/15' : 'border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900'
+                          }`}
+                          title={preset.name}
+                        >
+                          <div className="w-5 h-5 rounded animate-pulse" style={{ backgroundColor: preset.hex }} />
+                          <span className="text-[7.5px] font-black truncate max-w-full text-neutral-400">{preset.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Speed & Scale row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                      Geschwindigkeit
+                    </label>
+                    <select
+                      value={uploadWeatherSpeed}
+                      onChange={(e) => setUploadWeatherSpeed(e.target.value as any)}
+                      className="w-full bg-black/50 border border-neutral-850 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400"
+                    >
+                      <option value="gentle">Sacht (Gentle)</option>
+                      <option value="moderate">Normal (Moderate)</option>
+                      <option value="tempest">Stürmisch (Tempest)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                      Partikel-Größe
+                    </label>
+                    <select
+                      value={uploadWeatherScale}
+                      onChange={(e) => setUploadWeatherScale(e.target.value as any)}
+                      className="w-full bg-black/50 border border-neutral-850 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400"
+                    >
+                      <option value="fine">Fein (Fine)</option>
+                      <option value="medium">Mittel (Medium)</option>
+                      <option value="chunk">Groß (Chunk)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={isUploadingWeather}
+                    type="submit"
+                    className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-extrabold uppercase text-xs tracking-wider border-b-4 border-sky-700 shadow-md flex items-center justify-center gap-2 disabled:opacity-55 cursor-pointer"
+                  >
+                    {isUploadingWeather ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Erschaffen...
+                      </>
+                    ) : (
+                      <>
+                        Wetter online bringen ✨
                       </>
                     )}
                   </motion.button>

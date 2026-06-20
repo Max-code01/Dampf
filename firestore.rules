@@ -319,9 +319,30 @@ service cloud.firestore {
              (data.createdAt == request.time || data.createdAt is timestamp);
     }
 
+    // Shared weathers validation
+    function isValidSharedWeather(data) {
+      return data.keys().hasAll(['title', 'type', 'colors', 'speedMultiplier', 'particleScale', 'uploadedBy', 'userId', 'createdAt']) &&
+             data.keys().size() == 8 &&
+             data.title is string && data.title.size() <= 64 &&
+             data.type is string && (data.type == 'rain' || data.type == 'snow' || data.type == 'leaves') &&
+             data.colors is list && data.colors.size() <= 5 &&
+             data.speedMultiplier is string && (data.speedMultiplier == 'gentle' || data.speedMultiplier == 'moderate' || data.speedMultiplier == 'tempest') &&
+             data.particleScale is string && (data.particleScale == 'fine' || data.particleScale == 'medium' || data.particleScale == 'chunk') &&
+             data.uploadedBy is string && data.uploadedBy.size() <= 64 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             (data.createdAt == request.time || data.createdAt is timestamp);
+    }
+
     match /shared_backgrounds/{bgId} {
       allow read: if true;
       allow create: if isSignedIn() && isValidSharedBackground(incoming()) && incoming().userId == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if false;
+    }
+
+    match /shared_weathers/{weatherId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidSharedWeather(incoming()) && incoming().userId == request.auth.uid;
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow update: if false;
     }
