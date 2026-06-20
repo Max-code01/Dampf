@@ -6666,7 +6666,7 @@ export default function App() {
                                <div className="flex items-center gap-4">
                                  <div className="relative group/avatar">
                                    <img 
-                                     src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
+                                     src={p.customSkin || `https://minotar.net/helm/${p.minecraftUsername || 'Steve'}`} 
                                      className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 object-cover shadow-lg group-hover/avatar:border-mc-red/50 transition-all" 
                                      alt=""
                                      referrerPolicy="no-referrer"
@@ -7304,7 +7304,7 @@ export default function App() {
                     previewGlow ? getGlowStyles(previewGlow) : (myProfile.activeGlow && myProfile.activeGlow !== 'none' ? getGlowStyles(myProfile.activeGlow) : 'border border-neutral-800/80 bg-neutral-900/40')
                   }`}>
                     <img 
-                      src={myProfile.customSkin || `https://mc-heads.net/avatar/${myProfile.minecraftUsername || myProfile.displayName}/64`} 
+                      src={myProfile.customSkin || `https://minotar.net/helm/${myProfile.minecraftUsername || myProfile.displayName}/64`} 
                       className="w-8 h-8 rounded-lg pixelated" 
                       alt="" 
                       referrerPolicy="no-referrer"
@@ -7979,7 +7979,7 @@ export default function App() {
                           {/* Avatar */}
                           <div className="relative">
                             <img 
-                              src={profile.customSkin || `https://mc-heads.net/avatar/${profile.minecraftUsername || profile.displayName}/64`} 
+                              src={profile.customSkin || `https://minotar.net/helm/${profile.minecraftUsername || profile.displayName}/64`} 
                               alt="Avatar"
                               className="w-10 h-10 rounded-xl"
                             />
@@ -8492,7 +8492,7 @@ export default function App() {
                   onClick={() => isAdmin && p?.type === 'profile' && p?.userId && openProfileEdit(p.userId)}
                 >
                   <img 
-                    src={p?.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p?.username}`} 
+                    src={p?.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://minotar.net/helm/${p.username}`) : `https://minotar.net/helm/${p?.username}`} 
                     alt={`${p?.username} Minecraft Profil`}
                     className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
                     title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
@@ -8551,7 +8551,7 @@ export default function App() {
                       >
                          <div className="relative mb-4">
                            <img 
-                             src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
+                             src={p.customSkin || `https://minotar.net/helm/${p.minecraftUsername || 'Steve'}`} 
                              className="w-20 h-20 rounded-xl bg-neutral-900 border-2 border-mc-gold/20 pixelated object-cover group-hover:scale-105 transition-transform" 
                              alt=""
                              referrerPolicy="no-referrer"
@@ -8969,7 +8969,7 @@ export default function App() {
                   </div>
                   <div className="relative mb-4">
                     <img 
-                      src={p.profile?.customSkin || `https://mc-heads.net/avatar/${p.username || 'steve'}`} 
+                      src={p.profile?.customSkin || `https://minotar.net/helm/${p.username || 'steve'}`} 
                       alt={`${p.displayName} Community Mitglied`}
                       className="w-16 h-16 rounded-lg bg-neutral-900 pixelated border-2 border-neutral-800 group-hover:border-mc-red/50 transition-colors object-cover"
                       referrerPolicy="no-referrer"
@@ -9272,7 +9272,7 @@ export default function App() {
                                   <div key={`clan-member-${member.userId || `idx-${i}`}-${i}`} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                     <div className="flex items-center gap-2">
                                       <img 
-                                        src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
+                                        src={prof?.customSkin || `https://minotar.net/helm/${prof?.minecraftUsername || 'steve'}`}
                                         alt={`${prof?.displayName || 'Spieler'} Clan Avatar`}
                                         className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800 object-cover"
                                         referrerPolicy="no-referrer"
@@ -9430,7 +9430,7 @@ export default function App() {
                                 <div key={`clan-req-${req.id || `req-${i}`}-${i}`} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                   <div className="flex items-center gap-3 mb-2">
                                     <img 
-                                      src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
+                                      src={`https://minotar.net/helm/${req.minecraftUsername}`}
                                       alt={`${req.minecraftUsername} Beitrittsanfrage`}
                                       className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800"
                                       referrerPolicy="no-referrer"
@@ -11262,7 +11262,7 @@ export default function App() {
                             <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Minecraft Skin Vorschau - Dein Charakter" />
                           ) : (
                             <img 
-                              src={`https://mc-heads.net/avatar/${mcUsernameInput.trim() || 'Steve'}`} 
+                              src={`https://minotar.net/helm/${mcUsernameInput.trim() || 'Steve'}`} 
                               className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover shadow-[0_0_20px_rgba(251,191,36,0.15)]" 
                               alt="Minecraft Skin/Head-Vorschau"
                               referrerPolicy="no-referrer"

@@ -13,8 +13,7 @@ for (const dir of dirsToScan) {
   for (const file of files) {
     if (file.endsWith('.png') || file.endsWith('.jpg')) {
       const oldPath = path.join(dir, file);
-      const newName = file.replace(/-/g, '_');
-      const newPath = path.join(targetDir, newName);
+      const newPath = path.join(targetDir, file);
       
       // Move file
       if (oldPath !== newPath && !fs.existsSync(newPath)) {
