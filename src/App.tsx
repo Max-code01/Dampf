@@ -54,6 +54,7 @@ import {
   Gem,
   X,
   Rocket,
+  Upload,
   Plus,
   Unlock,
   ShoppingBag,
@@ -67,6 +68,11 @@ import {
   Play,
   Pause,
   Volume2,
+  VolumeX,
+  Sunrise,
+  Sun,
+  Sunset,
+  Moon,
   Music,
   Disc,
   Flame,
@@ -1360,6 +1366,16 @@ export default function App() {
     const id = `toast-${Date.now()}-${Math.random()}`;
     const newToast: AppToast = { id, type, title, description, ...options };
     setToasts(prev => [...prev.slice(-3), newToast]); // Shows max 4 toasts at the same time
+    
+    // Play beautiful theme acoustic Note-Block feedback
+    if (type === 'level') {
+      playAppSound('levelUp');
+    } else if (type === 'xp') {
+      playAppSound('exp');
+    } else {
+      playAppSound('pop');
+    }
+
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 5000);
@@ -2571,10 +2587,19 @@ export default function App() {
       if (err.message.includes('Quota')) setHasQuotaExceeded(true);
     });
 
+    // Listen to shared backgrounds
+    const backgroundsQuery = query(collection(db, 'shared_backgrounds'), orderBy('createdAt', 'desc'), limit(100));
+    const unsubscribeBgs = onSnapshot(backgroundsQuery, (snapshot) => {
+      setSharedBackgrounds(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, (err) => {
+      if (err.message && err.message.includes('Quota')) setHasQuotaExceeded(true);
+    });
+
     return () => {
       unsubscribeOnlinePlayers();
       unsubscribeAppConfig();
       unsubscribeActiveQuiz();
+      unsubscribeBgs();
     };
   }, [hasQuotaExceeded]);
 
@@ -2711,6 +2736,231 @@ export default function App() {
   };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [appMuted, setAppMuted] = useState<boolean>(() => {
+    return localStorage.getItem('app_muted') === 'true';
+  });
+
+  const [backgroundTimeMode, setBackgroundTimeMode] = useState<string>(() => {
+    return localStorage.getItem('background_time_mode') || 'classic';
+  });
+
+  const [resolvedTime, setResolvedTime] = useState<string>('classic');
+  const [isTimeConsoleExpanded, setIsTimeConsoleExpanded] = useState(false);
+  const [sharedBackgrounds, setSharedBackgrounds] = useState<any[]>([]);
+  const [showBgUploadModal, setShowBgUploadModal] = useState(false);
+  const [uploadBgTitle, setUploadBgTitle] = useState('');
+  const [uploadBgUrl, setUploadBgUrl] = useState('');
+  const [uploadBgFileBase64, setUploadBgFileBase64] = useState<string | null>(null);
+  const [isUploadingBg, setIsUploadingBg] = useState(false);
+
+  useEffect(() => {
+    setResolvedTime(backgroundTimeMode);
+  }, [backgroundTimeMode]);
+
+  const handleBgUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      triggerToast('quest', 'FEHLER ❌', 'Du musst angemeldet sein, um einen Hintergrund hochzuladen.');
+      return;
+    }
+    
+    const finalTitle = uploadBgTitle.trim();
+    let finalUrl = uploadBgUrl.trim();
+    
+    if (uploadBgFileBase64) {
+      finalUrl = uploadBgFileBase64;
+    }
+    
+    if (!finalTitle) {
+      triggerToast('quest', 'TITEL FEHLT 📝', 'Bitte gib deinem Hintergrund einen Namen.');
+      return;
+    }
+    
+    if (!finalUrl) {
+      triggerToast('quest', 'LINK FEHLT 🔗', 'Bitte füge eine Bild-URL ein oder wähle eine Datei aus.');
+      return;
+    }
+    
+    setIsUploadingBg(true);
+    try {
+      // Create record in shared_backgrounds
+      const bgDocRef = doc(collection(db, 'shared_backgrounds'));
+      await setDoc(bgDocRef, {
+        imageUrl: finalUrl,
+        title: finalTitle,
+        uploadedBy: (myProfile?.displayName || myProfile?.minecraftUsername || user.displayName || 'Spieler').trim(),
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+      
+      triggerToast('quest', 'HINTERGRUND GETEILT! 🎨', `"${finalTitle}" ist jetzt für alle verfügbar.`);
+      // Activate it for this user
+      setBackgroundTimeMode(bgDocRef.id);
+      localStorage.setItem('background_time_mode', bgDocRef.id);
+      
+      // Reset form states
+      setUploadBgTitle('');
+      setUploadBgUrl('');
+      setUploadBgFileBase64(null);
+      setShowBgUploadModal(false);
+      playAppSound('levelUp');
+    } catch (err: any) {
+      console.error(err);
+      triggerToast('quest', 'UPLOAD FEHLT ❌', err.message || 'Etwas ist schiefgelaufen.');
+    } finally {
+      setIsUploadingBg(false);
+    }
+  };
+
+  const handleBgDelete = async (bgId: string, bgTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Avoid triggering activation
+    if (!user) return;
+    
+    const bgItem = sharedBackgrounds.find(bg => bg.id === bgId);
+    if (!bgItem) return;
+    
+    const uploaderId = bgItem.userId;
+    const isUploader = uploaderId === user.uid;
+    const isPlayerAdmin = myProfile?.role === 'Admin' || myProfile?.role === 'Owner' || myProfile?.role === 'Root';
+    
+    if (!isUploader && !isPlayerAdmin) {
+      triggerToast('quest', 'KEINE RECHTE 🔒', 'Nur der Ersteller oder Admins können diesen Hintergrund löschen.');
+      return;
+    }
+    
+    if (!window.confirm(`Möchtest du den Hintergrund "${bgTitle}" wirklich löschen?`)) {
+      return;
+    }
+    
+    try {
+      await deleteDoc(doc(db, 'shared_backgrounds', bgId));
+      triggerToast('quest', 'HINTERGRUND GELÖSCHT! 🗑️', `"${bgTitle}" wurde gelöscht.`);
+      
+      // If currently active, reset to classic
+      if (backgroundTimeMode === bgId) {
+        setBackgroundTimeMode('classic');
+        localStorage.setItem('background_time_mode', 'classic');
+      }
+      playAppSound('pop');
+    } catch (err: any) {
+      console.error(err);
+      triggerToast('quest', 'FEHLER ❌', err.message || 'Löschen fehlgeschlagen.');
+    }
+  };
+
+  const playAppSound = (type: 'click' | 'exp' | 'levelUp' | 'pop' | 'chest' | 'sun' | 'moon') => {
+    if (appMuted) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      
+      switch (type) {
+        case 'click': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(392, ctx.currentTime);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.12);
+          break;
+        }
+        case 'pop': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.08);
+          break;
+        }
+        case 'exp': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(1046.50, ctx.currentTime);
+          osc.frequency.setValueAtTime(1318.51, ctx.currentTime + 0.05);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.3);
+          break;
+        }
+        case 'levelUp': {
+          const notes = [523.25, 659.25, 783.99, 1046.50];
+          notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.1);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.1 + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime + i * 0.1);
+            osc.stop(ctx.currentTime + i * 0.1 + 0.25);
+          });
+          break;
+        }
+        case 'chest': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(150, ctx.currentTime);
+          osc.frequency.linearRampToValueAtTime(300, ctx.currentTime + 0.25);
+          gain.gain.setValueAtTime(0.05, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.25);
+          break;
+        }
+        case 'sun': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(329.63, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.2);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.25);
+          break;
+        }
+        case 'moon': {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(220.00, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(110.00, ctx.currentTime + 0.3);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.35);
+          break;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const [showClashComingSoon, setShowClashComingSoon] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
 
@@ -5658,8 +5908,226 @@ export default function App() {
 
   const totalOnline = combinedOnline.length;
 
+  const getBackgroundStyle = () => {
+    if (resolvedTime === 'classic') {
+      return { backgroundColor: 'black', backgroundImage: 'none' };
+    }
+    
+    // Improved, rich, eye-catching gradients that maintain pixel vibe
+    if (resolvedTime === 'morning') {
+      return { backgroundImage: 'linear-gradient(to bottom, #110722 0%, #30174e 45%, #c8414e 80%, #faa66a 100%)' };
+    }
+    if (resolvedTime === 'noon') {
+      return { backgroundImage: 'linear-gradient(to bottom, #0d5ea6 0%, #2f8ad8 35%, #5ebfed 70%, #90dcff 100%)' };
+    }
+    if (resolvedTime === 'evening') {
+      return { backgroundImage: 'linear-gradient(to bottom, #07091c 0%, #170d2b 30%, #5c183f 60%, #e25822 90%, #faa640 100%)' };
+    }
+    if (resolvedTime === 'night') {
+      return { backgroundImage: 'linear-gradient(to bottom, #010204 0%, #060914 45%, #0e1429 80%, #141a30 100%)' };
+    }
+    
+    // Check custom backgrounds
+    const customBg = sharedBackgrounds.find(bg => bg.id === resolvedTime);
+    if (customBg) {
+      return { 
+        backgroundImage: `url(${customBg.imageUrl})`, 
+        backgroundSize: 'cover', 
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      };
+    }
+    
+    // Direct URL support
+    if (resolvedTime.startsWith('http') || resolvedTime.startsWith('data:image')) {
+      return { 
+        backgroundImage: `url(${resolvedTime})`, 
+        backgroundSize: 'cover', 
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      };
+    }
+    
+    return { backgroundColor: 'black', backgroundImage: 'none' };
+  };
+
+  const isPresetTime = ['classic', 'morning', 'noon', 'evening', 'night'].includes(resolvedTime);
+
   return (
-    <div className="min-h-screen relative overflow-hidden pixel-grid bg-black">
+    <div 
+      className="min-h-screen relative overflow-hidden pixel-grid transition-colors duration-[1000ms] ease-in-out bg-black" 
+      style={getBackgroundStyle()}
+    >
+      {/* Sky Ambient Elements Layer (Sun, Moon, Stars, Minecraft clouds, Mountains) */}
+      {resolvedTime !== 'classic' && (
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
+          {/* Twinkling Stars (Only in Night, Evening, Morning or Custom Wallpapers) */}
+          {(resolvedTime === 'night' || resolvedTime === 'evening' || resolvedTime === 'morning' || !isPresetTime) && (
+            <div className="absolute inset-0 z-0">
+              {[
+                { t: '12%', l: '8%', s: 'w-1 h-0.5', d: 1.5 },
+                { t: '25%', l: '20%', s: 'w-1.5 h-1.5', d: 2 },
+                { t: '8%', l: '35%', s: 'w-1 h-1', d: 3 },
+                { t: '18%', l: '50%', s: 'w-2 h-2', d: 1.2 },
+                { t: '28%', l: '65%', s: 'w-1.5 h-1.5', d: 2.5 },
+                { t: '10%', l: '80%', s: 'w-2 h-2', d: 1.8 },
+                { t: '22%', l: '92%', s: 'w-1 h-1', d: 2.2 },
+                { t: '40%', l: '15%', s: 'w-1.5 h-1.5', d: 3.2 },
+                { t: '35%', l: '42%', s: 'w-2 h-2', d: 1.6 },
+                { t: '45%', l: '78%', s: 'w-1 h-1', d: 2.7 },
+              ].map((star, i) => (
+                <motion.div
+                  key={`bg-star-${i}`}
+                  initial={{ opacity: 0.1 }}
+                  animate={{ opacity: [0.15, 0.9, 0.15] }}
+                  transition={{ repeat: Infinity, duration: star.d, ease: "easeInOut" }}
+                  className={`absolute bg-white rounded-none ${star.s} shadow-[0_0_6px_rgba(255,255,255,0.8)]`}
+                  style={{ top: star.t, left: star.l }}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Shooting Stars Animation (Only Night, Evening) */}
+          {(resolvedTime === 'night' || resolvedTime === 'evening') && (
+            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+              {[
+                { delay: 3, duration: 2, top: '12%', left: '85%' },
+                { delay: 10, duration: 2.5, top: '30%', left: '92%' }
+              ].map((star, idx) => (
+                <motion.div
+                  key={`shooting-star-${idx}`}
+                  initial={{ x: 0, y: 0, opacity: 0, scale: 0 }}
+                  animate={{ 
+                    x: [0, -500], 
+                    y: [0, 500], 
+                    opacity: [0, 1, 1, 0],
+                    scale: [0.6, 1.2, 1.2, 0]
+                  }}
+                  transition={{ 
+                    repeat: Infinity, 
+                    duration: star.duration, 
+                    delay: star.delay,
+                    repeatDelay: 12,
+                    ease: "easeOut"
+                  }}
+                  className="absolute bg-white w-2 h-2 rounded-none rotate-45 shadow-[0_0_12px_rgba(255,255,255,0.9)]"
+                  style={{ top: star.top, left: star.left }}
+                >
+                  <div className="absolute top-0 left-0 w-8 h-1.5 bg-gradient-to-r from-white to-transparent -rotate-45 origin-left" />
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          {/* Pixel Sun & Sunbeams (Morning & Day) */}
+          {(resolvedTime === 'noon' || resolvedTime === 'morning') && (
+            <motion.div
+              initial={{ y: 250, opacity: 0 }}
+              animate={{ 
+                y: resolvedTime === 'morning' ? 120 : 0, 
+                opacity: resolvedTime === 'morning' ? 0.8 : 1 
+              }}
+              transition={{ type: "spring", stiffness: 35, damping: 15 }}
+              className="absolute left-[70%] top-[8%] flex flex-col items-center z-0"
+            >
+              {/* Sun Rays Halo */}
+              <div className="absolute -inset-14 bg-amber-400/25 blur-3xl pointer-events-none rounded-none animate-pulse" />
+              {/* Flat pixelated blocky Sun */}
+              <div className="w-16 h-16 bg-[#ffd843] border-4 border-[#ca8a04] shadow-[0_0_30px_rgba(251,191,36,0.6)] flex items-center justify-center relative">
+                <div className="w-8 h-8 bg-[#fffbeb] opacity-40" />
+              </div>
+            </motion.div>
+          )}
+
+          {/* Pixel Moon (Evening & Night) */}
+          {(resolvedTime === 'night' || resolvedTime === 'evening') && (
+            <motion.div
+              initial={{ y: 250, opacity: 0 }}
+              animate={{ 
+                y: resolvedTime === 'evening' ? 110 : 0, 
+                opacity: resolvedTime === 'evening' ? 0.7 : 1 
+              }}
+              transition={{ type: "spring", stiffness: 35, damping: 15 }}
+              className="absolute left-[72%] top-[8%] flex flex-col items-center z-0"
+            >
+              {/* Moon Glow Halo */}
+              <div className="absolute -inset-14 bg-indigo-300/15 blur-3xl pointer-events-none rounded-none" />
+              {/* Flat pixelated blocky Moon (Crescent design) */}
+              <div className="w-14 h-14 bg-[#e2e8f0] border-4 border-[#94a3b8] shadow-[0_0_25px_rgba(148,163,184,0.4)] relative flex overflow-hidden">
+                <div className="w-1/3 h-full bg-[#cbd5e1] opacity-70" />
+                <div className="w-2/3 h-full bg-[#f1f5f9]" />
+              </div>
+            </motion.div>
+          )}
+
+          {/* Drifting flat Minecraft clouds */}
+          {isPresetTime && (
+            <div className="absolute top-[22%] left-[-20%] w-[150%] h-[120px] pointer-events-none opacity-45 z-0">
+              <motion.div 
+                animate={{ x: ["0%", "80%"] }}
+                transition={{ repeat: Infinity, duration: 160, ease: "linear" }}
+                className="flex gap-48"
+              >
+                <div className="w-64 h-8 bg-white/10 relative">
+                  <div className="absolute left-4 -top-4 w-40 h-8 bg-white/10" />
+                  <div className="absolute left-12 -top-8 w-24 h-8 bg-white/10" />
+                </div>
+                <div className="w-80 h-10 bg-white/10 relative mt-6">
+                  <div className="absolute left-8 -top-4 w-48 h-10 bg-white/10" />
+                  <div className="absolute left-20 -top-8 w-32 h-10 bg-white/10" />
+                </div>
+                <div className="w-56 h-8 bg-white/10 relative mt-12">
+                  <div className="absolute left-6 -top-4 w-32 h-8 bg-white/10" />
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Blocky Parallax Mountains (Only for standard times to keep custom clear) */}
+          {isPresetTime && (
+            <div className="absolute inset-x-0 bottom-0 h-44 pointer-events-none z-0 overflow-hidden select-none">
+              {/* Far Mountain silhouette */}
+              <div 
+                className="absolute inset-x-0 bottom-0 h-28 opacity-15 transition-colors duration-[1000ms] ease-in-out"
+                style={{ 
+                  clipPath: 'polygon(0% 100%, 15% 45%, 28% 70%, 45% 35%, 62% 65%, 78% 25%, 90% 55%, 100% 100%)',
+                  backgroundColor: 
+                    resolvedTime === 'morning' ? '#7b3a62' :
+                    resolvedTime === 'noon' ? '#6896cc' :
+                    resolvedTime === 'evening' ? '#92345a' :
+                    resolvedTime === 'night' ? '#0f1225' : '#000000'
+                }} 
+              />
+              {/* Mid Mountain silhouette */}
+              <div 
+                className="absolute inset-x-0 bottom-0 h-20 opacity-25 transition-colors duration-[1000ms] ease-in-out"
+                style={{ 
+                  clipPath: 'polygon(0% 100%, 8% 65%, 22% 40%, 38% 75%, 52% 45%, 68% 80%, 82% 50%, 100% 100%)',
+                  backgroundColor: 
+                    resolvedTime === 'morning' ? '#4f2048' :
+                    resolvedTime === 'noon' ? '#447ba3' :
+                    resolvedTime === 'evening' ? '#5a1949' :
+                    resolvedTime === 'night' ? '#080d19' : '#000000'
+                }} 
+              />
+              {/* Close Rocky foothills / blocky trees */}
+              <div 
+                className="absolute inset-x-0 bottom-0 h-10 opacity-40 transition-colors duration-[1000ms] ease-in-out"
+                style={{ 
+                  clipPath: 'polygon(0% 100%, 4% 80%, 12% 55%, 18% 70%, 26% 85%, 35% 50%, 42% 75%, 48% 90%, 60% 60%, 68% 75%, 75% 85%, 88% 45%, 100% 100%)',
+                  backgroundColor: 
+                    resolvedTime === 'morning' ? '#2a0e2f' :
+                    resolvedTime === 'noon' ? '#1c4d70' :
+                    resolvedTime === 'evening' ? '#330c34' :
+                    resolvedTime === 'night' ? '#02040b' : '#000000'
+                }} 
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       <FloatingParticles />
       {/* Emergency Fallback Banner */}
       {isMaintenanceMode && (
@@ -5675,10 +6143,10 @@ export default function App() {
         </motion.div>
       )}
 
-      {/* Background Video/Effect */}
-      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+      {/* Grid Pattern overlay with low opacity */}
+      <div className="absolute inset-0 z-0 opacity-15 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-mc-red/5 to-transparent animate-pulse" />
-        <div className="w-full h-full opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #ff4747 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+        <div className="w-full h-full opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #ff4747 1px, transparent 0)', backgroundSize: '40px 40px' }} />
       </div>
       
       {/* Scanline Effect */}
@@ -5732,6 +6200,358 @@ export default function App() {
           </motion.button>
         </>
       )}
+
+      {/* Floating Day-Night & Audio Note-Block Control Center */}
+      {!isAnyOverlayOpen && (
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: -20, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 25 }}
+          className="fixed top-6 right-6 z-[90] flex items-center gap-3 select-none"
+        >
+          {/* Main Expand/Collapse Toggle Button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              setIsTimeConsoleExpanded(!isTimeConsoleExpanded);
+              playAppSound('click');
+            }}
+            className={`w-10 h-10 rounded-xl flex items-center justify-center text-white backdrop-blur-md shadow-2xl transition-all duration-300 border-2 ${
+              isTimeConsoleExpanded 
+                ? 'bg-mc-gold/25 border-mc-gold text-mc-gold' 
+                : 'bg-black/85 border-neutral-800 hover:border-mc-gold'
+            }`}
+            title={isTimeConsoleExpanded ? 'Optionen einklappen' : 'VFX & Wetter-Optionen öffnen ✨'}
+          >
+            <motion.div
+              animate={{ rotate: isTimeConsoleExpanded ? 180 : 0 }}
+              transition={{ type: "spring", stiffness: 150, damping: 15 }}
+            >
+              <Settings size={18} />
+            </motion.div>
+          </motion.button>
+
+          {/* Expanded Settings Panels */}
+          <AnimatePresence>
+            {isTimeConsoleExpanded && (
+              <motion.div
+                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 220, damping: 22 }}
+                className="flex flex-col md:flex-row items-end md:items-center gap-2"
+              >
+                {/* Sound Mute Toggle Button */}
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => {
+                    const nextMute = !appMuted;
+                    setAppMuted(nextMute);
+                    localStorage.setItem('app_muted', String(nextMute));
+                    if (!nextMute) {
+                      setTimeout(() => playAppSound('click'), 100);
+                    }
+                  }}
+                  className="w-10 h-10 bg-black/85 border-2 border-neutral-800/80 hover:border-mc-gold/50 rounded-xl flex items-center justify-center text-white backdrop-blur-md shadow-2xl transition-all flex-shrink-0"
+                  title={appMuted ? 'Note-Block VFX aktivieren 🔊' : 'Note-Block VFX stummschalten 🔇'}
+                >
+                  {appMuted ? (
+                    <VolumeX size={16} className="text-neutral-500" />
+                  ) : (
+                    <Volume2 size={16} className="text-mc-gold animate-pulse" />
+                  )}
+                </motion.button>
+
+                {/* Time & Background Multi-Selector Console with public scrolling gallery */}
+                <div className="bg-black/95 border-2 border-neutral-800/80 rounded-xl p-1.5 flex items-center gap-1.5 backdrop-blur-md shadow-2xl max-w-[90vw] md:max-w-3xl overflow-x-auto scrollbar-thin">
+                  {/* Preset Buttons */}
+                  <div className="flex items-center gap-1 border-r border-neutral-800/40 pr-2 flex-shrink-0">
+                    {[
+                      { id: 'classic', label: 'Classic 🌌', icon: Clock, sound: 'click' },
+                      { id: 'morning', label: 'Morning 🌅', icon: Sunrise, sound: 'sun' },
+                      { id: 'noon', label: 'Noon ☀️', icon: Sun, sound: 'sun' },
+                      { id: 'evening', label: 'Evening 🌇', icon: Sunset, sound: 'moon' },
+                      { id: 'night', label: 'Night 🌙', icon: Moon, sound: 'moon' }
+                    ].map((opt) => (
+                      <motion.button
+                        key={`time-opt-${opt.id}`}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          setBackgroundTimeMode(opt.id);
+                          localStorage.setItem('background_time_mode', opt.id);
+                          playAppSound(opt.sound as any);
+                          triggerToast('quest', 'WETTER-HEXEREI! 🌤️', `Hintergrund wurde auf "${opt.id.toUpperCase()}" gestellt.`);
+                        }}
+                        className={`py-1.5 px-2 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                          backgroundTimeMode === opt.id
+                            ? 'bg-mc-gold text-black border border-mc-gold shadow-[0_0_12px_rgba(255,170,0,0.4)] font-semibold'
+                            : 'hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
+                        }`}
+                        title={opt.label}
+                      >
+                        <opt.icon size={11} className={backgroundTimeMode === opt.id ? 'text-black' : 'text-neutral-500'} />
+                        <span className="hidden sm:inline">{opt.id}</span>
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  {/* Shared Wallpapers List */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pl-1 scrollbar-none scroll-smooth">
+                    <span className="text-[7.5px] font-black uppercase text-neutral-500 tracking-wider hidden md:inline whitespace-nowrap mr-0.5">
+                      Galerie:
+                    </span>
+
+                    {/* Upload Plus Trigger Card */}
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        if (!user) {
+                          triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um eigene Wallpapers mit allen zu teilen!');
+                          setShowLoginModal(true);
+                        } else {
+                          setShowBgUploadModal(true);
+                        }
+                        playAppSound('click');
+                      }}
+                      className="w-10 h-8 rounded-lg bg-mc-gold/15 border border-mc-gold/40 hover:bg-mc-gold/25 text-mc-gold transition-all flex flex-col items-center justify-center flex-shrink-0 cursor-pointer outline-none"
+                      title="Eigenen Hintergrund teilen ✨"
+                    >
+                      <Plus size={11} />
+                      <span className="text-[6px] font-black uppercase tracking-tighter leading-none">Teilen</span>
+                    </motion.button>
+
+                    {/* Array of Shared Backgrounds */}
+                    {sharedBackgrounds.map((bg) => {
+                      const isCreator = user && bg.userId === user.uid;
+                      const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
+                      const isSelected = backgroundTimeMode === bg.id;
+
+                      return (
+                        <motion.div
+                          key={`shared-bg-item-${bg.id}`}
+                          className="relative flex-shrink-0 group"
+                        >
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setBackgroundTimeMode(bg.id);
+                              localStorage.setItem('background_time_mode', bg.id);
+                              playAppSound('pop');
+                              triggerToast('quest', 'WALLPAPER AKTIV 🎨', `"${bg.title}" von ${bg.uploadedBy} geladen.`);
+                            }}
+                            className={`w-14 h-8 rounded-lg relative overflow-hidden bg-neutral-950 border transition-all flex flex-col items-center justify-end p-0.5 outline-none cursor-pointer ${
+                              isSelected
+                                ? 'border-mc-gold ring-1 ring-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.4)]'
+                                : 'border-neutral-800 hover:border-neutral-600'
+                            }`}
+                            title={`"${bg.title}" geteilt von ${bg.uploadedBy}`}
+                          >
+                            <img
+                              src={bg.imageUrl}
+                              alt={bg.title}
+                              referrerPolicy="no-referrer"
+                              className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-95 transition-opacity"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
+                            <span className="relative z-10 text-[6px] font-black text-white truncate text-center w-full block drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] px-0.5 pb-0.5 leading-none max-w-full">
+                              {bg.title}
+                            </span>
+                          </motion.button>
+
+                          {/* Delete capability overlay bin icon (Only for author or admins) */}
+                          {(isCreator || isAdm) && (
+                            <button
+                              onClick={(e) => handleBgDelete(bg.id, bg.title, e)}
+                              className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer"
+                              title="Dieses Wallpaper löschen 🗑️"
+                            >
+                              <span className="text-[8px] font-black leading-none">×</span>
+                            </button>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+      {/* Custom Background Upload Modal */}
+      <AnimatePresence>
+        {showBgUploadModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[190] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            onClick={() => setShowBgUploadModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="w-full max-w-md bg-neutral-900 border-2 border-neutral-800 rounded-2xl p-6 shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => {
+                  setShowBgUploadModal(false);
+                  playAppSound('click');
+                }}
+                className="absolute top-4 right-4 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-mc-gold/10 flex items-center justify-center text-mc-gold border border-mc-gold/20">
+                  <ImageIcon size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">Hintergrund teilen 🎨</h3>
+                  <p className="text-[10px] text-neutral-400">Veröffentliche deinen Lieblingshintergrund für die ganze Community.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleBgUploadSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                    Name des Hintergrunds *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={32}
+                    value={uploadBgTitle}
+                    onChange={(e) => setUploadBgTitle(e.target.value)}
+                    placeholder="z.B. Pixel Wald, Ender-Drache..."
+                    className="w-full bg-black/50 border border-neutral-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-mc-gold transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
+                    Methode zum Hochladen
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadBgFileBase64(null);
+                        setUploadBgUrl('');
+                        playAppSound('click');
+                      }}
+                      className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                        !uploadBgFileBase64 
+                          ? 'bg-mc-gold text-black border border-mc-gold' 
+                          : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
+                      }`}
+                    >
+                      Bild URL einfügen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadBgUrl('');
+                        playAppSound('click');
+                      }}
+                      className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                        uploadBgFileBase64 
+                          ? 'bg-mc-gold text-black border border-mc-gold' 
+                          : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
+                      }`}
+                    >
+                      Datei auswählen (PC/Handy)
+                    </button>
+                  </div>
+
+                  {!uploadBgFileBase64 ? (
+                    <div>
+                      <input
+                        type="url"
+                        value={uploadBgUrl}
+                        onChange={(e) => setUploadBgUrl(e.target.value)}
+                        placeholder="https://deine-seite.de/bild.png"
+                        className="w-full bg-black/50 border border-neutral-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-mc-gold transition-colors"
+                      />
+                      <p className="text-[8px] text-neutral-500 mt-1">Ggf. kannst du ein Bild auf Seiten wie imgur.com hochladen und hier verlinken.</p>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-neutral-850 bg-black/30 rounded-xl p-4 flex flex-col items-center justify-center relative cursor-pointer hover:border-mc-gold/40 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 850000) {
+                              triggerToast('quest', 'DATEI ZU GROẞ! 📁', 'Bitte wähle ein Bild unter 800 KB.');
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              if (event.target?.result) {
+                                setUploadBgFileBase64(event.target.result as string);
+                                triggerToast('quest', 'BILD GELADEN! 🖼️', `"${file.name}" bereit zum Upload.`);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                      <Upload size={20} className="text-neutral-500 mb-1" />
+                      <span className="text-[9px] font-black text-neutral-400 uppercase tracking-wider text-center">
+                        Bild-Datei hierhin ziehen oder anklicken
+                      </span>
+                      {uploadBgFileBase64 && (
+                        <div className="mt-3 relative w-full h-24 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-950">
+                          <img src={uploadBgFileBase64} className="w-full h-full object-cover" alt="Preview" />
+                          <div className="absolute top-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[7px] text-mc-gold uppercase font-black">
+                            Vorschau
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={isUploadingBg}
+                    type="submit"
+                    className="w-full py-2.5 rounded-xl bg-mc-gold hover:bg-amber-400 text-black font-extrabold uppercase text-xs tracking-wider border-b-4 border-amber-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-55 cursor-pointer"
+                  >
+                    {isUploadingBg ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Teile mit allen...
+                      </>
+                    ) : (
+                      <>
+                        Hintergrund für alle veröffentlichen 🚀
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Mining Modal */}
       <AnimatePresence>
@@ -7039,7 +7859,10 @@ export default function App() {
               animate={{ scale: 1 }}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setIsFabMenuOpen(!isFabMenuOpen)}
+              onClick={() => {
+                setIsFabMenuOpen(!isFabMenuOpen);
+                playAppSound('click');
+              }}
               className="pointer-events-auto w-14 h-14 rounded-2xl bg-black border-2 border-mc-gold text-mc-gold flex items-center justify-center shadow-[0_0_30px_rgba(255,170,0,0.4)] relative overflow-hidden group transition-all"
               title="Abenteuer-Menü"
             >

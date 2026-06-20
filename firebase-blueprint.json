@@ -237,9 +237,26 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "userName", "itemId", "itemName", "price", "createdAt"]
+    },
+    "SharedBackground": {
+      "title": "Shared Background",
+      "description": "Custom background wallpaper shared by a community player",
+      "type": "object",
+      "properties": {
+        "imageUrl": { "type": "string", "description": "URL of the wallpaper image" },
+        "title": { "type": "string", "description": "Title/Name of the wallpaper" },
+        "uploadedBy": { "type": "string", "description": "Minecraft username or player display name" },
+        "userId": { "type": "string", "description": "Firestore ID of the uploader" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["imageUrl", "title", "uploadedBy", "userId", "createdAt"]
     }
   },
   "firestore": {
+    "shared_backgrounds/{bgId}": {
+      "schema": "SharedBackground",
+      "description": "Wallpapers uploaded and shared by community players"
+    },
     "user_profiles/{userId}": {
       "schema": "UserProfile",
       "description": "Registered community members profile data"
