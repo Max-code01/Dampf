@@ -2712,8 +2712,17 @@ export default function App() {
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showClashComingSoon, setShowClashComingSoon] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2200);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal || showClashComingSoon;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal || showClashComingSoon || showSplash;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -6663,7 +6672,7 @@ export default function App() {
                                <div className="flex items-center gap-4">
                                  <div className="relative group/avatar">
                                    <img 
-                                     src={p.customSkin || `https://minotar.net/helm/${p.minecraftUsername || 'Steve'}`} 
+                                     src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
                                      className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 object-cover shadow-lg group-hover/avatar:border-mc-red/50 transition-all" 
                                      alt=""
                                      referrerPolicy="no-referrer"
@@ -7301,7 +7310,7 @@ export default function App() {
                     previewGlow ? getGlowStyles(previewGlow) : (myProfile.activeGlow && myProfile.activeGlow !== 'none' ? getGlowStyles(myProfile.activeGlow) : 'border border-neutral-800/80 bg-neutral-900/40')
                   }`}>
                     <img 
-                      src={myProfile.customSkin || `https://minotar.net/helm/${myProfile.minecraftUsername || myProfile.displayName}/64`} 
+                      src={myProfile.customSkin || `https://mc-heads.net/avatar/${myProfile.minecraftUsername || myProfile.displayName}/64`} 
                       className="w-8 h-8 rounded-lg pixelated" 
                       alt="" 
                       referrerPolicy="no-referrer"
@@ -7976,7 +7985,7 @@ export default function App() {
                           {/* Avatar */}
                           <div className="relative">
                             <img 
-                              src={profile.customSkin || `https://minotar.net/helm/${profile.minecraftUsername || profile.displayName}/64`} 
+                              src={profile.customSkin || `https://mc-heads.net/avatar/${profile.minecraftUsername || profile.displayName}/64`} 
                               alt="Avatar"
                               className="w-10 h-10 rounded-xl"
                             />
@@ -8489,7 +8498,7 @@ export default function App() {
                   onClick={() => isAdmin && p?.type === 'profile' && p?.userId && openProfileEdit(p.userId)}
                 >
                   <img 
-                    src={p?.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://minotar.net/helm/${p.username}`) : `https://minotar.net/helm/${p?.username}`} 
+                    src={p?.type === 'profile' ? (userProfiles.find(prof => prof.userId === p.userId)?.customSkin || `https://mc-heads.net/avatar/${p.username}`) : `https://mc-heads.net/avatar/${p?.username}`} 
                     alt={`${p?.username} Minecraft Profil`}
                     className="w-14 h-14 rounded-lg border-2 border-mc-gold bg-neutral-900 pixelated relative z-10 transition-transform group-hover:scale-110 group-hover:z-20 cursor-help object-cover"
                     title={`${p.username} ${p.server !== 'none' ? `auf ${p.server}` : ''}`}
@@ -8548,7 +8557,7 @@ export default function App() {
                       >
                          <div className="relative mb-4">
                            <img 
-                             src={p.customSkin || `https://minotar.net/helm/${p.minecraftUsername || 'Steve'}`} 
+                             src={p.customSkin || `https://mc-heads.net/avatar/${p.minecraftUsername || 'Steve'}`} 
                              className="w-20 h-20 rounded-xl bg-neutral-900 border-2 border-mc-gold/20 pixelated object-cover group-hover:scale-105 transition-transform" 
                              alt=""
                              referrerPolicy="no-referrer"
@@ -8966,7 +8975,7 @@ export default function App() {
                   </div>
                   <div className="relative mb-4">
                     <img 
-                      src={p.profile?.customSkin || `https://minotar.net/helm/${p.username || 'steve'}`} 
+                      src={p.profile?.customSkin || `https://mc-heads.net/avatar/${p.username || 'steve'}`} 
                       alt={`${p.displayName} Community Mitglied`}
                       className="w-16 h-16 rounded-lg bg-neutral-900 pixelated border-2 border-neutral-800 group-hover:border-mc-red/50 transition-colors object-cover"
                       referrerPolicy="no-referrer"
@@ -9269,7 +9278,7 @@ export default function App() {
                                   <div key={`clan-member-${member.userId || `idx-${i}`}-${i}`} className="flex items-center justify-between p-2 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                     <div className="flex items-center gap-2">
                                       <img 
-                                        src={prof?.customSkin || `https://minotar.net/helm/${prof?.minecraftUsername || 'steve'}`}
+                                        src={prof?.customSkin || `https://mc-heads.net/avatar/${prof?.minecraftUsername || 'steve'}`}
                                         alt={`${prof?.displayName || 'Spieler'} Clan Avatar`}
                                         className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800 object-cover"
                                         referrerPolicy="no-referrer"
@@ -9427,7 +9436,7 @@ export default function App() {
                                 <div key={`clan-req-${req.id || `req-${i}`}-${i}`} className="p-3 bg-neutral-900/30 rounded-xl border border-neutral-800/30">
                                   <div className="flex items-center gap-3 mb-2">
                                     <img 
-                                      src={`https://minotar.net/helm/${req.minecraftUsername}`}
+                                      src={`https://mc-heads.net/avatar/${req.minecraftUsername}`}
                                       alt={`${req.minecraftUsername} Beitrittsanfrage`}
                                       className="w-8 h-8 rounded-lg bg-black pixelated border border-neutral-800"
                                       referrerPolicy="no-referrer"
@@ -10341,6 +10350,68 @@ export default function App() {
           >
             <CheckCircle2 size={20} />
             Erfolgreich kopiert!
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Cinematic Splash Screen */}
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div
+            key="global-splash-screen"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8, ease: "easeInOut" }}
+            className="fixed inset-0 z-[10000] bg-black flex flex-col items-center justify-center select-none"
+          >
+            <div className="absolute inset-x-0 bottom-0 top-[20%] bg-gradient-to-t from-black via-black/90 to-transparent pointer-events-none z-0" />
+            <div className="absolute w-[300px] h-[300px] bg-mc-red/10 rounded-full blur-[100px] z-0 animate-pulse" />
+            
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 1.1, opacity: 0 }}
+              transition={{ duration: 1.0, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 flex flex-col items-center gap-6"
+            >
+              <div className="relative group">
+                <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-mc-red via-mc-gold to-mc-red opacity-70 blur-xl group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-pulse"></div>
+                <img
+                  src="https://yt3.googleusercontent.com/qwGGKBMp6Fph_qtakNCBlQLk3gHZcgh2fupaLhFwakknR7Idh056nFgN8jeeK9MqDvnBBQ0SHw=s160-c-k-c0x00ffffff-no-rj"
+                  alt="Server Icon"
+                  className="relative w-32 h-32 rounded-full border-4 border-mc-gold shadow-2xl bg-neutral-900 object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              <div className="text-center space-y-2 mt-4">
+                <motion.h1
+                  initial={{ letterSpacing: "0.1em", opacity: 0 }}
+                  animate={{ letterSpacing: "0.25em", opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 1.2 }}
+                  className="text-white font-black text-3xl uppercase tracking-[0.25em] font-sans drop-shadow-[0_4px_12px_rgba(239,68,68,0.5)]"
+                >
+                  DAMPF
+                </motion.h1>
+                <motion.p
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 0.6, y: 0 }}
+                  transition={{ delay: 0.5, duration: 0.8 }}
+                  className="text-neutral-400 text-xs font-black uppercase tracking-[0.4em] font-mono"
+                >
+                  COMMUNITY APP
+                </motion.p>
+              </div>
+
+              <div className="w-48 h-1 bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/50 mt-6 relative">
+                <motion.div
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 1.8, ease: "easeInOut" }}
+                  className="h-full bg-gradient-to-r from-mc-red via-mc-gold to-mc-red"
+                />
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -11306,7 +11377,7 @@ export default function App() {
                             <img src={tempSkin} className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover" alt="Minecraft Skin Vorschau - Dein Charakter" />
                           ) : (
                             <img 
-                              src={`https://minotar.net/helm/${mcUsernameInput.trim() || 'Steve'}`} 
+                              src={`https://mc-heads.net/avatar/${mcUsernameInput.trim() || 'Steve'}`} 
                               className="w-24 h-24 rounded-lg bg-neutral-900 pixelated border-2 border-mc-gold object-cover shadow-[0_0_20px_rgba(251,191,36,0.15)]" 
                               alt="Minecraft Skin/Head-Vorschau"
                               referrerPolicy="no-referrer"
