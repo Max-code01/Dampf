@@ -132,6 +132,55 @@ const REALM_CODES = {
 
 const DISCORD_URL = 'https://discord.gg/jknXHv77';
 
+const SpruceTree = ({ className, height = 32, color }: { className?: string; height?: number; color: string }) => {
+  return (
+    <div className={`absolute select-none pointer-events-none ${className}`} style={{ height, width: height * 0.4 }}>
+      <svg viewBox="0 0 40 100" className="w-full h-full" fill={color}>
+        <polygon points="17,0 23,0 23,3 26,3 26,6 29,6 29,10 32,10 32,14 35,14 35,19 38,19 38,24 2,24 2,19 5,19 5,14 8,14 8,10 11,10 11,6 14,6 14,3 17,3" />
+        <polygon points="17,16 23,16 23,19 26,19 26,22 29,22 29,26 32,26 32,31 35,31 35,36 38,36 38,42 2,42 2,36 5,36 5,31 8,31 8,26 11,26 11,22 14,22 14,19 17,19" />
+        <polygon points="17,34 23,34 23,37 26,37 26,40 29,40 29,44 32,44 32,49 35,49 35,55 39,55 39,62 1,62 1,55 5,55 5,49 8,49 8,44 11,44 11,40 14,40 14,37 17,37" />
+        <polygon points="17,52 23,52 23,55 26,55 26,58 29,58 29,62 32,62 32,68 36,68 36,75 40,75 40,84 0,84 0,75 4,75 4,68 8,68 8,62 11,62 11,58 14,58 14,55 17,55" />
+        <rect x="17" y="84" width="6" height="16" />
+      </svg>
+    </div>
+  );
+};
+
+const PixelCastle = ({ className, height = 64, color }: { className?: string; height?: number; color: string }) => {
+  return (
+    <div className={`absolute select-none pointer-events-none ${className}`} style={{ height, width: height * 1.5 }}>
+      <svg viewBox="0 0 150 100" className="w-full h-full" fill={color}>
+        <rect x="5" y="30" width="22" height="70" />
+        <rect x="2" y="24" width="28" height="6" />
+        <rect x="2" y="18" width="6" height="6" />
+        <rect x="13" y="18" width="6" height="6" />
+        <rect x="24" y="18" width="6" height="6" />
+        <rect x="27" y="45" width="56" height="55" />
+        <rect x="27" y="40" width="56" height="5" />
+        <rect x="31" y="35" width="6" height="5" />
+        <rect x="43" y="35" width="6" height="5" />
+        <rect x="55" y="35" width="6" height="5" />
+        <rect x="67" y="35" width="6" height="5" />
+        <rect x="75" y="35" width="6" height="5" />
+        <rect x="42" y="15" width="26" height="25" />
+        <polygon points="39,15 55,0 71,15" />
+        <rect x="54" y="-8" width="2" height="8" />
+        <polygon points="44,-8 54,-8 54,-4" fill="#ef4444" opacity="0.6" />
+        <rect x="83" y="35" width="26" height="65" />
+        <rect x="80" y="30" width="32" height="5" />
+        <rect x="80" y="25" width="6" height="5" />
+        <rect x="93" y="25" width="6" height="5" />
+        <rect x="106" y="25" width="6" height="5" />
+        <rect x="109" y="55" width="36" height="45" />
+        <rect x="112" y="50" width="6" height="5" />
+        <rect x="124" y="50" width="6" height="5" />
+        <rect x="136" y="50" width="6" height="5" />
+        <path d="M 47,100 L 47,80 A 8,8 0 0 1 63,80 L 63,100 Z" fill="rgba(0,0,0,0.3)" />
+      </svg>
+    </div>
+  );
+};
+
 interface Player {
   id: string;
   username: string;
@@ -2751,6 +2800,7 @@ export default function App() {
   const [uploadBgTitle, setUploadBgTitle] = useState('');
   const [uploadBgUrl, setUploadBgUrl] = useState('');
   const [uploadBgFileBase64, setUploadBgFileBase64] = useState<string | null>(null);
+  const [uploadBgMethod, setUploadBgMethod] = useState<'url' | 'file'>('url');
   const [isUploadingBg, setIsUploadingBg] = useState(false);
 
   useEffect(() => {
@@ -2765,10 +2815,14 @@ export default function App() {
     }
     
     const finalTitle = uploadBgTitle.trim();
-    let finalUrl = uploadBgUrl.trim();
+    let finalUrl = '';
     
-    if (uploadBgFileBase64) {
-      finalUrl = uploadBgFileBase64;
+    if (uploadBgMethod === 'file') {
+      if (uploadBgFileBase64) {
+        finalUrl = uploadBgFileBase64;
+      }
+    } else {
+      finalUrl = uploadBgUrl.trim();
     }
     
     if (!finalTitle) {
@@ -2802,6 +2856,7 @@ export default function App() {
       setUploadBgTitle('');
       setUploadBgUrl('');
       setUploadBgFileBase64(null);
+      setUploadBgMethod('url');
       setShowBgUploadModal(false);
       playAppSound('levelUp');
     } catch (err: any) {
@@ -5909,42 +5964,57 @@ export default function App() {
   const totalOnline = combinedOnline.length;
 
   const getBackgroundStyle = () => {
+    const baseStyle: React.CSSProperties = {
+      backgroundAttachment: 'fixed',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat'
+    };
+
     if (resolvedTime === 'classic') {
-      return { backgroundColor: 'black', backgroundImage: 'none' };
+      return { ...baseStyle, backgroundColor: 'black', backgroundImage: 'none' };
     }
     
     // Improved, rich, eye-catching gradients that maintain pixel vibe
     if (resolvedTime === 'morning') {
-      return { backgroundImage: 'linear-gradient(to bottom, #110722 0%, #30174e 45%, #c8414e 80%, #faa66a 100%)' };
+      return { 
+        ...baseStyle, 
+        backgroundImage: 'linear-gradient(to bottom, #0d061a 0%, #1d0f32 30%, #46173a 52%, #b53846 72%, #e56b46 87%, #ffd08a 100%)' 
+      };
     }
     if (resolvedTime === 'noon') {
-      return { backgroundImage: 'linear-gradient(to bottom, #0d5ea6 0%, #2f8ad8 35%, #5ebfed 70%, #90dcff 100%)' };
+      return { 
+        ...baseStyle, 
+        backgroundImage: 'linear-gradient(to bottom, #084c8a 0%, #1562b3 25%, #328fe3 55%, #6abcff 80%, #a4e5ff 100%)' 
+      };
     }
     if (resolvedTime === 'evening') {
-      return { backgroundImage: 'linear-gradient(to bottom, #07091c 0%, #170d2b 30%, #5c183f 60%, #e25822 90%, #faa640 100%)' };
+      return { 
+        ...baseStyle, 
+        backgroundImage: 'linear-gradient(to bottom, #030412 0%, #0e0620 22%, #320d2c 44%, #7b1932 64%, #c73e25 82%, #ee8535 93%, #ffd46f 100%)' 
+      };
     }
     if (resolvedTime === 'night') {
-      return { backgroundImage: 'linear-gradient(to bottom, #010204 0%, #060914 45%, #0e1429 80%, #141a30 100%)' };
+      return { 
+        ...baseStyle, 
+        backgroundImage: 'linear-gradient(to bottom, #010103 0%, #02040c 25%, #050a1d 55%, #0b112a 80%, #111d42 100%)' 
+      };
     }
     
     // Check custom backgrounds
     const customBg = sharedBackgrounds.find(bg => bg.id === resolvedTime);
     if (customBg) {
       return { 
-        backgroundImage: `url(${customBg.imageUrl})`, 
-        backgroundSize: 'cover', 
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
+        ...baseStyle,
+        backgroundImage: `url(${customBg.imageUrl})`
       };
     }
     
     // Direct URL support
     if (resolvedTime.startsWith('http') || resolvedTime.startsWith('data:image')) {
       return { 
-        backgroundImage: `url(${resolvedTime})`, 
-        backgroundSize: 'cover', 
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
+        ...baseStyle,
+        backgroundImage: `url(${resolvedTime})`
       };
     }
     
@@ -6086,43 +6156,71 @@ export default function App() {
 
           {/* Blocky Parallax Mountains (Only for standard times to keep custom clear) */}
           {isPresetTime && (
-            <div className="absolute inset-x-0 bottom-0 h-44 pointer-events-none z-0 overflow-hidden select-none">
-              {/* Far Mountain silhouette */}
-              <div 
-                className="absolute inset-x-0 bottom-0 h-28 opacity-15 transition-colors duration-[1000ms] ease-in-out"
-                style={{ 
-                  clipPath: 'polygon(0% 100%, 15% 45%, 28% 70%, 45% 35%, 62% 65%, 78% 25%, 90% 55%, 100% 100%)',
-                  backgroundColor: 
-                    resolvedTime === 'morning' ? '#7b3a62' :
-                    resolvedTime === 'noon' ? '#6896cc' :
-                    resolvedTime === 'evening' ? '#92345a' :
-                    resolvedTime === 'night' ? '#0f1225' : '#000000'
-                }} 
-              />
-              {/* Mid Mountain silhouette */}
-              <div 
-                className="absolute inset-x-0 bottom-0 h-20 opacity-25 transition-colors duration-[1000ms] ease-in-out"
-                style={{ 
-                  clipPath: 'polygon(0% 100%, 8% 65%, 22% 40%, 38% 75%, 52% 45%, 68% 80%, 82% 50%, 100% 100%)',
-                  backgroundColor: 
-                    resolvedTime === 'morning' ? '#4f2048' :
-                    resolvedTime === 'noon' ? '#447ba3' :
-                    resolvedTime === 'evening' ? '#5a1949' :
-                    resolvedTime === 'night' ? '#080d19' : '#000000'
-                }} 
-              />
-              {/* Close Rocky foothills / blocky trees */}
-              <div 
-                className="absolute inset-x-0 bottom-0 h-10 opacity-40 transition-colors duration-[1000ms] ease-in-out"
-                style={{ 
-                  clipPath: 'polygon(0% 100%, 4% 80%, 12% 55%, 18% 70%, 26% 85%, 35% 50%, 42% 75%, 48% 90%, 60% 60%, 68% 75%, 75% 85%, 88% 45%, 100% 100%)',
-                  backgroundColor: 
-                    resolvedTime === 'morning' ? '#2a0e2f' :
-                    resolvedTime === 'noon' ? '#1c4d70' :
-                    resolvedTime === 'evening' ? '#330c34' :
-                    resolvedTime === 'night' ? '#02040b' : '#000000'
-                }} 
-              />
+            <div className="absolute inset-x-0 bottom-0 h-64 pointer-events-none z-0 overflow-hidden select-none">
+              {/* Define color mappings for each time mode */}
+              {(() => {
+                const colors = {
+                  morning: { far: '#3d1a40', mid: '#270e2d', close: '#15031b' },
+                  noon: { far: '#397fb5', mid: '#225992', close: '#0f3565' },
+                  evening: { far: '#491535', mid: '#300827', close: '#1a011a' },
+                  night: { far: '#0b0f24', mid: '#050817', close: '#02030a' }
+                }[resolvedTime as 'morning' | 'noon' | 'evening' | 'night'] || { far: '#0b0f24', mid: '#050817', close: '#02030a' };
+
+                return (
+                  <>
+                    {/* Far Mountain silhouette */}
+                    <div 
+                      className="absolute inset-x-0 bottom-0 h-52 origin-bottom transition-all duration-[1000ms] ease-in-out"
+                      style={{ 
+                        clipPath: 'polygon(0% 100%, 0% 65%, 4% 65%, 4% 60%, 8% 60%, 8% 55%, 12% 55%, 12% 50%, 16% 50%, 16% 45%, 20% 45%, 20% 50%, 24% 50%, 24% 55%, 28% 55%, 28% 60%, 32% 60%, 32% 55%, 36% 55%, 36% 50%, 40% 50%, 40% 45%, 44% 45%, 44% 40%, 48% 40%, 48% 35%, 52% 35%, 52% 40%, 56% 40%, 56% 45%, 60% 45%, 60% 50%, 64% 50%, 64% 55%, 68% 55%, 68% 60%, 72% 60%, 72% 55%, 76% 55%, 76% 50%, 80% 50%, 80% 45%, 84% 45%, 84% 40%, 88% 40%, 88% 45%, 92% 45%, 92% 50%, 96% 50%, 96% 55%, 100% 55%, 100% 100%)',
+                        backgroundColor: colors.far
+                      }} 
+                    >
+                      {/* Distant spruce trees on far peaks */}
+                      <SpruceTree color={colors.far} height={20} className="left-[14%] bottom-[45%]" />
+                      <SpruceTree color={colors.far} height={24} className="left-[46%] bottom-[55%]" />
+                      <SpruceTree color={colors.far} height={20} className="left-[54%] bottom-[55%]" />
+                      <SpruceTree color={colors.far} height={18} className="left-[82%] bottom-[50%]" />
+                    </div>
+
+                    {/* Mid Mountain silhouette */}
+                    <div 
+                      className="absolute inset-x-0 bottom-0 h-40 origin-bottom transition-all duration-[1000ms] ease-in-out"
+                      style={{ 
+                        clipPath: 'polygon(0% 100%, 0% 75%, 3% 75%, 3% 70%, 6% 70%, 6% 65%, 9% 65%, 9% 60%, 12% 60%, 12% 55%, 15% 55%, 15% 50%, 18% 50%, 18% 45%, 21% 45%, 21% 50%, 24% 50%, 24% 55%, 27% 55%, 27% 60%, 30% 60%, 30% 65%, 33% 65%, 33% 70%, 36% 70%, 36% 75%, 39% 75%, 39% 70%, 42% 70%, 42% 65%, 45% 65%, 45% 60%, 48% 60%, 48% 55%, 51% 55%, 51% 50%, 54% 50%, 54% 55%, 57% 55%, 57% 60%, 60% 60%, 60% 65%, 63% 65%, 63% 70%, 66% 70%, 66% 75%, 69% 75%, 69% 70%, 72% 70%, 72% 65%, 75% 65%, 75% 60%, 78% 60%, 78% 55%, 81% 55%, 81% 50%, 84% 50%, 84% 55%, 87% 55%, 87% 60%, 90% 60%, 90% 65%, 93% 65%, 93% 70%, 96% 70%, 96% 75%, 100% 75%, 100% 100%)',
+                        backgroundColor: colors.mid
+                      }} 
+                    >
+                      {/* Voxel Castle standing on mid peak */}
+                      <PixelCastle color={colors.mid} height={56} className="right-[15%] bottom-[42%]" />
+
+                      {/* Mid spruce trees on mid peaks */}
+                      <SpruceTree color={colors.mid} height={32} className="left-[8%] bottom-[35%]" />
+                      <SpruceTree color={colors.mid} height={36} className="left-[25%] bottom-[35%]" />
+                      <SpruceTree color={colors.mid} height={40} className="left-[47%] bottom-[45%]" />
+                      <SpruceTree color={colors.mid} height={30} className="left-[64%] bottom-[30%]" />
+                    </div>
+
+                    {/* Close Rocky foothills / blocky trees */}
+                    <div 
+                      className="absolute inset-x-0 bottom-0 h-28 origin-bottom transition-all duration-[1000ms] ease-in-out"
+                      style={{ 
+                        clipPath: 'polygon(0% 100%, 0% 85%, 2% 85%, 2% 80%, 4% 80%, 4% 75%, 6% 75%, 6% 70%, 8% 70%, 8% 65%, 10% 65%, 10% 60%, 13% 60%, 13% 65%, 16% 65%, 16% 70%, 19% 70%, 19% 75%, 22% 75%, 22% 80%, 25% 80%, 25% 85%, 28% 85%, 28% 80%, 31% 80%, 31% 75%, 34% 75%, 34% 70%, 37% 70%, 37% 65%, 40% 65%, 40% 60%, 43% 60%, 43% 65%, 46% 65%, 46% 70%, 49% 70%, 49% 75%, 52% 75%, 52% 80%, 55% 80%, 55% 85%, 58% 85%, 58% 80%, 61% 80%, 61% 75%, 64% 75%, 64% 70%, 67% 70%, 67% 65%, 70% 65%, 70% 60%, 73% 60%, 73% 65%, 76% 65%, 76% 70%, 79% 70%, 79% 75%, 82% 75%, 82% 80%, 85% 80%, 85% 85%, 88% 85%, 88% 80%, 91% 80%, 91% 75%, 94% 75%, 94% 70%, 97% 70%, 97% 75%, 100% 75%, 100% 100%)',
+                        backgroundColor: colors.close
+                      }} 
+                    >
+                      {/* Foreground spruce forest spruce forest */}
+                      <SpruceTree color={colors.close} height={48} className="left-[3%] bottom-[30%]" />
+                      <SpruceTree color={colors.close} height={56} className="left-[12%] bottom-[35%]" />
+                      <SpruceTree color={colors.close} height={48} className="left-[29%] bottom-[20%]" />
+                      <SpruceTree color={colors.close} height={64} className="left-[42%] bottom-[35%]" />
+                      <SpruceTree color={colors.close} height={52} className="left-[58%] bottom-[25%]" />
+                      <SpruceTree color={colors.close} height={60} className="left-[73%] bottom-[35%]" />
+                      <SpruceTree color={colors.close} height={54} className="left-[88%] bottom-[20%]" />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -6448,12 +6546,11 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        setUploadBgFileBase64(null);
-                        setUploadBgUrl('');
+                        setUploadBgMethod('url');
                         playAppSound('click');
                       }}
                       className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
-                        !uploadBgFileBase64 
+                        uploadBgMethod === 'url' 
                           ? 'bg-mc-gold text-black border border-mc-gold' 
                           : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
                       }`}
@@ -6463,11 +6560,11 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        setUploadBgUrl('');
+                        setUploadBgMethod('file');
                         playAppSound('click');
                       }}
                       className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
-                        uploadBgFileBase64 
+                        uploadBgMethod === 'file' 
                           ? 'bg-mc-gold text-black border border-mc-gold' 
                           : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
                       }`}
@@ -6476,7 +6573,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  {!uploadBgFileBase64 ? (
+                  {uploadBgMethod === 'url' ? (
                     <div>
                       <input
                         type="url"
