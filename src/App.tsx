@@ -120,11 +120,11 @@ if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
 }
 
 const REALM_CODES = {
-  PVP: 'https://discord.gg/UeMM36cJf',
-  SURVIVAL: 'https://discord.gg/UeMM36cJf'
+  PVP: 'https://discord.gg/jknXHv77',
+  SURVIVAL: 'https://discord.gg/jknXHv77'
 };
 
-const DISCORD_URL = 'https://discord.gg/UeMM36cJf';
+const DISCORD_URL = 'https://discord.gg/jknXHv77';
 
 interface Player {
   id: string;
@@ -473,8 +473,8 @@ export default function App() {
   const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
 
   const [realmCodes, setRealmCodes] = useState({
-    PVP: 'https://discord.gg/UeMM36cJf',
-    SURVIVAL: 'https://discord.gg/UeMM36cJf'
+    PVP: 'https://discord.gg/jknXHv77',
+    SURVIVAL: 'https://discord.gg/jknXHv77'
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
@@ -2711,8 +2711,9 @@ export default function App() {
   };
 
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showClashComingSoon, setShowClashComingSoon] = useState(false);
   const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal || showClashComingSoon;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -5885,15 +5886,11 @@ export default function App() {
                   )}
                 </button>
                 <button
-                  onClick={() => setMiningTab('clash')}
-                  className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 ${
-                    miningTab === 'clash'
-                      ? 'bg-blue-600/25 border-blue-500 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.2)] font-black'
-                      : 'bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold'
-                  }`}
+                  onClick={() => setShowClashComingSoon(true)}
+                  className="flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all rounded-xl border flex items-center justify-center gap-2 bg-transparent border-transparent text-neutral-400 hover:text-white hover:bg-white/5 font-bold"
                 >
                   <Crown size={16} />
-                  Clash Royale (Neu) 👑
+                  Clash Royale 👑
                 </button>
               </div>
 
@@ -10345,6 +10342,53 @@ export default function App() {
             <CheckCircle2 size={20} />
             Erfolgreich kopiert!
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Clash Royale Coming Soon Modal */}
+      <AnimatePresence>
+        {showClashComingSoon && (
+          <div key="clash-coming-soon-container" className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              key="clash-coming-soon-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowClashComingSoon(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              key="clash-coming-soon-content"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-neutral-900 border-2 border-amber-500/30 rounded-2xl w-full max-w-md overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)] p-8 text-center space-y-6"
+            >
+              <div className="mx-auto w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-pulse">
+                <Crown size={32} className="text-amber-500" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-white font-black text-2xl tracking-[0.2em] uppercase drop-shadow-mc">
+                  Clash Royale
+                </h3>
+                <p className="text-amber-400 font-bold uppercase tracking-widest text-xs">
+                  In Kürze verfügbar! 👑
+                </p>
+              </div>
+
+              <p className="text-neutral-400 text-sm">
+                Die Arena wird derzeit überarbeitet, um dir das beste Echtzeit-Kampferlebnis zu bieten. Schwebende Truppen, mächtige Zauber und 3D-Königreiche erwarten dich bald!
+              </p>
+
+              <button
+                onClick={() => setShowClashComingSoon(false)}
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 active:translate-y-0.5 transition-all outline-none border-b-4 border-amber-700"
+              >
+                Verstanden
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
