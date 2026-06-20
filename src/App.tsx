@@ -130,6 +130,52 @@ const REALM_CODES = {
   SURVIVAL: 'https://discord.gg/jknXHv77'
 };
 
+const compressAndResizeImage = (file: File, maxWidth = 1280, maxHeight = 720, quality = 0.75): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Calculate new dimensions preserving aspect ratio
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string); // fallback
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Export to jpeg with medium quality to stay under 100-200kb easily
+        const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressedBase64);
+      };
+      img.onerror = (err) => {
+        reject(err);
+      };
+    };
+    reader.onerror = (err) => {
+      reject(err);
+    };
+  });
+};
+
 const DISCORD_URL = 'https://discord.gg/jknXHv77';
 
 const SpruceTree = ({ className, height = 32, color }: { className?: string; height?: number; color: string }) => {
@@ -6024,13 +6070,23 @@ export default function App() {
   const isPresetTime = ['classic', 'morning', 'noon', 'evening', 'night'].includes(resolvedTime);
 
   return (
-    <div 
-      className="min-h-screen relative overflow-hidden pixel-grid transition-colors duration-[1000ms] ease-in-out bg-black" 
-      style={getBackgroundStyle()}
-    >
-      {/* Sky Ambient Elements Layer (Sun, Moon, Stars, Minecraft clouds, Mountains) */}
+    <div className="min-h-screen relative overflow-x-hidden text-neutral-100 font-sans antialiased bg-black">
+      {/* 
+        Fixed Full-Screen Ambient Background Layer
+        Ensures a seamless, non-repeating continuous background gradient
+        regardless of scroll, browser window size, or iframe boundaries.
+      */}
+      <div 
+        className="fixed inset-0 z-0 pointer-events-none transition-all duration-[1000ms] ease-in-out"
+        style={getBackgroundStyle()}
+      />
+
+      {/* Grid Pattern overlay with low opacity - fixed behind content */}
+      <div className="fixed inset-0 z-0 opacity-15 pointer-events-none pixel-grid" />
+
+      {/* Sky Ambient Elements Layer (Sun, Moon, Stars, Minecraft clouds, Mountains) - Fixed to viewport */}
       {resolvedTime !== 'classic' && (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden select-none">
           {/* Twinkling Stars (Only in Night, Evening, Morning or Custom Wallpapers) */}
           {(resolvedTime === 'night' || resolvedTime === 'evening' || resolvedTime === 'morning' || !isPresetTime) && (
             <div className="absolute inset-0 z-0">
@@ -6242,17 +6298,17 @@ export default function App() {
       )}
 
       {/* Grid Pattern overlay with low opacity */}
-      <div className="absolute inset-0 z-0 opacity-15 pointer-events-none">
+      <div className="fixed inset-0 z-0 opacity-15 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-mc-red/5 to-transparent animate-pulse" />
         <div className="w-full h-full opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #ff4747 1px, transparent 0)', backgroundSize: '40px 40px' }} />
       </div>
       
       {/* Scanline Effect */}
-      <div className="absolute inset-0 z-[2] pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-20" />
+      <div className="fixed inset-0 z-[2] pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-20" />
 
       {/* Background Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-mc-gold/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mc-red/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-mc-gold/5 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Maintenance Overlay */}
       <AnimatePresence>
@@ -6592,18 +6648,20 @@ export default function App() {
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            if (file.size > 850000) {
-                              triggerToast('quest', 'DATEI ZU GROẞ! 📁', 'Bitte wähle ein Bild unter 800 KB.');
+                            if (file.size > 8000000) {
+                              triggerToast('quest', 'DATEI ZU GROẞ! 📁', 'Bitte wähle ein Bild unter 8 MB.');
                               return;
                             }
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              if (event.target?.result) {
-                                setUploadBgFileBase64(event.target.result as string);
-                                triggerToast('quest', 'BILD GELADEN! 🖼️', `"${file.name}" bereit zum Upload.`);
-                              }
-                            };
-                            reader.readAsDataURL(file);
+                            triggerToast('quest', 'KOMPRIMIERUNG... ⏳', 'Hintergrund wird für schnelles Laden optimiert...');
+                            compressAndResizeImage(file, 1280, 720, 0.55)
+                              .then((compressedBase64) => {
+                                setUploadBgFileBase64(compressedBase64);
+                                triggerToast('quest', 'BILD GELADEN! 🖼️', `"${file.name}" erfolgreich optimiert.`);
+                              })
+                              .catch((err) => {
+                                console.error("Compression failed:", err);
+                                triggerToast('quest', 'FEHLER ❌', 'Komprimierung fehlgeschlagen.');
+                              });
                           }
                         }}
                         className="absolute inset-0 opacity-0 cursor-pointer"

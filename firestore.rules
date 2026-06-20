@@ -312,7 +312,7 @@ service cloud.firestore {
     function isValidSharedBackground(data) {
       return data.keys().hasAll(['imageUrl', 'title', 'uploadedBy', 'userId', 'createdAt']) &&
              data.keys().size() == 5 &&
-             data.imageUrl is string && data.imageUrl.size() <= 2500000 &&
+             data.imageUrl is string &&
              data.title is string && data.title.size() <= 64 &&
              data.uploadedBy is string && data.uploadedBy.size() <= 64 &&
              data.userId is string && data.userId.size() <= 128 &&
