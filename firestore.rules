@@ -322,7 +322,7 @@ service cloud.firestore {
     // Shared weathers validation
     function isValidSharedWeather(data) {
       return data.keys().hasAll(['title', 'type', 'colors', 'speedMultiplier', 'particleScale', 'uploadedBy', 'userId', 'createdAt']) &&
-             data.keys().size() <= 14 &&
+             data.keys().size() <= 26 &&
              data.title is string && data.title.size() <= 64 &&
              data.type is string && (data.type == 'rain' || data.type == 'snow' || data.type == 'leaves') &&
              data.colors is list && data.colors.size() <= 10 &&
@@ -336,7 +336,16 @@ service cloud.firestore {
              (!data.keys().hasAny(['gravityMult']) || data.gravityMult is number || data.gravityMult is int) &&
              (!data.keys().hasAny(['particleShape']) || data.particleShape is string) &&
              (!data.keys().hasAny(['emojiString']) || data.emojiString is string) &&
-             (!data.keys().hasAny(['glow']) || data.glow is bool);
+             (!data.keys().hasAny(['glow']) || data.glow is bool) &&
+             (!data.keys().hasAny(['swayAmplitude']) || data.swayAmplitude is number || data.swayAmplitude is int) &&
+             (!data.keys().hasAny(['enableLightning']) || data.enableLightning is bool) &&
+             (!data.keys().hasAny(['lightningFrequency']) || data.lightningFrequency is number || data.lightningFrequency is int) &&
+             (!data.keys().hasAny(['lightningColor']) || data.lightningColor is string) &&
+             (!data.keys().hasAny(['enableSplashes']) || data.enableSplashes is bool) &&
+             (!data.keys().hasAny(['splashSize']) || data.splashSize is number || data.splashSize is int) &&
+             (!data.keys().hasAny(['trailLength']) || data.trailLength is number || data.trailLength is int) &&
+             (!data.keys().hasAny(['overlayColor']) || data.overlayColor is string) &&
+             (!data.keys().hasAny(['overlayOpacity']) || data.overlayOpacity is number || data.overlayOpacity is int);
     }
 
     match /shared_backgrounds/{bgId} {

@@ -229,6 +229,26 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
     let particleShape = 'pixels'; // 'pixels' | 'circles' | 'emojis'
     let emojiString = '⭐';
     let isGlow = false;
+    let swayAmplitude = 1.0;
+    let enableLightning = false;
+    let lightningFrequency = 2;
+    let lightningColor = '#ffffff';
+    let enableSplashes = false;
+    let splashSize = 1.0;
+    let trailLength = 0;
+    let overlayColor = '';
+    let overlayOpacity = 0;
+    
+    interface PixelSplash {
+      x: number;
+      y: number;
+      maxRadius: number;
+      currentRadius: number;
+      opacity: number;
+      color: string;
+    }
+    let floorSplashes: PixelSplash[] = [];
+    let lightningIntensity = 0;
 
     if (customWeather) {
       activeType = customWeather.type;
@@ -254,6 +274,15 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
       particleShape = customWeather.particleShape || 'pixels';
       emojiString = customWeather.emojiString || '⭐';
       isGlow = !!customWeather.glow;
+      swayAmplitude = customWeather.swayAmplitude !== undefined ? customWeather.swayAmplitude : 1.0;
+      enableLightning = !!customWeather.enableLightning;
+      lightningFrequency = customWeather.lightningFrequency !== undefined ? customWeather.lightningFrequency : 2;
+      lightningColor = customWeather.lightningColor || '#ffffff';
+      enableSplashes = !!customWeather.enableSplashes;
+      splashSize = customWeather.splashSize !== undefined ? customWeather.splashSize : 1.0;
+      trailLength = customWeather.trailLength !== undefined ? customWeather.trailLength : 0;
+      overlayColor = customWeather.overlayColor || '';
+      overlayOpacity = customWeather.overlayOpacity !== undefined ? customWeather.overlayOpacity : 0;
     } else {
       if (mode === 'cycle') {
         if (resolvedTime === 'noon') activeType = 'rain';
@@ -330,6 +359,58 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const swayTime = time * 0.002;
 
+      // Draw environment climate overlay tone FIRST (before particles are rendered)
+      if (overlayOpacity > 0 && overlayColor) {
+        ctx.save();
+        ctx.fillStyle = overlayColor;
+        ctx.globalAlpha = overlayOpacity;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
+
+      // Live Lightning generator
+      if (enableLightning) {
+        if (Math.random() < (0.001 * lightningFrequency)) {
+          lightningIntensity = 0.95;
+        }
+        if (lightningIntensity > 0) {
+          lightningIntensity -= 0.08;
+          if (lightningIntensity < 0) lightningIntensity = 0;
+        }
+      }
+
+      // Render lightning flash screen cover
+      if (lightningIntensity > 0) {
+        ctx.save();
+        ctx.fillStyle = lightningColor;
+        ctx.globalAlpha = lightningIntensity;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
+
+      // Render floor splash ripples
+      if (enableSplashes && floorSplashes.length > 0) {
+        ctx.save();
+        ctx.shadowBlur = 0;
+        for (let s = floorSplashes.length - 1; s >= 0; s--) {
+          const splash = floorSplashes[s];
+          splash.currentRadius += 0.85 * speedMult;
+          splash.opacity -= 0.045 * speedMult;
+          if (splash.opacity <= 0 || splash.currentRadius > splash.maxRadius) {
+            floorSplashes.splice(s, 1);
+            continue;
+          }
+          ctx.strokeStyle = splash.color;
+          ctx.globalAlpha = splash.opacity;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          // Isometric ellipse splatter simulation
+          ctx.ellipse(splash.x, splash.y, splash.currentRadius, splash.currentRadius * 0.35, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       // Glow setting
       if (isGlow) {
         ctx.shadowBlur = 8;
@@ -342,19 +423,30 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
 
         if (activeType === 'rain') {
           p.y += p.speedY;
-          p.x += p.speedX;
+          p.x += p.speedX + Math.sin(swayTime + p.swaySeed) * 0.1 * swayAmplitude;
         } else if (activeType === 'snow') {
           p.y += p.speedY;
-          p.x += p.speedX + Math.sin(swayTime + p.swaySeed) * 0.4;
+          p.x += p.speedX + Math.sin(swayTime + p.swaySeed) * 0.4 * swayAmplitude;
         } else if (activeType === 'leaves') {
-          p.y += p.speedY + Math.sin(swayTime + p.swaySeed) * 0.2;
-          p.x += p.speedX + Math.cos(swayTime + p.swaySeed) * 0.3;
-          p.rot += p.rotSpeed;
+          p.y += p.speedY + Math.sin(swayTime + p.swaySeed) * 0.2 * swayAmplitude;
+          p.x += p.speedX + Math.cos(swayTime + p.swaySeed) * 0.3 * swayAmplitude;
+          p.rot += p.rotSpeed * swayAmplitude;
         }
 
-        // Wrap around boundaries (handles both downward and gravity-reversed upward movement)
+        // Drop boundaries wrap & floor collision splash triggers
         if (p.speedY >= 0) {
           if (p.y > canvas.height + 20) {
+            // Collision splash trigger
+            if (enableSplashes && Math.random() < 0.35) {
+              floorSplashes.push({
+                x: p.x,
+                y: canvas.height - 2 - Math.random() * 5,
+                maxRadius: (Math.random() * 6 + 5) * sizeMult * splashSize,
+                currentRadius: 1,
+                opacity: 0.85,
+                color: p.color
+              });
+            }
             p.y = -20;
             p.x = Math.random() * canvas.width;
           }
@@ -379,6 +471,19 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
         ctx.fillStyle = p.color;
         if (isGlow) {
           ctx.shadowColor = p.color;
+        }
+
+        // Draw streak trails if setting enabled
+        if (trailLength > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.strokeStyle = p.color;
+          ctx.lineWidth = Math.max(1, p.sizeW * 0.65);
+          ctx.globalAlpha = 0.25;
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x - p.speedX * trailLength, p.y - p.speedY * trailLength);
+          ctx.stroke();
+          ctx.restore();
         }
 
         if (particleShape === 'emojis' && emojiList.length > 0) {
@@ -3314,6 +3419,15 @@ export default function App() {
   const [uploadWeatherParticleShape, setUploadWeatherParticleShape] = useState<'pixels' | 'circles' | 'emojis'>('pixels');
   const [uploadWeatherEmojiString, setUploadWeatherEmojiString] = useState<string>('⭐');
   const [uploadWeatherGlow, setUploadWeatherGlow] = useState<boolean>(false);
+  const [uploadWeatherSwayAmplitude, setUploadWeatherSwayAmplitude] = useState<number>(1.0);
+  const [uploadWeatherEnableLightning, setUploadWeatherEnableLightning] = useState<boolean>(false);
+  const [uploadWeatherLightningFrequency, setUploadWeatherLightningFrequency] = useState<number>(2);
+  const [uploadWeatherLightningColor, setUploadWeatherLightningColor] = useState<string>('#ffffff');
+  const [uploadWeatherEnableSplashes, setUploadWeatherEnableSplashes] = useState<boolean>(false);
+  const [uploadWeatherSplashSize, setUploadWeatherSplashSize] = useState<number>(1.0);
+  const [uploadWeatherTrailLength, setUploadWeatherTrailLength] = useState<number>(0);
+  const [uploadWeatherOverlayColor, setUploadWeatherOverlayColor] = useState<string>('#0d1117');
+  const [uploadWeatherOverlayOpacity, setUploadWeatherOverlayOpacity] = useState<number>(0);
   const [isUploadingWeather, setIsUploadingWeather] = useState(false);
 
   useEffect(() => {
@@ -3452,7 +3566,16 @@ export default function App() {
         gravityMult: Number(uploadWeatherGravityMult),
         particleShape: uploadWeatherParticleShape,
         emojiString: uploadWeatherEmojiString,
-        glow: Boolean(uploadWeatherGlow)
+        glow: Boolean(uploadWeatherGlow),
+        swayAmplitude: Number(uploadWeatherSwayAmplitude),
+        enableLightning: Boolean(uploadWeatherEnableLightning),
+        lightningFrequency: Number(uploadWeatherLightningFrequency),
+        lightningColor: uploadWeatherLightningColor,
+        enableSplashes: Boolean(uploadWeatherEnableSplashes),
+        splashSize: Number(uploadWeatherSplashSize),
+        trailLength: Number(uploadWeatherTrailLength),
+        overlayColor: uploadWeatherOverlayColor,
+        overlayOpacity: Number(uploadWeatherOverlayOpacity)
       });
       
       triggerToast('quest', 'WETTER GETEILT! 🌧️', `"${finalTitle}" ist jetzt für alle verfügbar.`);
@@ -3472,6 +3595,15 @@ export default function App() {
       setUploadWeatherParticleShape('pixels');
       setUploadWeatherEmojiString('⭐');
       setUploadWeatherGlow(false);
+      setUploadWeatherSwayAmplitude(1.0);
+      setUploadWeatherEnableLightning(false);
+      setUploadWeatherLightningFrequency(2);
+      setUploadWeatherLightningColor('#ffffff');
+      setUploadWeatherEnableSplashes(false);
+      setUploadWeatherSplashSize(1.0);
+      setUploadWeatherTrailLength(0);
+      setUploadWeatherOverlayColor('#0d1117');
+      setUploadWeatherOverlayOpacity(0);
       setShowWeatherUploadModal(false);
       playAppSound('levelUp');
     } catch (err: any) {
@@ -7733,30 +7865,267 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Glow Option */}
-                <div className="flex items-center justify-between p-2 bg-black/20 rounded-xl border border-neutral-850/40">
-                  <div>
-                    <span className="block text-[9px] font-black uppercase tracking-wider text-neutral-300">
-                      Glow / Neon Leuchten
-                    </span>
-                    <span className="block text-[7.5px] text-neutral-500">
-                      Partikel glühen sanft auf der Spielwelt
-                    </span>
+                {/* Advanced Options Grid */}
+                <div className="space-y-4 p-3 bg-black/40 rounded-xl border border-neutral-850">
+                  <h4 className="text-[9px] font-black uppercase tracking-wider text-sky-400 mb-2 border-b border-sky-950/40 pb-1 flex items-center justify-between">
+                    <span>Erweiterte Effekte (Premium) ✨</span>
+                    <span className="text-[7px] text-neutral-500 lowercase font-normal">Noch mehr Einstellmöglichkeiten</span>
+                  </h4>
+
+                  {/* Row 1: Glow / Neon Toggle */}
+                  <div className="flex items-center justify-between py-1 border-b border-neutral-800/20">
+                    <div>
+                      <span className="block text-[9.5px] font-black uppercase tracking-wider text-neutral-200">
+                        Neon Leuchten (Glow)
+                      </span>
+                      <span className="block text-[7.5px] text-neutral-500">
+                        Partikel haben eine glühende Lichtaura
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadWeatherGlow(prev => !prev);
+                        playAppSound('click');
+                      }}
+                      className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                        uploadWeatherGlow ? 'bg-sky-500' : 'bg-neutral-800'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                        uploadWeatherGlow ? 'translate-x-4' : 'translate-x-0'
+                      }`} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUploadWeatherGlow(prev => !prev);
-                      playAppSound('click');
-                    }}
-                    className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                      uploadWeatherGlow ? 'bg-sky-500' : 'bg-neutral-800'
-                    }`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                      uploadWeatherGlow ? 'translate-x-4' : 'translate-x-0'
-                    }`} />
-                  </button>
+
+                  {/* Sway Wave Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-0.5">
+                      <label className="text-[9px] font-black uppercase tracking-wider text-neutral-300">
+                        Wellen-Schwankung (Sway Wave): {uploadWeatherSwayAmplitude.toFixed(1)}x
+                      </label>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.0}
+                      max={5.0}
+                      step={0.2}
+                      value={uploadWeatherSwayAmplitude}
+                      onChange={(e) => setUploadWeatherSwayAmplitude(Number(e.target.value))}
+                      className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[6.5px] text-neutral-600 font-bold uppercase">
+                      <span>Kerzengerade</span>
+                      <span>Physik-Standard</span>
+                      <span>Starker Wirbelsturm</span>
+                    </div>
+                  </div>
+
+                  {/* Trail / Streak trail Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-0.5">
+                      <label className="text-[9px] font-black uppercase tracking-wider text-neutral-300">
+                        Streifen-Schweif (Motion Trail): {uploadWeatherTrailLength > 0 ? `${uploadWeatherTrailLength}px` : 'Aus'}
+                      </label>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={8}
+                      step={1}
+                      value={uploadWeatherTrailLength}
+                      onChange={(e) => setUploadWeatherTrailLength(Number(e.target.value))}
+                      className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[6.5px] text-neutral-600 font-bold uppercase">
+                      <span>Kein Schweif</span>
+                      <span>Sternschnuppen-Stil</span>
+                      <span>Hyperschall-Streifen</span>
+                    </div>
+                  </div>
+
+                  {/* Splashes / Bodenripple Option */}
+                  <div className="space-y-2 border-t border-b border-neutral-850/40 py-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="block text-[9.5px] font-black uppercase tracking-wider text-neutral-200">
+                          Boden-Einschlag (Splashes)
+                        </span>
+                        <span className="block text-[7.5px] text-neutral-500">
+                          Aufschlag-Wellenringe am Bildschirmrand am Boden
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadWeatherEnableSplashes(prev => !prev);
+                          playAppSound('click');
+                        }}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                          uploadWeatherEnableSplashes ? 'bg-sky-500' : 'bg-neutral-800'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                          uploadWeatherEnableSplashes ? 'translate-x-4' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {uploadWeatherEnableSplashes && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        className="overflow-hidden space-y-1.5 pl-2 border-l border-sky-950"
+                      >
+                        <div className="flex justify-between items-center">
+                          <label className="text-[8px] font-black uppercase tracking-wider text-neutral-400">
+                            Einschlag-Größe (Splash Scale): {uploadWeatherSplashSize.toFixed(1)}x
+                          </label>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.4}
+                          max={3.0}
+                          step={0.2}
+                          value={uploadWeatherSplashSize}
+                          onChange={(e) => setUploadWeatherSplashSize(Number(e.target.value))}
+                          className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                        />
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Lightning Gewitter Storm Option */}
+                  <div className="space-y-2 border-b border-neutral-850/40 pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="block text-[9.5px] font-black uppercase tracking-wider text-neutral-200">
+                          Sturmwetter Gewitter (Lightning Flashes)
+                        </span>
+                        <span className="block text-[7.5px] text-neutral-500">
+                          Der Bildschirm leuchtet sporadisch wie bei Blitzeinschlägen auf
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadWeatherEnableLightning(prev => !prev);
+                          playAppSound('click');
+                        }}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                          uploadWeatherEnableLightning ? 'bg-sky-500' : 'bg-neutral-800'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                          uploadWeatherEnableLightning ? 'translate-x-4' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {uploadWeatherEnableLightning && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        className="overflow-hidden space-y-2.5 pl-2 border-l border-sky-950"
+                      >
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-[8px] font-black uppercase tracking-wider text-neutral-400">
+                              Blitz-Häufigkeit: {uploadWeatherLightningFrequency === 1 ? 'Selten' : uploadWeatherLightningFrequency === 3 ? 'Stürmisch' : uploadWeatherLightningFrequency === 5 ? 'Apo-Kollaps' : uploadWeatherLightningFrequency}
+                            </label>
+                          </div>
+                          <input
+                            type="range"
+                            min={1}
+                            max={5}
+                            step={1}
+                            value={uploadWeatherLightningFrequency}
+                            onChange={(e) => setUploadWeatherLightningFrequency(Number(e.target.value))}
+                            className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <label className="text-[8px] font-black uppercase tracking-wider text-neutral-400">
+                            Blitz-Farbe (Atmosphäre):
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            {[
+                              { label: 'Weiß', hex: '#ffffff' },
+                              { label: 'Blitz-Lila', hex: '#cb6eff' },
+                              { label: 'Lava-Rot', hex: '#ff3700' },
+                              { label: 'Ozean-Cyan', hex: '#00f7ff' }
+                            ].map((preset) => (
+                              <button
+                                key={`lightning-${preset.hex}`}
+                                type="button"
+                                onClick={() => {
+                                  setUploadWeatherLightningColor(preset.hex);
+                                  playAppSound('pop');
+                                }}
+                                className={`w-4 h-4 rounded-full border transition-all ${
+                                  uploadWeatherLightningColor === preset.hex ? 'border-sky-400 scale-120' : 'border-neutral-800 hover:border-neutral-700'
+                                }`}
+                                style={{ backgroundColor: preset.hex }}
+                                title={preset.label}
+                              />
+                            ))}
+                            <input
+                              type="color"
+                              value={uploadWeatherLightningColor}
+                              onChange={(e) => setUploadWeatherLightningColor(e.target.value)}
+                              className="w-4 h-4 bg-transparent cursor-pointer rounded p-0 border-0"
+                              title="Benutzerdefinierte Blitzfarbe"
+                            />
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Climate Shade Background Overlay Tone */}
+                  <div className="space-y-2">
+                    <div>
+                      <span className="block text-[9.5px] font-black uppercase tracking-wider text-neutral-200">
+                        Atmosphären-Hintergrundschatten (Climate Tint)
+                      </span>
+                      <span className="block text-[7.5px] text-neutral-500">
+                        Färbe den Hintergrund ein, um Nebel oder Dämmerung nachzustellen
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 items-center">
+                      <div>
+                        <div className="flex justify-between text-[7.5px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">
+                          <span>Schatten-Farbe</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-black/40 px-2 py-0.5 rounded border border-neutral-850">
+                          <input 
+                            type="color" 
+                            value={uploadWeatherOverlayColor}
+                            onChange={(e) => setUploadWeatherOverlayColor(e.target.value)}
+                            className="w-4.5 h-4.5 bg-transparent border-0 cursor-pointer outline-none rounded p-0"
+                          />
+                          <span className="text-[7.5px] text-neutral-400 font-mono font-black">{uploadWeatherOverlayColor.toUpperCase()}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[7.5px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">
+                          <span>Stärke: {Math.round(uploadWeatherOverlayOpacity * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.0}
+                          max={0.8}
+                          step={0.05}
+                          value={uploadWeatherOverlayOpacity}
+                          onChange={(e) => setUploadWeatherOverlayOpacity(Number(e.target.value))}
+                          className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 4. Speed & Scale row */}

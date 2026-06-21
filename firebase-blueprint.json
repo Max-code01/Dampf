@@ -273,7 +273,16 @@
         "gravityMult": { "type": "number", "description": "Custom vertical falling speed multiplier" },
         "particleShape": { "type": "string", "description": "The visual rendering style of particles (pixels, circles, emojis)" },
         "emojiString": { "type": "string", "description": "Custom character symbols list" },
-        "glow": { "type": "boolean", "description": "Enable glowing canvas effect" }
+        "glow": { "type": "boolean", "description": "Enable glowing canvas effect" },
+        "swayAmplitude": { "type": "number", "description": "Intensity of the horizontal floating wave sway" },
+        "enableLightning": { "type": "boolean", "description": "Enable flash storm effect" },
+        "lightningFrequency": { "type": "integer", "description": "Frequency scale of storm flashes" },
+        "lightningColor": { "type": "string", "description": "Hex color of storm lightning" },
+        "enableSplashes": { "type": "boolean", "description": "Spawn pixel splash effects at the floor" },
+        "splashSize": { "type": "number", "description": "The scale of the ground splash ripples" },
+        "trailLength": { "type": "number", "description": "Draw atmospheric translucent trail streaks behind particles" },
+        "overlayColor": { "type": "string", "description": "Hex environmental shade overlay color" },
+        "overlayOpacity": { "type": "number", "description": "Opacity of environmental overlay tint" }
       },
       "required": ["title", "type", "colors", "speedMultiplier", "particleScale", "uploadedBy", "userId", "createdAt"]
     }
