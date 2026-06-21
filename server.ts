@@ -355,6 +355,45 @@ async function startServer() {
     res.json({ status: 'ok', mode: 'full-stack' });
   });
 
+  // --- YOUTUBE PROXY ---
+  app.get('/api/stream/youtube', async (req, res) => {
+    const videoUrl = req.query.url as string;
+    if (!videoUrl) return res.status(400).send('Keine URL übergeben.');
+
+    try {
+        const ytdl = require('ytdl-core');
+        res.setHeader('Content-Type', 'audio/mpeg');
+        ytdl(videoUrl, {
+            filter: 'audioonly',
+            quality: 'highestaudio'
+        }).pipe(res); 
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Fehler beim YouTube-Streaming.');
+    }
+  });
+
+  // --- TWITCH PROXY ---
+  app.get('/api/stream/twitch', async (req, res) => {
+    const channelName = req.query.channel as string;
+    if (!channelName) return res.status(400).send('Kein Channel angegeben.');
+
+    try {
+        const twitchM3u8 = require('twitch-m3u8');
+        const streams = await twitchM3u8.getStream(channelName);
+        const audioStream = streams.find((s: any) => s.quality && s.quality.includes('Audio')) || streams[streams.length - 1];
+
+        if (audioStream) {
+            res.redirect(audioStream.url);
+        } else {
+            res.status(404).send('Kein Stream gefunden.');
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Fehler beim Twitch-Streaming.');
+    }
+  });
+
   // --- STREAM PROXY (Bypasses CORS & Mixed Content) ---
   app.get('/api/stream-proxy', async (req, res) => {
     const streamUrl = req.query.url as string;
@@ -377,8 +416,7 @@ async function startServer() {
         signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Icy-MetaData': '1' // Request shoutcast metadata if supported
+          'Accept': '*/*'
         }
       });
 

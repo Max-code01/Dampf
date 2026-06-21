@@ -131,8 +131,8 @@ if (import.meta.env.VITE_GA_MEASUREMENT_ID) {
 }
 
 const REALM_CODES = {
-  PVP: 'https://discord.gg/jknXHv77',
-  SURVIVAL: 'https://discord.gg/jknXHv77'
+  PVP: 'https://discord.gg/Dr4BEVcw',
+  SURVIVAL: 'https://discord.gg/Dr4BEVcw'
 };
 
 const compressAndResizeImage = (file: File, maxWidth = 1280, maxHeight = 720, quality = 0.75): Promise<string> => {
@@ -719,7 +719,7 @@ const MountainPets = ({ playAppSound }: { playAppSound: any }) => {
   );
 };
 
-const DISCORD_URL = 'https://discord.gg/jknXHv77';
+const DISCORD_URL = 'https://discord.gg/Dr4BEVcw';
 
 const SpruceTree = ({ className, height = 32, color }: { className?: string; height?: number; color: string }) => {
   return (
@@ -1117,8 +1117,8 @@ export default function App() {
   const [hasQuotaExceeded, setHasQuotaExceeded] = useState(false);
 
   const [realmCodes, setRealmCodes] = useState({
-    PVP: 'https://discord.gg/jknXHv77',
-    SURVIVAL: 'https://discord.gg/jknXHv77'
+    PVP: 'https://discord.gg/Dr4BEVcw',
+    SURVIVAL: 'https://discord.gg/Dr4BEVcw'
   });
   const [copied, setCopied] = useState<string | null>(null);
   const [user, setUser] = useState<User| null>(null);
@@ -1166,6 +1166,7 @@ export default function App() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string>('');
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const [spotifyUrl, setSpotifyUrl] = useState<string | null>(null);
   const [ytReady, setYtReady] = useState<boolean>(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1193,6 +1194,20 @@ export default function App() {
     }
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
+    }
+    
+    // Mobile unlock for stream audio element
+    if (!streamAudioRef.current) {
+      streamAudioRef.current = new Audio();
+      try {
+        streamAudioRef.current.setAttribute("referrerpolicy", "no-referrer");
+      } catch (e) {}
+    }
+    const audio = streamAudioRef.current;
+    if (!audio.src || audio.src.endsWith('undefined') || audio.src.startsWith('data:audio/mp3;base64,')) {
+      // Create a tiny silent source so play() actually resolves
+      audio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU5LjI3LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq//MUZAAAAAGkAAAAAAAAA0gAAAAATEFN//MUZAMAAAGkAAAAAAAAA0gAAAAARTmQ//MUZAYAAAGkAAAAAAAAA0gAAAAARTmQ//MUZAgAAAGkAAAAAAAAA0gAAAAARTmQ";
+      audio.play().then(() => audio.pause()).catch(() => {});
     }
   };
 
@@ -1466,7 +1481,6 @@ export default function App() {
   const getYoutubeId = (url: string): string | null => {
     if (!url) return null;
     try {
-      // 1. Parse using standard URL constructor if valid
       const urlObj = new URL(url);
       if (urlObj.hostname.includes('youtube.com') || urlObj.hostname.includes('youtube-nocookie.com')) {
         const v = urlObj.searchParams.get('v');
@@ -1476,15 +1490,32 @@ export default function App() {
         const path = urlObj.pathname.substring(1);
         if (path.length === 11) return path;
       }
-    } catch (e) {
-      // Ignore URL parsing errors and try regex fallback
-    }
+    } catch (e) {}
 
-    // 2. Fallback regex match for typical YouTube formats (including music/watch)
     const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/i;
     const match = url.match(regExp);
     if (match && match[2] && match[2].length === 11) {
       return match[2];
+    }
+    return null;
+  };
+
+  const getTwitchChannel = (url: string): string | null => {
+    if (!url) return null;
+    const twitchRegex = /(?:twitch\.tv\/)([\w]+)/i;
+    const match = url.match(twitchRegex);
+    if (match && match[1]) {
+      return match[1];
+    }
+    return null;
+  };
+
+  const getSpotifyEmbed = (url: string): string | null => {
+    if (!url) return null;
+    const spotRegex = /open\.spotify\.com\/(track|playlist|album)\/([a-zA-Z0-9]+)/i;
+    const match = url.match(spotRegex);
+    if (match && match[1] && match[2]) {
+      return `https://open.spotify.com/embed/${match[1]}/${match[2]}`;
     }
     return null;
   };
@@ -1502,15 +1533,19 @@ export default function App() {
     }
   }, []);
 
-  // Sync YouTube Video ID from the active disc URL
+  // Sync YouTube and Spotify IDs from the active disc URL
   useEffect(() => {
     if (!activeDisc) {
       setYoutubeVideoId(null);
+      setSpotifyUrl(null);
       return;
     }
     const rawUrl = activeDisc.startsWith('preset:') ? activeDisc.replace('preset:', '') : activeDisc;
     const ytId = getYoutubeId(rawUrl);
     setYoutubeVideoId(ytId);
+    
+    const spotifyEmbed = getSpotifyEmbed(rawUrl);
+    setSpotifyUrl(spotifyEmbed);
   }, [activeDisc]);
 
   // Main YouTube Player Controller Effect
@@ -1667,6 +1702,21 @@ export default function App() {
         return;
       }
 
+      const spotifyEmbed = getSpotifyEmbed(rawUrl);
+      if (spotifyEmbed) {
+        setResolvedStreamUrl('');
+        setStreamError(null);
+        return;
+      }
+
+      const twitchChannel = getTwitchChannel(rawUrl);
+      if (twitchChannel) {
+        // Resolve twitch stream through backend proxy (which fetches m3u8 and redirects)
+        setResolvedStreamUrl(`/api/stream/twitch?channel=${encodeURIComponent(twitchChannel)}`);
+        setStreamError(null);
+        return;
+      }
+
       const isWebStream = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
 
       if (!isWebStream) {
@@ -1722,7 +1772,6 @@ export default function App() {
       }
 
       if (active) {
-        // Direct stream should ALSO be proxied to resolve Mixed Content (HTTP streams on HTTPS webpage)
         if (rawUrl.startsWith('https://')) {
           setResolvedStreamUrl(rawUrl);
         } else {
@@ -1764,6 +1813,8 @@ export default function App() {
       setStreamError(null);
     };
     const handleError = () => {
+      if (!resolvedStreamUrl) return; // Ignore errors if we are not trying to play a stream (like when playing Synth Cat)
+      if (audio.src && audio.src.startsWith('data:audio')) return;
       setStreamLoading(false);
       setIsJukeboxPlaying(false);
       let errMsg = "Stream-Fehler (CORS, mixed content oder ungültiges Format)";
@@ -1772,7 +1823,7 @@ export default function App() {
         else if (audio.error.code === 2) errMsg = "Netzwerkfehler (Stream offline?).";
         else if (audio.error.code === 3) errMsg = "Audio-Dekodierung fehlgeschlagen.";
         else if (audio.error.code === 4) {
-          errMsg = "Format nicht unterstützt oder CORS/Blockade (HTTPS erforderlich).";
+          errMsg = "Format nicht unterstützt oder Stream blockiert.";
         }
       }
       setStreamError(errMsg);
@@ -12419,6 +12470,25 @@ export default function App() {
                     <div id="youtube-player-element" className="w-full h-full" />
                   </div>
                 </div>
+
+                {/* Spotify Embed Container */}
+                <div 
+                  className={`mt-4 overflow-hidden rounded-xl transition-all duration-300 ${
+                    spotifyUrl 
+                      ? 'w-full max-w-[280px] h-[80px] opacity-100 mx-auto md:mx-0' 
+                      : 'w-0 h-0 opacity-0 pointer-events-none'
+                  }`}
+                >
+                  {spotifyUrl && (
+                    <iframe 
+                      src={spotifyUrl} 
+                      width="100%" 
+                      height="80" 
+                      frameBorder="0" 
+                      allow="encrypted-media"
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
@@ -12454,11 +12524,13 @@ export default function App() {
                         try {
                           if (nextPlaying) {
                             streamAudioRef.current.volume = jukeboxVolume;
-                            streamAudioRef.current.play().catch((err: any) => {
-                               console.warn("Direct onClick play failed:", err);
-                               setIsJukeboxPlaying(false);
-                               setStreamError("Fehler bei Wiedergabe. Klicke Play!");
-                            });
+                            if (resolvedStreamUrl) {
+                              streamAudioRef.current.play().catch((err: any) => {
+                                 console.warn("Direct onClick play failed:", err);
+                                 setIsJukeboxPlaying(false);
+                                 setStreamError("Fehler bei Wiedergabe. Klicke Play!");
+                              });
+                            }
                           } else {
                             streamAudioRef.current.pause();
                           }
@@ -12525,6 +12597,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        initAudioCtx();
                         setActiveStreamTitle('');
                         if (activeDisc === 'cat') {
                           setIsJukeboxPlaying(!isJukeboxPlaying);
@@ -12552,6 +12625,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
+                          initAudioCtx();
                           setActiveStreamTitle('');
                           if (activeDisc === 'pigstep') {
                             setIsJukeboxPlaying(!isJukeboxPlaying);
@@ -12586,6 +12660,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
+                          initAudioCtx();
                           setActiveStreamTitle('');
                           if (activeDisc === 'chirp') {
                             setIsJukeboxPlaying(!isJukeboxPlaying);
@@ -12626,6 +12701,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        initAudioCtx();
                         const url = "preset:https://streaming.radio.co/s812836261/listen";
                         setActiveStreamTitle("Minecraft Lofi Beats 📻");
                         if (activeDisc === url) {
@@ -12650,6 +12726,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        initAudioCtx();
                         const url = "preset:https://nightride.fm/stream/nightride.128.mp3";
                         setActiveStreamTitle("Synthwave Space FM 🌌");
                         if (activeDisc === url) {
@@ -12686,6 +12763,7 @@ export default function App() {
                       type="button"
                       disabled={!customSongUrl.trim()}
                       onClick={() => {
+                        initAudioCtx();
                         if (!customSongUrl.trim()) return;
                         const url = customSongUrl.trim();
                         setActiveStreamTitle("Dein Web-Song 🎵");
