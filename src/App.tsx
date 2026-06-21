@@ -192,6 +192,7 @@ interface WeatherParticle {
   swaySeed: number;
   rot: number;
   rotSpeed: number;
+  charIndex?: number;
 }
 
 interface PixelWeatherEffectProps {
@@ -221,6 +222,14 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
     let speedMult = 1.0;
     let sizeMult = 1.0;
 
+    // Premium fields with default Fallbacks
+    let particleCount = 120;
+    let windDrift = 0;
+    let gravityMult = 1.0;
+    let particleShape = 'pixels'; // 'pixels' | 'circles' | 'emojis'
+    let emojiString = '⭐';
+    let isGlow = false;
+
     if (customWeather) {
       activeType = customWeather.type;
       colors = customWeather.colors && customWeather.colors.length > 0 ? customWeather.colors : ['#ffffff'];
@@ -232,6 +241,19 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
       if (customWeather.particleScale === 'fine') sizeMult = 0.5;
       else if (customWeather.particleScale === 'chunk') sizeMult = 1.8;
       else sizeMult = 1.0;
+
+      // Extract custom premium configurations
+      if (customWeather.particleCount !== undefined) {
+        particleCount = customWeather.particleCount;
+      } else {
+        particleCount = activeType === 'rain' ? 120 : (activeType === 'snow' ? 65 : 45);
+      }
+
+      windDrift = customWeather.windDrift !== undefined ? customWeather.windDrift : 0;
+      gravityMult = customWeather.gravityMult !== undefined ? customWeather.gravityMult : 1.0;
+      particleShape = customWeather.particleShape || 'pixels';
+      emojiString = customWeather.emojiString || '⭐';
+      isGlow = !!customWeather.glow;
     } else {
       if (mode === 'cycle') {
         if (resolvedTime === 'noon') activeType = 'rain';
@@ -242,10 +264,13 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
 
       if (activeType === 'rain') {
         colors = ['rgba(130, 203, 255, 0.45)', 'rgba(64, 156, 255, 0.55)', 'rgba(100, 180, 255, 0.45)'];
+        particleCount = 120;
       } else if (activeType === 'snow') {
         colors = ['rgba(255, 255, 255, 0.85)', 'rgba(230, 242, 255, 0.9)', 'rgba(210, 230, 255, 0.75)'];
+        particleCount = 65;
       } else if (activeType === 'leaves') {
         colors = ['#e56b46', '#ffd08a', '#b53846', '#9c6239', '#5c7a29'];
+        particleCount = 45;
       }
     }
 
@@ -261,7 +286,8 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    const particleCount = activeType === 'rain' ? 120 : (activeType === 'snow' ? 65 : 45);
+    // Parse custom characters safely (supporting emojis / unicode surrogate pairs)
+    const emojiList = Array.from(emojiString).filter(char => char.trim() !== '');
 
     for (let i = 0; i < particleCount; i++) {
       let p: WeatherParticle = {
@@ -274,24 +300,25 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
         color: '',
         swaySeed: Math.random() * 100,
         rot: Math.random() * Math.PI * 2,
-        rotSpeed: (Math.random() - 0.5) * 0.05
+        rotSpeed: (Math.random() - 0.5) * 0.05,
+        charIndex: Math.floor(Math.random() * Math.max(1, emojiList.length))
       };
 
       if (activeType === 'rain') {
-        p.speedY = (Math.random() * 6 + 10) * speedMult;
-        p.speedX = (-1.5 - Math.random() * 1.5) * (speedMult >= 1.5 ? 1.5 : speedMult);
+        p.speedY = (Math.random() * 6 + 10) * speedMult * gravityMult;
+        p.speedX = ((-1.5 - Math.random() * 1.5) * (speedMult >= 1.5 ? 1.5 : speedMult)) + windDrift;
         p.sizeW = 2 * sizeMult;
         p.sizeH = (Math.random() * 7 + 7) * sizeMult;
         p.color = colors[Math.floor(Math.random() * colors.length)];
       } else if (activeType === 'snow') {
-        p.speedY = (Math.random() * 1.1 + 0.7) * speedMult;
-        p.speedX = (Math.random() - 0.5) * 0.8 * speedMult;
+        p.speedY = (Math.random() * 1.1 + 0.7) * speedMult * gravityMult;
+        p.speedX = ((Math.random() - 0.5) * 0.8 * speedMult) + windDrift;
         p.sizeW = (Math.random() > 0.5 ? 4 : 3) * sizeMult;
         p.sizeH = p.sizeW;
         p.color = colors[Math.floor(Math.random() * colors.length)];
       } else if (activeType === 'leaves') {
-        p.speedY = (Math.random() * 0.7 + 0.7) * speedMult;
-        p.speedX = (-1.5 - Math.random() * 1.8) * speedMult;
+        p.speedY = (Math.random() * 0.7 + 0.7) * speedMult * gravityMult;
+        p.speedX = ((-1.5 - Math.random() * 1.8) * speedMult) + windDrift;
         p.sizeW = (Math.random() * 3 + 4) * sizeMult;
         p.sizeH = (Math.random() * 2 + 3) * sizeMult;
         p.color = colors[Math.floor(Math.random() * colors.length)];
@@ -302,6 +329,13 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
     const updateAndDraw = (time: number) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const swayTime = time * 0.002;
+
+      // Glow setting
+      if (isGlow) {
+        ctx.shadowBlur = 8;
+      } else {
+        ctx.shadowBlur = 0;
+      }
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
@@ -318,28 +352,62 @@ const PixelWeatherEffect = ({ mode, resolvedTime, sharedWeathers = [] }: PixelWe
           p.rot += p.rotSpeed;
         }
 
-        if (p.y > canvas.height) {
-          p.y = -20;
-          p.x = Math.random() * canvas.width;
+        // Wrap around boundaries (handles both downward and gravity-reversed upward movement)
+        if (p.speedY >= 0) {
+          if (p.y > canvas.height + 20) {
+            p.y = -20;
+            p.x = Math.random() * canvas.width;
+          }
+        } else {
+          if (p.y < -20) {
+            p.y = canvas.height + 20;
+            p.x = Math.random() * canvas.width;
+          }
         }
+
         if (p.x < -20) {
           p.x = canvas.width + 20;
-          p.y = Math.random() * canvas.height;
+          if (p.speedY >= 0) p.y = -10;
+          else p.y = canvas.height + 10;
         }
         if (p.x > canvas.width + 20) {
           p.x = -20;
-          p.y = Math.random() * canvas.height;
+          if (p.speedY >= 0) p.y = -10;
+          else p.y = canvas.height + 10;
         }
 
         ctx.fillStyle = p.color;
-        if (activeType === 'leaves') {
+        if (isGlow) {
+          ctx.shadowColor = p.color;
+        }
+
+        if (particleShape === 'emojis' && emojiList.length > 0) {
+          const emoji = emojiList[(p.charIndex || 0) % emojiList.length];
+          ctx.font = `${p.sizeW * 8}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
           ctx.save();
           ctx.translate(p.x, p.y);
-          ctx.rotate(p.rot);
-          ctx.fillRect(-p.sizeW / 2, -p.sizeH / 2, p.sizeW, p.sizeH);
+          if (activeType === 'leaves') {
+            ctx.rotate(p.rot);
+          }
+          ctx.fillText(emoji, 0, 0);
           ctx.restore();
+        } else if (particleShape === 'circles') {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.sizeW / 2, 0, Math.PI * 2);
+          ctx.fill();
         } else {
-          ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.sizeW, p.sizeH);
+          // Standard style (rectangles/leaves pixels)
+          if (activeType === 'leaves') {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rot);
+            ctx.fillRect(-p.sizeW / 2, -p.sizeH / 2, p.sizeW, p.sizeH);
+            ctx.restore();
+          } else {
+            ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.sizeW, p.sizeH);
+          }
         }
       }
 
@@ -3240,6 +3308,12 @@ export default function App() {
   const [uploadWeatherColors, setUploadWeatherColors] = useState<string[]>(['#82cbff']);
   const [uploadWeatherSpeed, setUploadWeatherSpeed] = useState<'gentle' | 'moderate' | 'tempest'>('moderate');
   const [uploadWeatherScale, setUploadWeatherScale] = useState<'fine' | 'medium' | 'chunk'>('medium');
+  const [uploadWeatherParticleCount, setUploadWeatherParticleCount] = useState<number>(120);
+  const [uploadWeatherWindDrift, setUploadWeatherWindDrift] = useState<number>(0);
+  const [uploadWeatherGravityMult, setUploadWeatherGravityMult] = useState<number>(1.0);
+  const [uploadWeatherParticleShape, setUploadWeatherParticleShape] = useState<'pixels' | 'circles' | 'emojis'>('pixels');
+  const [uploadWeatherEmojiString, setUploadWeatherEmojiString] = useState<string>('⭐');
+  const [uploadWeatherGlow, setUploadWeatherGlow] = useState<boolean>(false);
   const [isUploadingWeather, setIsUploadingWeather] = useState(false);
 
   useEffect(() => {
@@ -3372,7 +3446,13 @@ export default function App() {
         particleScale: uploadWeatherScale,
         uploadedBy: (myProfile?.displayName || myProfile?.minecraftUsername || user.displayName || 'Spieler').trim(),
         userId: user.uid,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        particleCount: Number(uploadWeatherParticleCount),
+        windDrift: Number(uploadWeatherWindDrift),
+        gravityMult: Number(uploadWeatherGravityMult),
+        particleShape: uploadWeatherParticleShape,
+        emojiString: uploadWeatherEmojiString,
+        glow: Boolean(uploadWeatherGlow)
       });
       
       triggerToast('quest', 'WETTER GETEILT! 🌧️', `"${finalTitle}" ist jetzt für alle verfügbar.`);
@@ -3386,6 +3466,12 @@ export default function App() {
       setUploadWeatherColors(['#82cbff']);
       setUploadWeatherSpeed('moderate');
       setUploadWeatherScale('medium');
+      setUploadWeatherParticleCount(120);
+      setUploadWeatherWindDrift(0);
+      setUploadWeatherGravityMult(1.0);
+      setUploadWeatherParticleShape('pixels');
+      setUploadWeatherEmojiString('⭐');
+      setUploadWeatherGlow(false);
       setShowWeatherUploadModal(false);
       playAppSound('levelUp');
     } catch (err: any) {
@@ -7391,7 +7477,7 @@ export default function App() {
                 </div>
               </div>
 
-              <form onSubmit={handleWeatherUploadSubmit} className="space-y-4">
+              <form onSubmit={handleWeatherUploadSubmit} className="space-y-4 max-h-[62vh] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-neutral-800">
                 {/* 1. Name */}
                 <div>
                   <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
@@ -7403,7 +7489,7 @@ export default function App() {
                     maxLength={32}
                     value={uploadWeatherTitle}
                     onChange={(e) => setUploadWeatherTitle(e.target.value)}
-                    placeholder="z.B. Höllenfeuer, Portalsturm..."
+                    placeholder="z.B. Goldener Regen, Kometenschauer..."
                     className="w-full bg-black/50 border border-neutral-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-400 transition-colors"
                   />
                 </div>
@@ -7411,13 +7497,13 @@ export default function App() {
                 {/* 2. Type */}
                 <div>
                   <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
-                    Zustand / Partikel-Art
+                    Muster / Bewegungsverhalten
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: 'rain', label: 'Regentropfen 🌧️' },
-                      { id: 'snow', label: 'Schneekorn ❄️' },
-                      { id: 'leaves', label: 'Wirbelblätter 🍀' }
+                      { id: 'rain', label: 'Regen 🌧️' },
+                      { id: 'snow', label: 'Schnee ❄️' },
+                      { id: 'leaves', label: 'Blätter 🍀' }
                     ].map((t) => (
                       <button
                         key={`t-${t.id}`}
@@ -7438,11 +7524,77 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 3. Colors selection */}
+                {/* Particle Shape */}
                 <div>
                   <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
-                    Partikel-Farben (Auswahl: {uploadWeatherColors.join(', ')})
+                    Partikel-Form
                   </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'pixels', label: 'Eckig ◼️' },
+                      { id: 'circles', label: 'Rund 🔴' },
+                      { id: 'emojis', label: 'Emoji ⭐' }
+                    ].map((sh) => (
+                      <button
+                        key={`sh-${sh.id}`}
+                        type="button"
+                        onClick={() => {
+                          setUploadWeatherParticleShape(sh.id as any);
+                          playAppSound('click');
+                        }}
+                        className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                          uploadWeatherParticleShape === sh.id 
+                            ? 'bg-sky-500 text-black border border-sky-400' 
+                            : 'bg-neutral-850 hover:bg-neutral-800 text-neutral-400 border border-transparent'
+                        }`}
+                      >
+                        {sh.id === 'pixels' ? 'Eckig' : sh.id === 'circles' ? 'Rund' : 'Emoji'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Emojis input */}
+                {uploadWeatherParticleShape === 'emojis' && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    className="overflow-hidden space-y-1"
+                  >
+                    <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                      Symbole / Emojis (Zufallsauswahl aus Eingabe)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={24}
+                      value={uploadWeatherEmojiString}
+                      onChange={(e) => setUploadWeatherEmojiString(e.target.value)}
+                      placeholder="z.B. ⭐🪙💖💀🥦"
+                      className="w-full bg-black/50 border border-neutral-850 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400 transition-colors"
+                    />
+                    <p className="text-[7.5px] text-neutral-500">Jedes Zeichen wird als herabregnendes Partikel verwendet.</p>
+                  </motion.div>
+                )}
+
+                {/* 3. Colors selection */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                      Partikel-Farben (Auswahl: {uploadWeatherColors.join(', ')})
+                    </label>
+                    {uploadWeatherColors.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadWeatherColors(['#ffffff']);
+                          playAppSound('click');
+                        }}
+                        className="text-[8px] font-black text-rose-400 hover:text-rose-300 uppercase transition-colors"
+                      >
+                        Leeren
+                      </button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-4 gap-1.5 p-2 bg-black/30 rounded-xl border border-neutral-850">
                     {[
                       { name: 'Blau', hex: '#82cbff' },
@@ -7454,9 +7606,7 @@ export default function App() {
                       { name: 'Pastell', hex: '#ff99cc' },
                       { name: 'Slime', hex: '#5bfb00' },
                       { name: 'Lava', hex: '#ff5500' },
-                      { name: 'Nacht', hex: '#2c3e50' },
-                      { name: 'Herbst', hex: '#e67e22' },
-                      { name: 'Kupfer', hex: '#d35400' }
+                      { name: 'Herbst', hex: '#e67e22' }
                     ].map((preset) => {
                       const isSelected = uploadWeatherColors.includes(preset.hex);
                       return (
@@ -7469,32 +7619,151 @@ export default function App() {
                                 setUploadWeatherColors(prev => prev.filter(c => c !== preset.hex));
                               }
                             } else {
-                              if (uploadWeatherColors.length < 5) {
+                              if (uploadWeatherColors.length < 10) {
                                 setUploadWeatherColors(prev => [...prev, preset.hex]);
                               } else {
-                                triggerToast('quest', 'LIMIT ERREICHT 🎨', 'Maximal 5 Farben pro Wetter!');
+                                triggerToast('quest', 'LIMIT ERREICHT 🎨', 'Maximal 10 Farben pro Wetter!');
                               }
                             }
                             playAppSound('click');
                           }}
-                          className={`p-1.5 rounded-lg flex flex-col items-center gap-1 transition-all border cursor-pointer ${
+                          className={`p-1 rounded flex flex-col items-center gap-1 transition-all border cursor-pointer ${
                             isSelected ? 'border-sky-400 bg-sky-500/15' : 'border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900'
                           }`}
                           title={preset.name}
                         >
-                          <div className="w-5 h-5 rounded animate-pulse" style={{ backgroundColor: preset.hex }} />
-                          <span className="text-[7.5px] font-black truncate max-w-full text-neutral-400">{preset.name}</span>
+                          <div className="w-4.5 h-4.5 rounded" style={{ backgroundColor: preset.hex }} />
+                          <span className="text-[7px] font-black truncate max-w-full text-neutral-400">{preset.name}</span>
                         </button>
                       );
                     })}
                   </div>
+
+                  {/* HTML Color Picker for Any custom Color */}
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-neutral-850/40 justify-between">
+                    <span className="text-[8px] font-black text-neutral-500 uppercase tracking-widest">Eigene RGB-Farbe hinzufügen:</span>
+                    <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded border border-neutral-850">
+                      <input 
+                        type="color" 
+                        defaultValue="#ff00ea"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!uploadWeatherColors.includes(val)) {
+                            if (uploadWeatherColors.length < 10) {
+                              setUploadWeatherColors(prev => [...prev, val]);
+                              playAppSound('pop');
+                            } else {
+                              triggerToast('quest', 'LIMIT ERREICHT 🎨', 'Maximal 10 Farben pro Wetter!');
+                            }
+                          }
+                        }}
+                        className="w-4 h-4 bg-transparent border-0 cursor-pointer outline-none rounded p-0"
+                      />
+                      <span className="text-[8px] text-neutral-400 font-mono">Auswählen</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Density (Particle Count) */}
+                <div>
+                  <div className="flex justify-between items-center mb-0.5">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                      Partikel-Anzahl (Menge): {uploadWeatherParticleCount}
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={400}
+                    step={10}
+                    value={uploadWeatherParticleCount}
+                    onChange={(e) => setUploadWeatherParticleCount(Number(e.target.value))}
+                    className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[6.5px] text-neutral-600 font-bold uppercase">
+                    <span>Nieselsturm</span>
+                    <span>Standard</span>
+                    <span>Sintflut (Extrem)</span>
+                  </div>
+                </div>
+
+                {/* Friction / Wind sway */}
+                <div>
+                  <div className="flex justify-between items-center mb-0.5">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                      Horizontale Windstärke (Sway): {uploadWeatherWindDrift > 0 ? `+${uploadWeatherWindDrift}` : uploadWeatherWindDrift}
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min={-8}
+                    max={8}
+                    step={1}
+                    value={uploadWeatherWindDrift}
+                    onChange={(e) => setUploadWeatherWindDrift(Number(e.target.value))}
+                    className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[6.5px] text-neutral-600 font-bold uppercase">
+                    <span>← Sturm links</span>
+                    <span>Windstille</span>
+                    <span>Sturm rechts →</span>
+                  </div>
+                </div>
+
+                {/* Speed Multiplier / Gravity */}
+                <div>
+                  <div className="flex justify-between items-center mb-0.5">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                      Fall-Geschwindigkeit (Schwerkraft): {uploadWeatherGravityMult.toFixed(1)}x
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min={-2.0}
+                    max={3.0}
+                    step={0.2}
+                    value={uploadWeatherGravityMult}
+                    onChange={(e) => setUploadWeatherGravityMult(Number(e.target.value))}
+                    className="w-full accent-sky-500 h-1 bg-neutral-850 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[6.5px] text-neutral-600 font-bold uppercase">
+                    <span>↑ Aufsteigen (-G)</span>
+                    <span>Schweben</span>
+                    <span>Kometensturz (Hyper) ↓</span>
+                  </div>
+                </div>
+
+                {/* Glow Option */}
+                <div className="flex items-center justify-between p-2 bg-black/20 rounded-xl border border-neutral-850/40">
+                  <div>
+                    <span className="block text-[9px] font-black uppercase tracking-wider text-neutral-300">
+                      Glow / Neon Leuchten
+                    </span>
+                    <span className="block text-[7.5px] text-neutral-500">
+                      Partikel glühen sanft auf der Spielwelt
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadWeatherGlow(prev => !prev);
+                      playAppSound('click');
+                    }}
+                    className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
+                      uploadWeatherGlow ? 'bg-sky-500' : 'bg-neutral-800'
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                      uploadWeatherGlow ? 'translate-x-4' : 'translate-x-0'
+                    }`} />
+                  </button>
                 </div>
 
                 {/* 4. Speed & Scale row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
-                      Geschwindigkeit
+                      Geschwindigkeit (Basis)
                     </label>
                     <select
                       value={uploadWeatherSpeed}
@@ -7509,7 +7778,7 @@ export default function App() {
 
                   <div>
                     <label className="block text-[9px] font-black uppercase tracking-wider text-neutral-400 mb-1">
-                      Partikel-Größe
+                      Partikel-Größe (Basis)
                     </label>
                     <select
                       value={uploadWeatherScale}

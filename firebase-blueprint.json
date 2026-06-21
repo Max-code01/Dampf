@@ -267,7 +267,13 @@
         "particleScale": { "type": "string", "enum": ["fine", "medium", "chunk"], "description": "Particle scale preset" },
         "uploadedBy": { "type": "string", "description": "Minecraft username or display name" },
         "userId": { "type": "string", "description": "Firestore ID of the creator" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "particleCount": { "type": "integer", "description": "Custom density of particles" },
+        "windDrift": { "type": "number", "description": "Custom horizontal wind sway force" },
+        "gravityMult": { "type": "number", "description": "Custom vertical falling speed multiplier" },
+        "particleShape": { "type": "string", "description": "The visual rendering style of particles (pixels, circles, emojis)" },
+        "emojiString": { "type": "string", "description": "Custom character symbols list" },
+        "glow": { "type": "boolean", "description": "Enable glowing canvas effect" }
       },
       "required": ["title", "type", "colors", "speedMultiplier", "particleScale", "uploadedBy", "userId", "createdAt"]
     }

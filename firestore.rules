@@ -322,15 +322,21 @@ service cloud.firestore {
     // Shared weathers validation
     function isValidSharedWeather(data) {
       return data.keys().hasAll(['title', 'type', 'colors', 'speedMultiplier', 'particleScale', 'uploadedBy', 'userId', 'createdAt']) &&
-             data.keys().size() == 8 &&
+             data.keys().size() <= 14 &&
              data.title is string && data.title.size() <= 64 &&
              data.type is string && (data.type == 'rain' || data.type == 'snow' || data.type == 'leaves') &&
-             data.colors is list && data.colors.size() <= 5 &&
+             data.colors is list && data.colors.size() <= 10 &&
              data.speedMultiplier is string && (data.speedMultiplier == 'gentle' || data.speedMultiplier == 'moderate' || data.speedMultiplier == 'tempest') &&
              data.particleScale is string && (data.particleScale == 'fine' || data.particleScale == 'medium' || data.particleScale == 'chunk') &&
              data.uploadedBy is string && data.uploadedBy.size() <= 64 &&
              data.userId is string && data.userId.size() <= 128 &&
-             (data.createdAt == request.time || data.createdAt is timestamp);
+             (data.createdAt == request.time || data.createdAt is timestamp) &&
+             (!data.keys().hasAny(['particleCount']) || data.particleCount is int) &&
+             (!data.keys().hasAny(['windDrift']) || data.windDrift is number || data.windDrift is int) &&
+             (!data.keys().hasAny(['gravityMult']) || data.gravityMult is number || data.gravityMult is int) &&
+             (!data.keys().hasAny(['particleShape']) || data.particleShape is string) &&
+             (!data.keys().hasAny(['emojiString']) || data.emojiString is string) &&
+             (!data.keys().hasAny(['glow']) || data.glow is bool);
     }
 
     match /shared_backgrounds/{bgId} {
