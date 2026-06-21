@@ -1698,8 +1698,8 @@ export default function App() {
               const match = text.match(/File\d+=(https?:\/\/[^\s\r\n]+)/i);
               if (match && match[1]) {
                 if (active) {
-                  // Pipe audio data through stream-proxy
-                  setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(match[1])}`);
+                  const finalUrl = match[1];
+                  setResolvedStreamUrl(finalUrl.startsWith('https://') ? finalUrl : `/api/stream-proxy?url=${encodeURIComponent(finalUrl)}`);
                 }
                 return;
               }
@@ -1709,8 +1709,7 @@ export default function App() {
                 const trimmed = line.trim();
                 if (trimmed && !trimmed.startsWith('#') && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
                   if (active) {
-                    // Pipe audio data through stream-proxy
-                    setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(trimmed)}`);
+                    setResolvedStreamUrl(trimmed.startsWith('https://') ? trimmed : `/api/stream-proxy?url=${encodeURIComponent(trimmed)}`);
                   }
                   return;
                 }
@@ -1723,8 +1722,12 @@ export default function App() {
       }
 
       if (active) {
-        // Direct stream should ALSO be proxied to resolve Mixed Content (HTTP streams on HTTPS webpage) and client-side CORS
-        setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+        // Direct stream should ALSO be proxied to resolve Mixed Content (HTTP streams on HTTPS webpage)
+        if (rawUrl.startsWith('https://')) {
+          setResolvedStreamUrl(rawUrl);
+        } else {
+          setResolvedStreamUrl(`/api/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+        }
       }
     };
 
@@ -1762,6 +1765,7 @@ export default function App() {
     };
     const handleError = () => {
       setStreamLoading(false);
+      setIsJukeboxPlaying(false);
       let errMsg = "Stream-Fehler (CORS, mixed content oder ungültiges Format)";
       if (audio.error) {
         if (audio.error.code === 1) errMsg = "Wiedergabe abgebrochen.";
@@ -1789,6 +1793,7 @@ export default function App() {
       audio.play().catch(err => {
         console.warn("Audio play failed, retrying on user interaction:", err);
         setStreamError("Fehler bei Wiedergabe. Klicke Play!");
+        setIsJukeboxPlaying(false);
       });
     } else {
       audio.pause();
@@ -7172,119 +7177,121 @@ export default function App() {
                 </motion.button>
 
                 {/* Time & Background Multi-Selector Console with public scrolling gallery */}
-                <div className="bg-black/95 border-2 border-neutral-800/80 rounded-xl p-2 flex flex-col gap-2 backdrop-blur-md shadow-2xl max-w-[90vw] md:max-w-3xl overflow-hidden">
+                <div className="bg-black/95 border-2 border-neutral-800/80 rounded-xl p-2 md:p-3 flex flex-col gap-2 md:gap-3 backdrop-blur-md shadow-2xl max-w-[90vw] sm:max-w-md md:max-w-4xl overflow-hidden">
                   {/* Top row: Presets & Galerie */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1">
-                    {/* Preset Buttons */}
-                    <div className="flex items-center gap-1 border-r border-neutral-800/40 pr-2 flex-shrink-0">
-                      {[
-                        { id: 'classic', label: 'Classic 🌌', icon: Clock, sound: 'click' },
-                        { id: 'morning', label: 'Morning 🌅', icon: Sunrise, sound: 'sun' },
-                        { id: 'noon', label: 'Noon ☀️', icon: Sun, sound: 'sun' },
-                        { id: 'evening', label: 'Evening 🌇', icon: Sunset, sound: 'moon' },
-                        { id: 'night', label: 'Night 🌙', icon: Moon, sound: 'moon' }
-                      ].map((opt) => (
+                  <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-1.5 w-full">
+                    {/* Time Presets Row */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 w-full md:w-auto">
+                      <div className="flex items-center gap-1 border-r border-neutral-800/40 pr-2 flex-shrink-0">
+                        {[
+                          { id: 'classic', label: 'Classic 🌌', icon: Clock, sound: 'click' },
+                          { id: 'morning', label: 'Morning 🌅', icon: Sunrise, sound: 'sun' },
+                          { id: 'noon', label: 'Noon ☀️', icon: Sun, sound: 'sun' },
+                          { id: 'evening', label: 'Evening 🌇', icon: Sunset, sound: 'moon' },
+                          { id: 'night', label: 'Night 🌙', icon: Moon, sound: 'moon' }
+                        ].map((opt) => (
+                          <motion.button
+                            key={`time-opt-${opt.id}`}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setBackgroundTimeMode(opt.id);
+                              localStorage.setItem('background_time_mode', opt.id);
+                              playAppSound(opt.sound as any);
+                              triggerToast('quest', 'WETTER-HEXEREI! 🌤️', `Hintergrund wurde auf "${opt.id.toUpperCase()}" gestellt.`);
+                            }}
+                            className={`py-1.5 px-2 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all flex-shrink-0 ${
+                              backgroundTimeMode === opt.id
+                                ? 'bg-mc-gold text-black border border-mc-gold shadow-[0_0_12px_rgba(255,170,0,0.4)] font-semibold'
+                                : 'hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
+                            }`}
+                            title={opt.label}
+                          >
+                            <opt.icon size={11} className={backgroundTimeMode === opt.id ? 'text-black' : 'text-neutral-500'} />
+                            <span className="hidden sm:inline">{opt.id}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+
+                      {/* Shared Wallpapers List */}
+                      <div className="flex items-center gap-1.5 pl-1 flex-1">
+                        <span className="text-[7.5px] font-black uppercase text-neutral-500 tracking-wider hidden md:inline whitespace-nowrap mr-0.5 flex-shrink-0">
+                          Galerie:
+                        </span>
+
+                        {/* Upload Plus Trigger Card */}
                         <motion.button
-                          key={`time-opt-${opt.id}`}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            setBackgroundTimeMode(opt.id);
-                            localStorage.setItem('background_time_mode', opt.id);
-                            playAppSound(opt.sound as any);
-                            triggerToast('quest', 'WETTER-HEXEREI! 🌤️', `Hintergrund wurde auf "${opt.id.toUpperCase()}" gestellt.`);
+                            if (!user) {
+                              triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um eigene Wallpapers mit allen zu teilen!');
+                              setShowLoginModal(true);
+                            } else {
+                              setShowBgUploadModal(true);
+                            }
+                            playAppSound('click');
                           }}
-                          className={`py-1.5 px-2 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                            backgroundTimeMode === opt.id
-                              ? 'bg-mc-gold text-black border border-mc-gold shadow-[0_0_12px_rgba(255,170,0,0.4)] font-semibold'
-                              : 'hover:bg-neutral-800/60 text-neutral-400 hover:text-white border border-transparent'
-                          }`}
-                          title={opt.label}
+                          className="w-10 h-8 rounded-lg bg-mc-gold/15 border border-mc-gold/40 hover:bg-mc-gold/25 text-mc-gold transition-all flex flex-col items-center justify-center flex-shrink-0 cursor-pointer outline-none"
+                          title="Eigenen Hintergrund teilen ✨"
                         >
-                          <opt.icon size={11} className={backgroundTimeMode === opt.id ? 'text-black' : 'text-neutral-500'} />
-                          <span className="hidden sm:inline">{opt.id}</span>
+                          <Plus size={11} />
+                          <span className="text-[6px] font-black uppercase tracking-tighter leading-none mt-0.5">Teilen</span>
                         </motion.button>
-                      ))}
-                    </div>
 
-                    {/* Shared Wallpapers List */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pl-1 scrollbar-none scroll-smooth">
-                      <span className="text-[7.5px] font-black uppercase text-neutral-500 tracking-wider hidden md:inline whitespace-nowrap mr-0.5">
-                        Galerie:
-                      </span>
+                        {/* Array of Shared Backgrounds */}
+                        {sharedBackgrounds.map((bg) => {
+                          const isCreator = user && bg.userId === user.uid;
+                          const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
+                          const isSelected = backgroundTimeMode === bg.id;
 
-                      {/* Upload Plus Trigger Card */}
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          if (!user) {
-                            triggerToast('quest', 'MELDUNG 🔒', 'Melde dich an, um eigene Wallpapers mit allen zu teilen!');
-                            setShowLoginModal(true);
-                          } else {
-                            setShowBgUploadModal(true);
-                          }
-                          playAppSound('click');
-                        }}
-                        className="w-10 h-8 rounded-lg bg-mc-gold/15 border border-mc-gold/40 hover:bg-mc-gold/25 text-mc-gold transition-all flex flex-col items-center justify-center flex-shrink-0 cursor-pointer outline-none"
-                        title="Eigenen Hintergrund teilen ✨"
-                      >
-                        <Plus size={11} />
-                        <span className="text-[6px] font-black uppercase tracking-tighter leading-none">Teilen</span>
-                      </motion.button>
-
-                      {/* Array of Shared Backgrounds */}
-                      {sharedBackgrounds.map((bg) => {
-                        const isCreator = user && bg.userId === user.uid;
-                        const isAdm = myProfile && ['Admin', 'Owner', 'Root'].includes(myProfile.role);
-                        const isSelected = backgroundTimeMode === bg.id;
-
-                        return (
-                          <motion.div
-                            key={`shared-bg-item-${bg.id}`}
-                            className="relative flex-shrink-0 group"
-                          >
-                            <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => {
-                                setBackgroundTimeMode(bg.id);
-                                localStorage.setItem('background_time_mode', bg.id);
-                                playAppSound('pop');
-                                triggerToast('quest', 'WALLPAPER AKTIV 🎨', `"${bg.title}" von ${bg.uploadedBy} geladen.`);
-                              }}
-                              className={`w-14 h-8 rounded-lg relative overflow-hidden bg-neutral-950 border transition-all flex flex-col items-center justify-end p-0.5 outline-none cursor-pointer ${
-                                isSelected
-                                  ? 'border-mc-gold ring-1 ring-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.4)]'
-                                  : 'border-neutral-800 hover:border-neutral-600'
-                              }`}
-                              title={`"${bg.title}" geteilt von ${bg.uploadedBy}`}
+                          return (
+                            <motion.div
+                              key={`shared-bg-item-${bg.id}`}
+                              className="relative flex-shrink-0 group"
                             >
-                              <img
-                                src={bg.imageUrl}
-                                alt={bg.title}
-                                referrerPolicy="no-referrer"
-                                className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-95 transition-opacity"
-                              />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
-                              <span className="relative z-10 text-[6px] font-black text-white truncate text-center w-full block drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] px-0.5 pb-0.5 leading-none max-w-full">
-                                {bg.title}
-                              </span>
-                            </motion.button>
-
-                            {/* Delete capability overlay bin icon (Only for author or admins) */}
-                            {(isCreator || isAdm) && (
-                              <button
-                                onClick={(e) => handleBgDelete(bg.id, bg.title, e)}
-                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer"
-                                title="Dieses Wallpaper löschen 🗑️"
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => {
+                                  setBackgroundTimeMode(bg.id);
+                                  localStorage.setItem('background_time_mode', bg.id);
+                                  playAppSound('pop');
+                                  triggerToast('quest', 'WALLPAPER AKTIV 🎨', `"${bg.title}" von ${bg.uploadedBy} geladen.`);
+                                }}
+                                className={`w-14 h-8 rounded-lg relative overflow-hidden bg-neutral-950 border transition-all flex flex-col items-center justify-end p-0.5 outline-none cursor-pointer ${
+                                  isSelected
+                                    ? 'border-mc-gold ring-1 ring-mc-gold shadow-[0_0_10px_rgba(255,170,0,0.4)]'
+                                    : 'border-neutral-800 hover:border-neutral-600'
+                                }`}
+                                title={`"${bg.title}" geteilt von ${bg.uploadedBy}`}
                               >
-                                <span className="text-[8px] font-black leading-none">×</span>
-                              </button>
-                            )}
-                          </motion.div>
-                        );
-                      })}
+                                <img
+                                  src={bg.imageUrl}
+                                  alt={bg.title}
+                                  referrerPolicy="no-referrer"
+                                  className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-95 transition-opacity"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
+                                <span className="relative z-10 text-[6px] font-black text-white truncate text-center w-full block drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] px-0.5 pb-0.5 leading-none max-w-full">
+                                  {bg.title}
+                                </span>
+                              </motion.button>
+
+                              {/* Delete capability overlay bin icon (Only for author or admins) */}
+                              {(isCreator || isAdm) && (
+                                <button
+                                  onClick={(e) => handleBgDelete(bg.id, bg.title, e)}
+                                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-auto hover:bg-red-700 hover:scale-110 cursor-pointer"
+                                  title="Dieses Wallpaper löschen 🗑️"
+                                >
+                                  <span className="text-[8px] font-black leading-none">×</span>
+                                </button>
+                              )}
+                            </motion.div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -7292,8 +7299,8 @@ export default function App() {
                   <div className="h-[1px] bg-neutral-800/40 w-full" />
 
                   {/* Bottom Row: Weather Select */}
-                  <div className="flex items-center gap-2 overflow-hidden w-full">
-                    <span className="text-[7.5px] font-black uppercase text-neutral-400 tracking-wider whitespace-nowrap">
+                  <div className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-2 overflow-hidden w-full">
+                    <span className="text-[7.5px] font-black uppercase text-neutral-400 tracking-wider whitespace-nowrap pl-1 md:pl-0">
                       Wetter-Hexerei:
                     </span>
                     <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5 select-none w-full scroll-smooth">
@@ -12293,8 +12300,8 @@ export default function App() {
             </div>
 
             {/* Column 1: Jukebox visual and status */}
-            <div className="flex flex-col sm:flex-row items-center gap-6 z-10 lg:w-1/2">
-              <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-xl bg-[#4e3621] border-4 border-[#331c0e] shadow-[inset_0_4px_0_rgba(255,255,255,0.1),0_12px_24px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center group overflow-hidden shrink-0">
+            <div className="flex flex-col md:flex-row items-center md:items-start gap-4 md:gap-6 z-10 lg:w-5/12">
+              <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-[#4e3621] border-4 border-[#331c0e] shadow-[inset_0_4px_0_rgba(255,255,255,0.1),0_12px_24px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center group overflow-hidden shrink-0">
                 {/* Visual slot for vinyl at the top */}
                 <div className="absolute top-2 w-14 h-2 bg-[#211107] rounded border-b border-[#5e432c]">
                   {/* If disc inside, draw it! */}
@@ -12337,13 +12344,13 @@ export default function App() {
               </div>
 
               {/* Status and title info */}
-              <div>
+              <div className="flex flex-col items-center md:items-start text-center md:text-left w-full">
                 <span className="px-2 py-0.5 bg-mc-gold/10 border border-mc-gold/30 text-mc-gold text-[8px] font-bold tracking-[0.2em] uppercase rounded-full">Atmospherisch</span>
-                <h3 className="text-xl font-black text-white tracking-tight mt-1 flex items-center gap-2">
+                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-1 flex items-center justify-center md:justify-start gap-2 w-full">
                   Retro Jukebox
                   <Sparkles size={16} className="text-mc-gold" />
                 </h3>
-                <p className="text-neutral-400 text-xs mt-1 max-w-sm">
+                <p className="text-neutral-400 text-xs mt-1 max-w-sm mx-auto md:mx-0">
                   {activeDisc ? (
                     isJukeboxPlaying ? (
                       <>Spielt gerade: <span className="font-bold text-white capitalize">
@@ -12404,7 +12411,7 @@ export default function App() {
                 <div 
                   className={`mt-4 overflow-hidden rounded-xl border border-neutral-800 bg-black/80 shadow-[inset_0_4px_12px_rgba(0,0,0,0.8)] transition-all duration-300 ${
                     youtubeVideoId 
-                      ? 'w-[280px] h-[160px] opacity-100 ring-2 ring-purple-500/20' 
+                      ? 'w-full max-w-[280px] h-[160px] opacity-100 ring-2 ring-purple-500/20 mx-auto md:mx-0' 
                       : 'w-0 h-0 opacity-0 pointer-events-none'
                   }`}
                 >
@@ -12416,10 +12423,10 @@ export default function App() {
             </div>
 
             {/* Column 2: Controls, Presets & Custom URL Input */}
-            <div className="flex flex-col gap-4 justify-between w-full lg:w-1/2 z-10">
+            <div className="flex flex-col gap-4 justify-between w-full lg:w-7/12 z-10">
               
               {/* Media Controls bar */}
-              <div className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-neutral-800">
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between bg-black/40 p-2 rounded-xl border border-neutral-800 gap-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -12447,7 +12454,11 @@ export default function App() {
                         try {
                           if (nextPlaying) {
                             streamAudioRef.current.volume = jukeboxVolume;
-                            streamAudioRef.current.play();
+                            streamAudioRef.current.play().catch((err: any) => {
+                               console.warn("Direct onClick play failed:", err);
+                               setIsJukeboxPlaying(false);
+                               setStreamError("Fehler bei Wiedergabe. Klicke Play!");
+                            });
                           } else {
                             streamAudioRef.current.pause();
                           }
@@ -12488,8 +12499,8 @@ export default function App() {
                 </div>
 
                 {/* Volume slider */}
-                <div className="flex items-center gap-2 px-2">
-                  <Volume2 size={16} className="text-neutral-400" />
+                <div className="flex items-center gap-2 px-2 border-t sm:border-t-0 sm:border-l border-neutral-800 pt-2 sm:pt-0 w-full sm:w-auto justify-end">
+                  <Volume2 size={16} className="text-neutral-400 shrink-0" />
                   <input
                     type="range"
                     min="0"
@@ -12497,18 +12508,18 @@ export default function App() {
                     step="0.05"
                     value={jukeboxVolume}
                     onChange={(e) => setJukeboxVolume(parseFloat(e.target.value))}
-                    className="w-24 sm:w-32 accent-mc-gold cursor-pointer"
+                    className="w-full sm:w-28 accent-mc-gold cursor-pointer"
                   />
                 </div>
               </div>
 
               {/* Deck container dividing Vinyls and Streams */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
                 
                 {/* Panel A: Minecraft Vinyl Classics */}
                 <div className="space-y-2">
-                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">In-Game Schallplatten (Funde):</div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest text-center sm:text-left">In-Game Schallplatten (Funde):</div>
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                     
                     {/* CAT RECORD */}
                     <button
@@ -12609,8 +12620,8 @@ export default function App() {
 
                 {/* Panel B: Radio & Custom URLs */}
                 <div className="space-y-2">
-                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">Echte Musik & Radio Streams:</div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="text-[9px] font-black text-neutral-500 uppercase tracking-widest text-center sm:text-left mt-2 sm:mt-0">Echte Musik & Radio Streams:</div>
+                  <div className="grid grid-cols-1 gap-2">
                     
                     <button
                       type="button"
