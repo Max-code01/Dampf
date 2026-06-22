@@ -4049,38 +4049,9 @@ export default function App() {
   };
 
   const [showClashComingSoon, setShowClashComingSoon] = useState(false);
-  const [showSplash, setShowSplash] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    const params = new URLSearchParams(window.location.search);
-    const hash = window.location.hash;
-    const isInfoUrl = (
-      params.get('bot') === 'true' || 
-      params.get('info') === 'true' || 
-      params.get('support') === 'true' || 
-      hash === '#bot' || 
-      hash === '#info' || 
-      hash === '#support'
-    );
-    return !isInfoUrl;
-  });
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const hash = window.location.hash;
-      const isInfoUrl = (
-        params.get('bot') === 'true' || 
-        params.get('info') === 'true' || 
-        params.get('support') === 'true' || 
-        hash === '#bot' || 
-        hash === '#info' || 
-        hash === '#support'
-      );
-      if (isInfoUrl) {
-        setShowSplash(false);
-        return;
-      }
-    }
     const timer = setTimeout(() => {
       setShowSplash(false);
     }, 2200);
