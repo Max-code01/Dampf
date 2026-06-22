@@ -1168,6 +1168,11 @@ export default function App() {
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
   const [spotifyUrl, setSpotifyUrl] = useState<string | null>(null);
   const [ytReady, setYtReady] = useState<boolean>(false);
+  
+  // Easter Egg State
+  const [showJumpscare, setShowJumpscare] = useState(false);
+  const [isPostGlitching, setIsPostGlitching] = useState(false);
+  const logoClicksRef = useRef({ count: 0, lastClick: 0 });
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
@@ -1243,6 +1248,158 @@ export default function App() {
       osc.stop(ctx.currentTime + duration);
     } catch (e) {
       console.warn("Error playing note:", e);
+    }
+  };
+
+  const triggerJumpscare = () => {
+    initAudioCtx();
+    setShowJumpscare(true);
+    setIsPostGlitching(false); // Reset any existing active aftershock
+
+    // Save current jukebox volume to restore later
+    const previousVol = jukeboxVolume;
+    setJukeboxVolume(1.0); // Crank up volume in game state!
+
+    // Also directly maximize any active HTML audio elements
+    if (streamAudioRef.current) {
+      streamAudioRef.current.volume = 1.0;
+    }
+
+    // Play scary noise
+    if (audioCtxRef.current) {
+      const ctx = audioCtxRef.current;
+      try {
+        // Resume context in case it was suspended
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+
+        const now = ctx.currentTime;
+
+        // 1. White Noise Node (Static crunch)
+        const bufferSize = ctx.sampleRate * 2.8; 
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1; // Pure white noise
+        }
+        
+        const noiseSource = ctx.createBufferSource();
+        noiseSource.buffer = buffer;
+        
+        // Lowpass filter for deep rumbling bass
+        const rumblyFilter = ctx.createBiquadFilter();
+        rumblyFilter.type = 'lowpass';
+        rumblyFilter.frequency.setValueAtTime(150, now);
+        rumblyFilter.frequency.linearRampToValueAtTime(8000, now + 1.8);
+        
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(3.5, now); // Super high Gain volume!
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 2.7);
+        
+        noiseSource.connect(rumblyFilter);
+        rumblyFilter.connect(noiseGain);
+        noiseGain.connect(ctx.destination);
+        
+        // 2. Screeching Demonic Sawtooth & Frequency Modulation
+        const carrierOsc = ctx.createOscillator();
+        carrierOsc.type = 'sawtooth';
+        carrierOsc.frequency.setValueAtTime(1300, now);
+        // Exponentially ramp frequency up to 3600 Hz for ear-piercing scream
+        carrierOsc.frequency.exponentialRampToValueAtTime(3600, now + 1.5);
+        
+        const FMModulator = ctx.createOscillator();
+        FMModulator.type = 'sine';
+        FMModulator.frequency.setValueAtTime(66.6, now); // Rate of satanic sweep
+        
+        const FMGain = ctx.createGain();
+        FMGain.gain.setValueAtTime(500, now); // Deep modulation depth
+        
+        FMModulator.connect(FMGain);
+        FMGain.connect(carrierOsc.frequency); // Modulate carrier frequency
+        
+        // Distort the carrier to sound metallic/bloody using waveshaper
+        const waveshaper = ctx.createWaveShaper();
+        const makeDistortionCurve = (amount = 120) => {
+          const k = typeof amount === 'number' ? amount : 50;
+          const n_samples = 44100;
+          const curve = new Float32Array(n_samples);
+          const deg = Math.PI / 180;
+          for (let i = 0; i < n_samples; ++i) {
+            const x = (i * 2) / n_samples - 1;
+            curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+          }
+          return curve;
+        };
+        waveshaper.curve = makeDistortionCurve(150);
+        waveshaper.oversample = '4x';
+
+        const screechGain = ctx.createGain();
+        screechGain.gain.setValueAtTime(2.5, now);
+        screechGain.gain.exponentialRampToValueAtTime(0.01, now + 2.6);
+
+        carrierOsc.connect(waveshaper);
+        waveshaper.connect(screechGain);
+        screechGain.connect(ctx.destination);
+
+        // 3. Giant low-end Sub-Bass Roar
+        const subOsc = ctx.createOscillator();
+        subOsc.type = 'sawtooth';
+        subOsc.frequency.setValueAtTime(90, now);
+        subOsc.frequency.linearRampToValueAtTime(30, now + 2.0);
+
+        const subGain = ctx.createGain();
+        subGain.gain.setValueAtTime(3.0, now);
+        subGain.gain.exponentialRampToValueAtTime(0.01, now + 2.7);
+
+        subOsc.connect(subGain);
+        subGain.connect(ctx.destination);
+
+        // Start all sound components together!
+        noiseSource.start(now);
+        carrierOsc.start(now);
+        FMModulator.start(now);
+        subOsc.start(now);
+
+        // Stop them after 2.8 seconds
+        noiseSource.stop(now + 2.8);
+        carrierOsc.stop(now + 2.8);
+        FMModulator.stop(now + 2.8);
+        subOsc.stop(now + 2.8);
+      } catch (e) {
+        console.warn('Jumpscare audio synthesis failed', e);
+      }
+    }
+    
+    // Auto turn off jumpscare & start the post-glitch state
+    setTimeout(() => {
+      setShowJumpscare(false);
+      setIsPostGlitching(true);
+      
+      // Post-glitch lasts 10 seconds total, then restores previous state
+      setTimeout(() => {
+        setIsPostGlitching(false);
+        setJukeboxVolume(previousVol); // Restore normal volume setting
+      }, 10000);
+    }, 2500);
+  };
+
+  const handleLogoClick = () => {
+    const now = Date.now();
+    const state = logoClicksRef.current;
+    
+    if (now - state.lastClick > 600) {
+      // Reset if too slow
+      state.count = 1;
+    } else {
+      state.count += 1;
+    }
+    
+    state.lastClick = now;
+    
+    if (state.count >= 6) {
+      state.count = 0;
+      triggerJumpscare();
     }
   };
 
@@ -6872,7 +7029,91 @@ export default function App() {
   const isPresetTime = ['classic', 'morning', 'noon', 'evening', 'night'].includes(resolvedTime);
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden text-neutral-100 font-sans antialiased bg-black">
+    <div className={`min-h-screen relative overflow-x-hidden text-neutral-100 font-sans antialiased bg-black transition-all duration-[400ms] ${isPostGlitching ? 'animate-[glitch-post_0.35s_infinite] saturate-[1.60] contrast-125 sepia-[10%] brightness-95' : ''}`}>
+      {/* Herobrine Easter Egg Overlay & Styles */}
+      <style>{`
+        @keyframes terrifying-shake {
+          0% { transform: translate(0, 0) rotate(0deg) scale(1.1); }
+          10% { transform: translate(-8px, 6px) rotate(-3deg) scale(1.15); }
+          20% { transform: translate(7px, -5px) rotate(4deg) scale(1.1); }
+          30% { transform: translate(-9px, -2px) rotate(-2deg) scale(1.23); }
+          40% { transform: translate(6px, 9px) rotate(3deg) scale(1.18); }
+          50% { transform: translate(-5px, -7px) rotate(-4deg) scale(1.28); }
+          60% { transform: translate(8px, 4px) rotate(1deg) scale(1.1); }
+          70% { transform: translate(-4px, 8px) rotate(-3deg) scale(1.23); }
+          80% { transform: translate(9px, -6px) rotate(5deg) scale(1.18); }
+          90% { transform: translate(-6px, -4px) rotate(-1deg) scale(1.35); }
+          100% { transform: translate(0, 0) rotate(0deg) scale(1.1); }
+        }
+        @keyframes blood-pulse {
+          0%, 100% { box-shadow: inset 0 0 100px rgba(185, 28, 28, 0.95), 0 0 60px rgba(185, 28, 28, 0.6); }
+          50% { box-shadow: inset 0 0 170px rgba(0, 0, 0, 1), 0 0 110px rgba(220, 38, 38, 1); }
+        }
+        @keyframes glitch-post {
+          0% { transform: translate(0) skew(0deg); filter: hue-rotate(0deg); }
+          3% { transform: translate(3px, -2px) skew(-3deg); filter: hue-rotate(15deg); }
+          6% { transform: translate(-2px, 3px) skew(1deg); filter: hue-rotate(-10deg); }
+          8% { transform: translate(0) skew(0deg); }
+          40% { transform: translate(0) skew(0deg); }
+          42% { transform: translate(-5px, 2px) skew(5deg) scaleY(1.02); filter: invert(0.08); }
+          44% { transform: translate(3px, -3px) skew(-2deg); }
+          46% { transform: translate(0) skew(0deg); }
+          100% { transform: translate(0) skew(0deg); }
+        }
+        @keyframes chromatic-text {
+          0%, 100% { text-shadow: 2px -1px #ef4444, -2px 1px #06b6d4; }
+          50% { text-shadow: -3px 2px #ec4899, 3px -2px #10b981; }
+        }
+        @keyframes eye-glow {
+          0%, 100% { filter: drop-shadow(0 0 15px rgba(255, 255, 255, 1)) brightness(1.5); }
+          50% { filter: drop-shadow(0 0 35px rgba(239, 68, 68, 1)) brightness(2); }
+        }
+      `}</style>
+
+      {showJumpscare && (
+        <div className="fixed inset-0 z-[999999] bg-black flex flex-col items-center justify-center select-none overflow-hidden animate-[terrifying-shake_0.08s_infinite] pointer-events-auto">
+           {/* Blood Red Vignette */}
+           <div className="absolute inset-0 pointer-events-none animate-[blood-pulse_0.2s_infinite]" style={{ mixBlendMode: 'multiply' }} />
+           
+           {/* Creepy static overlay */}
+           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/tv-noise.png')] opacity-95 pointer-events-none mix-blend-screen mix-blend-overlay"></div>
+           
+           {/* Floating Herobrine Face / Screamer */}
+           <div className="relative w-80 h-80 md:w-[480px] md:h-[480px] flex flex-col items-center justify-center scale-125 md:scale-150 transition-all duration-100">
+             {/* The Herobrine Image */}
+             <img 
+               src="https://i.imgur.com/vHq4Rzy.jpg" 
+               alt="HEROBRINE" 
+               className="w-full h-full object-cover rounded-md border-4 border-mc-red mix-blend-difference opacity-90 scale-110" 
+               style={{ filter: 'invert(1) contrast(8) saturate(3) grayscale(0.2)' }}
+             />
+             {/* Dynamic Custom Glowing White Eyes */}
+             <div className="absolute top-[35%] left-[28%] w-8 h-8 md:w-12 md:h-12 bg-white rounded-none shadow-[0_0_40px_rgba(255,255,255,1),0_0_80px_rgba(255,255,255,0.8)] animate-[eye-glow_0.15s_infinite]" />
+             <div className="absolute top-[35%] right-[28%] w-8 h-8 md:w-12 md:h-12 bg-white rounded-none shadow-[0_0_40px_rgba(255,255,255,1),0_0_80px_rgba(255,255,255,0.8)] animate-[eye-glow_0.15s_infinite]" />
+           </div>
+
+           {/* Terrible Glitchy Text Messages overlay */}
+           <div className="absolute inset-x-0 bottom-10 md:bottom-20 text-center z-10 flex flex-col items-center gap-2">
+             <div className="font-mono text-mc-red text-4xl md:text-7xl font-black mix-blend-difference scale-y-125 tracking-wider animate-pulse uppercase">
+               SYSTEM CORRUPTED
+             </div>
+             <div className="font-mono text-white text-xs md:text-lg font-bold tracking-[0.4em] opacity-85 uppercase mt-1 animate-[chromatic-text_0.1s_infinite]">
+               H̷E̴L̸P̶ ̸U̷S̴ ̸-̷ ̸H̸E̷ ̸I̴S̶ ̶H̵E̴R̷E̶
+             </div>
+           </div>
+
+           {/* Rapid Glitch/Noise Line Accents */}
+           <div className="absolute top-[10%] w-full h-2 bg-mc-red opacity-60 mix-blend-difference animate-bounce"></div>
+           <div className="absolute top-[80%] w-full h-3 bg-cyan-500 opacity-50 mix-blend-difference animate-pulse"></div>
+           <div className="absolute left-[20%] h-full w-1 bg-white opacity-40 mix-blend-difference animate-ping"></div>
+
+           {/* Mobile-oriented center red alert */}
+           <div className="absolute top-4 left-4 font-mono text-[9px] text-mc-red font-bold uppercase tracking-widest bg-red-950/80 border border-mc-red/30 px-2 py-1 rounded">
+             CRITICAL_OVERHEAT_ERR_0x666
+           </div>
+        </div>
+      )}
+
       {/* 
         Fixed Full-Screen Ambient Background Layer
         Ensures a seamless, non-repeating continuous background gradient
@@ -8875,11 +9116,19 @@ export default function App() {
       <nav className={`relative z-10 border-b border-neutral-800/50 bg-black/50 backdrop-blur-sm sticky top-0 transition-all duration-500 ${isAnyOverlayOpen ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-mc-red rounded-lg flex items-center justify-center relative overflow-hidden">
-               <div className="absolute inset-0 bg-white/10 animate-pulse" />
-              <Gamepad2 className="text-white relative z-10" size={24} />
+            <div className="flex flex-col items-center select-none">
+              <div 
+                className={`w-9 h-9 rounded-lg flex items-center justify-center relative overflow-hidden cursor-pointer transition-all duration-300 ${isPostGlitching ? 'bg-red-700 animate-pulse shadow-[0_0_20px_#f00]' : 'bg-mc-red'}`}
+                onClick={handleLogoClick}
+              >
+                <div className="absolute inset-0 bg-white/10 animate-pulse pointer-events-none" />
+                <Gamepad2 className={`text-white relative z-10 pointer-events-none ${isPostGlitching ? 'text-black scale-125' : ''}`} size={20} />
+              </div>
+              <span className="text-[7px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5 pointer-events-none whitespace-nowrap">6 mal drücken</span>
             </div>
-            <span className="font-extrabold text-xl tracking-tight hidden sm:block">MC HUB</span>
+            <span className={`font-extrabold text-xl hidden sm:block select-none cursor-pointer transition-all duration-300 ${isPostGlitching ? 'text-mc-red animate-[chromatic-text_0.15s_infinite] tracking-wider font-mono' : 'tracking-tight font-sans'}`} onClick={handleLogoClick}>
+              {isPostGlitching ? "H̷E̵R̶O̷B̷R̶I̴N̵E̶" : "MC HUB"}
+            </span>
           </div>
           <div className="flex items-center gap-4">
             {!user ? (
@@ -10858,16 +11107,21 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-500/10 text-mc-red rounded-full border border-red-500/20 text-sm font-medium mb-6">
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-sm font-medium mb-6 transition-all duration-300 ${isPostGlitching ? 'bg-red-950/60 text-mc-red border-red-700/50 animate-[terrifying-shake_0.1s_infinite]' : 'bg-red-500/10 text-mc-red border-red-500/20'}`}>
               <Zap size={14} />
-              <span>Community Dashboard V2.1 - Echte Daten</span>
+              <span>{isPostGlitching ? "WARNING: HEROBRINE INFESTATION" : "Community Dashboard V2.1 - Echte Daten"}</span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
+            <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight select-none">
               Bester <br />
-              <span className="text-mc-red">Minecraft Realm.</span>
+              <span className={`text-mc-red transition-all duration-300 inline-block ${isPostGlitching ? 'animate-[chromatic-text_0.1s_infinite] text-6xl md:text-8xl scale-110 font-mono' : ''}`}>
+                {isPostGlitching ? "M̵U̵R̵D̵E̸R̸E̶R̵ ̶L̵A̸N̶D̵" : "Minecraft Realm."}
+              </span>
             </h1>
-            <p className="text-neutral-400 text-lg md:text-xl mb-10 max-w-xl text-wrap">
-              Willkommen auf dem Hub des besten Minecraft Realms. Entdecke neue Welten, nimm an Events teil und werde Teil unserer wachsenden Community.
+            <p className={`text-lg md:text-xl mb-10 max-w-xl text-wrap transition-all duration-300 ${isPostGlitching ? 'text-red-500 saturate-[2.0] animate-pulse font-mono' : 'text-neutral-400'}`}>
+              {isPostGlitching 
+                ? "Y̸O̸U̶ ̸S̸H̵O̸U̵L̵D̵N̶'̷T̶ ̵H̴A̶V̸E̸ ̸C̶L̴I̴C̵K̵E̵D̸ ̸T̵H̵A̷T̴.̷ ̴N̶O̶B̵O̷D̴Y̷ ̸C̷A̸N̷ ̴S̴A̶V̶E̷ ̷Y̷O̵U̴ ̶N̶O̴W̵.̴ ̴H̷E̴ ̸I̶S̶ ̷C̷O̴M̷I̵N̷G̷ ̴F̸O̵R̴ ̶Y̴O̴U̷R̷ ̷S̶O̸U̸L̴.̶" 
+                : "Willkommen auf dem Hub des besten Minecraft Realms. Entdecke neue Welten, nimm an Events teil und werde Teil unserer wachsenden Community."
+              }
             </p>
             <div className="flex flex-wrap gap-4 justify-center md:justify-start">
               <button 
