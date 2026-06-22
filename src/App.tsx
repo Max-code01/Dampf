@@ -28,6 +28,7 @@ import {
   Coins,
   Scroll,
   MessageSquare,
+  Bot,
   User as UserIcon,
   Globe,
   MapPin,
@@ -93,6 +94,7 @@ import { QuizArenaView } from './components/QuizArenaView';
 import { DevLabsView } from './components/DevLabsView';
 import { VoxelAdventureView } from './components/VoxelAdventureView';
 import { ClashArenaView } from './components/ClashArenaView';
+import { InfoBotPanel } from './components/InfoBotPanel';
 import { getGeminiResponse, ChatMessage as GeminiChatMessage } from './services/geminiService';
 import { 
   collection, 
@@ -2113,6 +2115,19 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
   const [pollsOpen, setPollsOpen] = useState(false);
+  const [botpressOpen, setBotpressOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    return (
+      params.get('bot') === 'true' || 
+      params.get('info') === 'true' || 
+      params.get('support') === 'true' || 
+      hash === '#bot' || 
+      hash === '#info' || 
+      hash === '#support'
+    );
+  });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
@@ -3126,6 +3141,18 @@ export default function App() {
       setMiningTab('world');
     }
 
+    // Auto-launch Info-Bot if '?bot=true', '?info=true', '?support=true' or hash '#bot' / '#info' / '#support' is provided
+    if (
+      params.get('bot') === 'true' || 
+      params.get('info') === 'true' || 
+      params.get('support') === 'true' || 
+      hash === '#bot' || 
+      hash === '#info' || 
+      hash === '#support'
+    ) {
+      setBotpressOpen(true);
+    }
+
     // Check for clan invitation link ?invite=clan_id
     const invite = params.get('invite');
     if (invite) {
@@ -4022,9 +4049,38 @@ export default function App() {
   };
 
   const [showClashComingSoon, setShowClashComingSoon] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    const isInfoUrl = (
+      params.get('bot') === 'true' || 
+      params.get('info') === 'true' || 
+      params.get('support') === 'true' || 
+      hash === '#bot' || 
+      hash === '#info' || 
+      hash === '#support'
+    );
+    return !isInfoUrl;
+  });
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash;
+      const isInfoUrl = (
+        params.get('bot') === 'true' || 
+        params.get('info') === 'true' || 
+        params.get('support') === 'true' || 
+        hash === '#bot' || 
+        hash === '#info' || 
+        hash === '#support'
+      );
+      if (isInfoUrl) {
+        setShowSplash(false);
+        return;
+      }
+    }
     const timer = setTimeout(() => {
       setShowSplash(false);
     }, 2200);
@@ -4032,7 +4088,7 @@ export default function App() {
   }, []);
 
   const [offlineReport, setOfflineReport] = useState<{ seconds: number; coins: number; xp: number } | null>(null);
-  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal || showClashComingSoon || showSplash;
+  const isAnyOverlayOpen = chatOpen || shopOpen || newsOpen || pollsOpen || botpressOpen || showAdmin || showLoginModal || showProfileModal || showMiningModal || leaderboardOpen || (openingBox as any).isOpen || isAiOpen || offlineReport !== null || devLabsOpen || showClientsModal || showClashComingSoon || showSplash;
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -4520,6 +4576,13 @@ export default function App() {
       document.body.style.paddingRight = '';
     };
   }, [isAnyOverlayOpen]);
+
+  // Logic: Close Botpress drawer if any other major screen/drawer opens
+  useEffect(() => {
+    if (chatOpen || newsOpen || pollsOpen || shopOpen || showMiningModal || leaderboardOpen || devLabsOpen || isAiOpen) {
+      setBotpressOpen(false);
+    }
+  }, [chatOpen, newsOpen, pollsOpen, shopOpen, showMiningModal, leaderboardOpen, devLabsOpen, isAiOpen]);
 
   // Shop Management
   const addShopItem = async () => {
@@ -7404,6 +7467,43 @@ export default function App() {
         </>
       )}
 
+      {/* Floating Info-Bot Chat-Bubble Button (Bottom Left) */}
+      {!isAnyOverlayOpen && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className={`fixed bottom-6 z-[100] transition-all duration-300 ${isSuperAdmin ? 'left-[5.5rem]' : 'left-6'}`}
+        >
+          <button
+            onClick={() => {
+              setBotpressOpen(true);
+              setIsFabMenuOpen(false);
+              setIsAiOpen(false);
+              setChatOpen(false);
+              setNewsOpen(false);
+              setPollsOpen(false);
+              setShopOpen(false);
+              setShowMiningModal(false);
+              setLeaderboardOpen(false);
+            }}
+            className="w-14 h-14 rounded-2xl bg-black border-2 border-cyan-500 text-cyan-400 flex items-center justify-center shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:scale-110 active:scale-95 transition-all relative group"
+            title="Info-Bot öffnen"
+          >
+            {/* Pulsing indicator */}
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+            </span>
+
+            <Bot size={24} className="text-cyan-400 animate-pulse" />
+
+            <div className="absolute left-16 bg-black/95 text-cyan-400 text-[10px] font-mono font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-cyan-500/30 shadow-xl opacity-0 scale-90 origin-left group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 select-none whitespace-nowrap pointer-events-none">
+              Info-Bot fragen ✨
+            </div>
+          </button>
+        </motion.div>
+      )}
+
       {/* Floating Day-Night & Audio Note-Block Control Center */}
       {!isAnyOverlayOpen && (
         <motion.div
@@ -9551,6 +9651,7 @@ export default function App() {
                       setChatOpen(false);
                       setNewsOpen(false);
                       setPollsOpen(false);
+                      setBotpressOpen(false);
                       setShopOpen(false);
                       setShowMiningModal(false);
                       setLeaderboardOpen(false);
@@ -9559,6 +9660,36 @@ export default function App() {
                     title="KI-Orakel"
                   >
                     <Sparkles size={20} className="animate-pulse" />
+                  </button>
+                </motion.div>
+
+                {/* 1.5 Info-Bot (Botpress Bot) */}
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 15, scale: 0.8 },
+                    visible: { opacity: 1, y: 0, scale: 1 }
+                  }}
+                  className="flex items-center gap-3 pointer-events-auto group/item"
+                >
+                  <span className="bg-black/95 text-cyan-400 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-cyan-500/30 shadow-xl opacity-0 group-hover/item:opacity-100 transition-opacity duration-200 select-none">
+                    Info-Bot
+                  </span>
+                  <button
+                    onClick={() => {
+                      setBotpressOpen(true);
+                      setIsFabMenuOpen(false);
+                      setIsAiOpen(false);
+                      setChatOpen(false);
+                      setNewsOpen(false);
+                      setPollsOpen(false);
+                      setShopOpen(false);
+                      setShowMiningModal(false);
+                      setLeaderboardOpen(false);
+                    }}
+                    className="w-12 h-12 rounded-xl bg-black border-2 border-cyan-500 text-cyan-400 flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(34,211,238,0.5)] transition-all"
+                    title="Info-Bot"
+                  >
+                    <Bot size={20} className="text-cyan-400 animate-pulse" />
                   </button>
                 </motion.div>
 
@@ -9969,6 +10100,9 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Botpress Info-Bot Panel */}
+      <InfoBotPanel isOpen={botpressOpen} onClose={() => setBotpressOpen(false)} />
 
       {/* Shop Drawer */}
       <AnimatePresence>
